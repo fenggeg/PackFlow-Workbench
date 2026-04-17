@@ -1,0 +1,42 @@
+mod commands;
+mod error;
+mod models;
+mod repositories;
+mod services;
+
+use services::process_runner::BuildProcessState;
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            if cfg!(debug_assertions) {
+                app.handle().plugin(
+                    tauri_plugin_log::Builder::default()
+                        .level(log::LevelFilter::Info)
+                        .build(),
+                )?;
+            }
+            Ok(())
+        })
+        .manage(BuildProcessState::default())
+        .invoke_handler(tauri::generate_handler![
+            commands::project::parse_maven_project,
+            commands::environment::detect_environment,
+            commands::environment::load_environment_settings,
+            commands::environment::save_environment_settings,
+            commands::environment::save_last_project_path,
+            commands::build::build_command_preview,
+            commands::build::start_build,
+            commands::build::cancel_build,
+            commands::filesystem::open_path_in_explorer,
+            commands::history::list_build_history,
+            commands::history::save_build_history,
+            commands::template::list_templates,
+            commands::template::save_template,
+            commands::template::delete_template,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}

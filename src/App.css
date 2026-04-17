@@ -1,0 +1,165 @@
+.app-shell {
+  min-height: 100vh;
+  background: #f6f8f7;
+}
+
+.app-header {
+  height: auto;
+  padding: 18px 28px;
+  background: #ffffff;
+  border-bottom: 1px solid #dfe6e2;
+  line-height: 1.45;
+}
+
+.app-title {
+  margin: 0 0 4px;
+}
+
+.app-main {
+  min-height: calc(100vh - 86px);
+}
+
+.app-sider {
+  padding: 18px;
+  background: #ffffff;
+  border-right: 1px solid #dfe6e2;
+  overflow: auto;
+}
+
+.app-content {
+  padding: 18px;
+  overflow: auto;
+}
+
+.workbench-grid {
+  display: grid;
+  grid-template-columns: minmax(420px, 0.9fr) minmax(460px, 1.1fr);
+  gap: 18px;
+  max-width: 1500px;
+  margin: 0 auto;
+}
+
+.workbench-column {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.panel-card {
+  border: 1px solid #dfe6e2;
+  box-shadow: none;
+}
+
+.path-text {
+  word-break: break-all;
+}
+
+.module-meta {
+  color: #66716c;
+  font-size: 12px;
+}
+
+.command-textarea textarea {
+  font-family: Consolas, "Cascadia Mono", monospace;
+}
+
+.command-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  background: #f2f7f4;
+  border: 1px solid #d7e5dd;
+  border-radius: 6px;
+}
+
+.command-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.command-editor-title {
+  margin: 0 0 2px;
+}
+
+.status-tag {
+  min-width: 64px;
+  margin-right: 8px;
+  text-align: center;
+}
+
+.log-panel {
+  height: 320px;
+  padding: 12px;
+  overflow: auto;
+  color: #d7e4dd;
+  background: #101513;
+  border-radius: 6px;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.log-panel-large {
+  height: 70vh;
+}
+
+.log-line {
+  margin: 0;
+}
+
+.log-line.success {
+  color: #8ef0b6;
+}
+
+.log-line.error {
+  color: #ff9b9b;
+}
+
+.log-line.warn {
+  color: #ffd479;
+}
+
+.reuse-tabs {
+  padding: 0 14px 14px;
+  background: #ffffff;
+  border: 1px solid #dfe6e2;
+  border-radius: 6px;
+}
+
+.table-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 1120px) {
+  .app-main {
+    flex-direction: column;
+  }
+
+  .app-sider {
+    width: 100% !important;
+    max-width: none !important;
+    border-right: 0;
+    border-bottom: 1px solid #dfe6e2;
+  }
+
+  .workbench-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .command-status-bar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .command-actions {
+    justify-content: flex-start;
+  }
+}
