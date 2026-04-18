@@ -33,7 +33,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v$[[ env.VERSION ]]  # 自动版本号
-          releaseName: "版本 ${{ env.VERSION }}"
-          releaseDraft: false
-          prerelease: false
+          tagName: v1.0.0-auto-build
+          releaseName: "自动构建版本"
+          releaseDraft: true
+          prerelease: true
