@@ -3,6 +3,7 @@ name: Build Windows App (EXE + MSI + Portable)
 on:
   push:
     branches: [ main ]
+    tags: [ "v*" ]
   workflow_dispatch:
 
 permissions:
@@ -28,12 +29,34 @@ jobs:
       - name: Install WiX Toolset (for MSI)
         run: choco install wixtoolset
 
-      - name: Build Tauri App
+      - name: Build Draft App
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          CI: true
         with:
           tagName: v1.0.0-auto-build
           releaseName: "自动构建版本"
           releaseDraft: true
           prerelease: true
+          args: --ci --bundles nsis
+          updaterJsonPreferNsis: true
+
+      - name: Build Release App
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          CI: true
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Maven Packager ${{ github.ref_name }}"
+          releaseDraft: false
+          prerelease: false
+          args: --ci --bundles nsis
+          updaterJsonPreferNsis: true

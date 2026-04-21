@@ -4,11 +4,19 @@
 }
 
 .app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   height: auto;
   padding: 18px 28px;
   background: #ffffff;
   border-bottom: 1px solid #dfe6e2;
   line-height: 1.45;
+}
+
+.app-header-copy {
+  min-width: 0;
 }
 
 .app-title {
@@ -175,7 +183,31 @@
   margin-bottom: 8px;
 }
 
+.update-modal-content {
+  width: 100%;
+}
+
+.update-notes {
+  padding: 10px 12px;
+  margin: 0;
+  white-space: pre-wrap;
+  background: #f6f8f7;
+  border: 1px solid #dfe6e2;
+  border-radius: 6px;
+}
+
+.update-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 @media (max-width: 1120px) {
+  .app-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .app-main {
     flex-direction: column;
   }

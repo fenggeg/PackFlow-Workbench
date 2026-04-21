@@ -1,29 +1,47 @@
-import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
-import { open } from '@tauri-apps/plugin-dialog'
+import {invoke} from '@tauri-apps/api/core'
+import {listen} from '@tauri-apps/api/event'
+import {open} from '@tauri-apps/plugin-dialog'
+import {relaunch} from '@tauri-apps/plugin-process'
+import {check, type DownloadEvent, type Update} from '@tauri-apps/plugin-updater'
 import type {
-  BuildCommandPayload,
-  BuildEnvironment,
-  BuildFinishedEvent,
-  BuildHistoryRecord,
-  BuildLogEvent,
-  BuildOptions,
-  BuildTemplate,
-  EnvironmentSettings,
-  MavenProject,
-  StartBuildPayload,
+    BuildCommandPayload,
+    BuildEnvironment,
+    BuildFinishedEvent,
+    BuildHistoryRecord,
+    BuildLogEvent,
+    BuildOptions,
+    BuildTemplate,
+    EnvironmentSettings,
+    MavenProject,
+    StartBuildPayload,
 } from '../types/domain'
 
 type TauriWindow = Window & { __TAURI_INTERNALS__?: unknown }
 
-const inTauri = () =>
+export type AppUpdateDownloadEvent = DownloadEvent
+
+export const isTauriRuntime = () =>
   typeof window !== 'undefined' &&
   Boolean((window as TauriWindow).__TAURI_INTERNALS__)
 
 const requireTauri = () => {
-  if (!inTauri()) {
+  if (!isTauriRuntime()) {
     throw new Error('请在 Tauri 桌面应用中使用本功能。')
   }
+}
+
+export async function checkForAppUpdate(): Promise<Update | null> {
+  requireTauri()
+  return check({ timeout: 30000 })
+}
+
+export async function installAppUpdate(
+  update: Update,
+  onEvent: (event: DownloadEvent) => void,
+): Promise<void> {
+  requireTauri()
+  await update.downloadAndInstall(onEvent, { timeout: 120000 })
+  await relaunch()
 }
 
 export async function selectProjectDirectory(): Promise<string | null> {
@@ -104,7 +122,7 @@ export async function registerBuildEvents(
   onLog: (event: BuildLogEvent) => void,
   onFinished: (event: BuildFinishedEvent) => void,
 ) {
-  if (!inTauri()) {
+  if (!isTauriRuntime()) {
     return () => undefined
   }
 

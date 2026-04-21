@@ -1,16 +1,17 @@
-import { useEffect } from 'react'
-import { App as AntApp, ConfigProvider, Layout, Tabs, Typography, theme } from 'antd'
-import type { TabsProps } from 'antd'
-import { BuildLogPanel } from './components/BuildLogPanel/BuildLogPanel'
-import { BuildOptionsPanel } from './components/BuildOptions/BuildOptionsPanel'
-import { CommandPreview } from './components/CommandPreview/CommandPreview'
-import { EnvPanel } from './components/EnvPanel/EnvPanel'
-import { HistoryTable } from './components/HistoryTable/HistoryTable'
-import { ModuleTreePanel } from './components/ModuleTree/ModuleTreePanel'
-import { ProjectSelector } from './components/ProjectSelector/ProjectSelector'
-import { TemplatePanel } from './components/TemplatePanel/TemplatePanel'
-import { registerBuildEvents } from './services/tauri-api'
-import { useAppStore } from './store/useAppStore'
+import {useEffect} from 'react'
+import type {TabsProps} from 'antd'
+import {App as AntApp, ConfigProvider, Layout, Tabs, theme, Typography} from 'antd'
+import {BuildLogPanel} from './components/BuildLogPanel/BuildLogPanel'
+import {BuildOptionsPanel} from './components/BuildOptions/BuildOptionsPanel'
+import {CommandPreview} from './components/CommandPreview/CommandPreview'
+import {EnvPanel} from './components/EnvPanel/EnvPanel'
+import {HistoryTable} from './components/HistoryTable/HistoryTable'
+import {ModuleTreePanel} from './components/ModuleTree/ModuleTreePanel'
+import {ProjectSelector} from './components/ProjectSelector/ProjectSelector'
+import {TemplatePanel} from './components/TemplatePanel/TemplatePanel'
+import {UpdateChecker} from './components/UpdateChecker/UpdateChecker'
+import {registerBuildEvents} from './services/tauri-api'
+import {useAppStore} from './store/useAppStore'
 import './App.css'
 
 const { Header, Sider, Content } = Layout
@@ -60,7 +61,7 @@ function App() {
       <AntApp>
         <Layout className="app-shell">
           <Header className="app-header">
-            <div>
+            <div className="app-header-copy">
               <Title level={3} className="app-title">
                 Maven 多模块打包工具
               </Title>
@@ -68,6 +69,7 @@ function App() {
                 选择项目、确认模块、检查环境，然后执行可编辑的 Maven 命令。
               </Text>
             </div>
+            <UpdateChecker />
           </Header>
           <Layout className="app-main">
             <Sider width={360} className="app-sider">
