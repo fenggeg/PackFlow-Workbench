@@ -53,33 +53,40 @@ jobs:
       - name: Prepare Portable EXE
         shell: powershell
         run: |
-          $configPath = "src-tauri/tauri.conf.json"
-
-          if (-not (Test-Path $configPath)) {
-            Write-Error "未找到 $configPath"
+          $releaseDir = "src-tauri\target\release"
+      
+          if (-not (Test-Path $releaseDir)) {
+            Write-Error -Message "Release directory not found: $releaseDir"
             exit 1
           }
-
-          $config = Get-Content $configPath -Raw | ConvertFrom-Json
-          $productName = $config.productName
-
-          if (-not $productName) {
-            Write-Error "tauri.conf.json 中未找到 productName"
+      
+          $exeFiles = Get-ChildItem -Path $releaseDir -Filter *.exe -File |
+            Where-Object {
+              $_.Name -notmatch "^(uninstall|update|setup)$" -and
+              $_.Name -notlike "*nsis*" -and
+              $_.Name -notlike "*msi*"
+            }
+      
+          if (-not $exeFiles -or $exeFiles.Count -eq 0) {
+            Write-Error -Message "No candidate EXE found in $releaseDir"
+            Get-ChildItem -Path $releaseDir | Select-Object FullName
             exit 1
           }
-
-          $safeName = $productName -replace '[\\\/:\*\?"<>\|]', ''
-          $sourceExe = "src-tauri\target\release\$safeName.exe"
-
-          if (-not (Test-Path $sourceExe)) {
-            Write-Error "未找到构建后的 EXE: $sourceExe"
-            exit 1
+      
+          if ($exeFiles.Count -gt 1) {
+            Write-Host "Multiple EXEs found, selecting the largest one."
+            $sourceExe = ($exeFiles | Sort-Object Length -Descending | Select-Object -First 1).FullName
+          } else {
+            $sourceExe = $exeFiles[0].FullName
           }
-
+      
           New-Item -ItemType Directory -Force -Path "portable-dist" | Out-Null
-          $portableName = "${safeName}_portable_x64.exe"
+      
+          $baseName = [System.IO.Path]::GetFileNameWithoutExtension($sourceExe)
+          $portableName = "${baseName}_portable_x64.exe"
+      
           Copy-Item $sourceExe "portable-dist\$portableName" -Force
-
+      
           Write-Host "Portable EXE prepared: portable-dist\$portableName"
 
       - name: Upload Portable EXE Artifact
