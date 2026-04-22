@@ -29,7 +29,7 @@ jobs:
 
           $isTagRelease = "${{ startsWith(github.ref, 'refs/tags/') }}" -eq "true"
           $currentTag = "${{ github.ref_name }}"
-          $packageInfo = Get-Content package.json -Raw | ConvertFrom-Json
+          $packageInfo = Get-Content package.json -Raw -Encoding UTF8 | ConvertFrom-Json
           $releaseVersion = if ($isTagRelease) {
             $currentTag -replace '^v', ''
           } else {
@@ -48,7 +48,7 @@ jobs:
               return ""
             }
 
-            $lines = Get-Content $Path
+            $lines = Get-Content $Path -Encoding UTF8
             $escapedVersion = [Regex]::Escape($Version)
             $versionHeadingPattern = "^\s*##\s+\[?v?$escapedVersion\]?(?:\s+-\s+.*)?\s*$"
             $unreleasedHeadingPattern = "^\s*##\s+\[?Unreleased\]?\s*$"
@@ -197,11 +197,23 @@ jobs:
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         shell: powershell
         run: |
+          function Read-JsonFromUrl {
+            param([string] $Url)
+
+            $response = Invoke-WebRequest -Uri $Url -UseBasicParsing
+            $content = if ($response.Content -is [byte[]]) {
+              [System.Text.Encoding]::UTF8.GetString($response.Content)
+            } else {
+              [string] $response.Content
+            }
+
+            return $content | ConvertFrom-Json
+          }
+
           $latestJsonUrl = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/latest.json"
           Write-Host "Checking updater metadata: $latestJsonUrl"
 
-          $response = Invoke-WebRequest -Uri $latestJsonUrl -UseBasicParsing
-          $metadata = $response.Content | ConvertFrom-Json
+          $metadata = Read-JsonFromUrl -Url $latestJsonUrl
 
           if (-not $metadata.version) {
             Write-Error "latest.json is missing version."
@@ -235,14 +247,26 @@ jobs:
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         shell: powershell
         run: |
+          function Read-JsonFromUrl {
+            param([string] $Url)
+
+            $response = Invoke-WebRequest -Uri $Url -UseBasicParsing
+            $content = if ($response.Content -is [byte[]]) {
+              [System.Text.Encoding]::UTF8.GetString($response.Content)
+            } else {
+              [string] $response.Content
+            }
+
+            return $content | ConvertFrom-Json
+          }
+
           $configuredUrl = "https://github.com/${{ github.repository }}/releases/latest/download/latest.json"
           Write-Host "Checking configured updater endpoint: $configuredUrl"
 
           $metadata = $null
           for ($attempt = 1; $attempt -le 6; $attempt++) {
             try {
-              $response = Invoke-WebRequest -Uri $configuredUrl -UseBasicParsing
-              $metadata = $response.Content | ConvertFrom-Json
+              $metadata = Read-JsonFromUrl -Url $configuredUrl
               break
             } catch {
               Write-Host "Attempt $attempt failed, waiting for GitHub Releases metadata..."
