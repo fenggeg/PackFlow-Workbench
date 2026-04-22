@@ -1,10 +1,14 @@
 import {useEffect} from 'react'
 import type {TabsProps} from 'antd'
-import {App as AntApp, ConfigProvider, Layout, Tabs, theme, Typography} from 'antd'
+import {App as AntApp, ConfigProvider, Layout, Space, Tabs, Tag, theme, Typography} from 'antd'
+import {BranchesOutlined, FolderOutlined} from '@ant-design/icons'
+import {AdvancedOptionsPanel} from './components/AdvancedOptions/AdvancedOptionsPanel'
 import {BuildLogPanel} from './components/BuildLogPanel/BuildLogPanel'
 import {BuildOptionsPanel} from './components/BuildOptions/BuildOptionsPanel'
 import {CommandPreview} from './components/CommandPreview/CommandPreview'
 import {EnvPanel} from './components/EnvPanel/EnvPanel'
+import {FavoriteGroupsCard} from './components/FavoriteGroups/FavoriteGroupsCard'
+import {GitStatusCard} from './components/GitStatus/GitStatusCard'
 import {HistoryTable} from './components/HistoryTable/HistoryTable'
 import {ModuleTreePanel} from './components/ModuleTree/ModuleTreePanel'
 import {ProjectSelector} from './components/ProjectSelector/ProjectSelector'
@@ -17,10 +21,22 @@ import './App.css'
 const { Header, Sider, Content } = Layout
 const { Title, Text } = Typography
 
+const branchStatusColor = (hasLocalChanges?: boolean, hasRemoteUpdates?: boolean) => {
+  if (hasRemoteUpdates) {
+    return 'orange'
+  }
+  if (hasLocalChanges) {
+    return 'gold'
+  }
+  return 'green'
+}
+
 function App() {
   const initialize = useAppStore((state) => state.initialize)
   const appendBuildLog = useAppStore((state) => state.appendBuildLog)
   const finishBuild = useAppStore((state) => state.finishBuild)
+  const project = useAppStore((state) => state.project)
+  const gitStatus = useAppStore((state) => state.gitStatus)
 
   useEffect(() => {
     initialize()
@@ -33,15 +49,38 @@ function App() {
     return () => cleanup?.()
   }, [appendBuildLog, finishBuild, initialize])
 
-  const tabs: TabsProps['items'] = [
+  const buildTabs: TabsProps['items'] = [
+    {
+      key: 'execute',
+      label: '执行配置',
+      children: <BuildOptionsPanel />,
+    },
+    {
+      key: 'environment',
+      label: '环境检测',
+      children: <EnvPanel />,
+    },
+    {
+      key: 'advanced',
+      label: '高级参数',
+      children: <AdvancedOptionsPanel />,
+    },
+  ]
+
+  const outputTabs: TabsProps['items'] = [
+    {
+      key: 'logs',
+      label: '日志',
+      children: <BuildLogPanel />,
+    },
     {
       key: 'history',
-      label: '历史记录',
+      label: '历史',
       children: <HistoryTable />,
     },
     {
       key: 'templates',
-      label: '常用模板',
+      label: '模板',
       children: <TemplatePanel />,
     },
   ]
@@ -52,7 +91,7 @@ function App() {
         algorithm: theme.defaultAlgorithm,
         token: {
           borderRadius: 6,
-          colorPrimary: '#167c5b',
+          colorPrimary: '#16a34a',
           fontFamily:
             'Inter, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif',
         },
@@ -62,30 +101,46 @@ function App() {
         <Layout className="app-shell">
           <Header className="app-header">
             <div className="app-header-copy">
-              <Title level={3} className="app-title">
-                Maven 多模块打包工具
-              </Title>
-              <Text type="secondary">
-                选择项目、确认模块、检查环境，然后执行可编辑的 Maven 命令。
-              </Text>
+              <Title level={3} className="app-title">Maven Packager</Title>
+              <Space size={8} wrap className="app-context">
+                <Tag icon={<FolderOutlined />} color={project ? 'blue' : 'default'}>
+                  {project?.artifactId ?? '尚未选择项目'}
+                </Tag>
+                <Tag
+                  icon={<BranchesOutlined />}
+                  color={branchStatusColor(gitStatus?.hasLocalChanges, gitStatus?.hasRemoteUpdates)}
+                >
+                  {gitStatus?.branch ?? '未识别分支'}
+                </Tag>
+                <Text type="secondary" className="app-path" title={project?.rootPath}>
+                  {project?.rootPath ?? '选择项目后自动识别模块、Git 与构建环境'}
+                </Text>
+              </Space>
             </div>
-            <UpdateChecker />
+            <Space size={12} className="app-header-actions">
+              <Text type="secondary" className="current-version">v1.0.4</Text>
+              <UpdateChecker />
+            </Space>
           </Header>
           <Layout className="app-main">
-            <Sider width={360} className="app-sider">
-              <ProjectSelector />
-              <ModuleTreePanel />
+            <Sider width={340} className="app-sider">
+              <div className="sidebar-stack">
+                <div className="sidebar-main">
+                  <ProjectSelector />
+                  <GitStatusCard />
+                  <ModuleTreePanel />
+                </div>
+                <FavoriteGroupsCard />
+              </div>
             </Sider>
             <Content className="app-content">
               <div className="workbench-grid">
-                <section className="workbench-column">
+                <section className="workbench-column build-column">
                   <CommandPreview />
-                  <EnvPanel />
-                  <BuildOptionsPanel />
+                  <Tabs items={buildTabs} className="panel-tabs build-tabs" />
                 </section>
-                <section className="workbench-column">
-                  <BuildLogPanel />
-                  <Tabs items={tabs} className="reuse-tabs" />
+                <section className="workbench-column output-column">
+                  <Tabs items={outputTabs} className="panel-tabs output-tabs" />
                 </section>
               </div>
             </Content>

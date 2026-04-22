@@ -1,35 +1,48 @@
-import { Alert, Button, Card, Empty, Input, Space, Tree, Typography } from 'antd'
-import type { DataNode } from 'antd/es/tree'
-import { useMemo, useState } from 'react'
-import { useAppStore } from '../../store/useAppStore'
-import type { MavenModule } from '../../types/domain'
+import {Alert, Button, Card, Empty, Input, Space, Tooltip, Tree, Typography} from 'antd'
+import type {DataNode} from 'antd/es/tree'
+import type {Key} from 'react'
+import {useMemo, useState} from 'react'
+import {useAppStore} from '../../store/useAppStore'
+import type {MavenModule} from '../../types/domain'
 
 const { Text } = Typography
+
+const shortenArtifactId = (artifactId: string) =>
+  artifactId.replace(/^(scs|wip|maven|mp)-/i, '')
 
 const moduleToTreeNode = (moduleItem: MavenModule): DataNode => ({
   key: moduleItem.id,
   title: (
-    <span>
-      <strong>{moduleItem.artifactId}</strong>
+    <Tooltip title={moduleItem.artifactId}>
+      <span>
+        <strong>{shortenArtifactId(moduleItem.artifactId)}</strong>
       <div className="module-meta">{moduleItem.relativePath}</div>
-    </span>
+      </span>
+    </Tooltip>
   ),
   children: moduleItem.children?.map(moduleToTreeNode),
 })
 
-const filterModules = (modules: MavenModule[], keyword: string): MavenModule[] => {
+const filterModules = (
+  modules: MavenModule[],
+  keyword: string,
+  selectedIds: string[],
+  checkedOnly: boolean,
+): MavenModule[] => {
   const normalized = keyword.trim().toLowerCase()
-  if (!normalized) {
+  if (!normalized && !checkedOnly) {
     return modules
   }
 
   const result: MavenModule[] = []
   for (const moduleItem of modules) {
-    const children = filterModules(moduleItem.children ?? [], normalized)
+    const children = filterModules(moduleItem.children ?? [], normalized, selectedIds, checkedOnly)
     const matched =
+      !normalized ||
       moduleItem.artifactId.toLowerCase().includes(normalized) ||
       moduleItem.relativePath.toLowerCase().includes(normalized)
-    if (matched || children.length > 0) {
+    const selected = !checkedOnly || selectedIds.includes(moduleItem.id)
+    if ((matched && selected) || children.length > 0) {
       result.push({ ...moduleItem, children })
     }
   }
@@ -51,10 +64,12 @@ export function ModuleTreePanel() {
   const setSelectedModules = useAppStore((state) => state.setSelectedModules)
   const selectAllProject = useAppStore((state) => state.selectAllProject)
   const [keyword, setKeyword] = useState('')
+  const [showCheckedOnly, setShowCheckedOnly] = useState(false)
+  const [expandedKeys, setExpandedKeys] = useState<Key[]>([])
 
   const filteredModules = useMemo(
-    () => filterModules(project?.modules ?? [], keyword),
-    [keyword, project?.modules],
+    () => filterModules(project?.modules ?? [], keyword, selectedModuleIds, showCheckedOnly),
+    [keyword, project?.modules, selectedModuleIds, showCheckedOnly],
   )
   const treeData = useMemo(
     () => filteredModules.map(moduleToTreeNode),
@@ -66,6 +81,11 @@ export function ModuleTreePanel() {
   )
   const allModulesChecked =
     allModuleIds.length > 0 && selectedModuleIds.length === allModuleIds.length
+  const filteredModuleIds = useMemo(
+    () => flattenModuleIds(filteredModules),
+    [filteredModules],
+  )
+  const shouldExpandSearch = Boolean(keyword.trim()) || showCheckedOnly
 
   return (
     <Card title="模块列表" className="panel-card" size="small">
@@ -86,6 +106,22 @@ export function ModuleTreePanel() {
             >
               {allModulesChecked ? '取消全选' : '全选模块'}
             </Button>
+            <Button size="small" onClick={() => setSelectedModules([])}>
+              清空选择
+            </Button>
+            <Button size="small" onClick={() => setExpandedKeys(allModuleIds)}>
+              展开全部
+            </Button>
+            <Button size="small" onClick={() => setExpandedKeys([])}>
+              收起全部
+            </Button>
+            <Button
+              size="small"
+              type={showCheckedOnly ? 'primary' : 'default'}
+              onClick={() => setShowCheckedOnly((value) => !value)}
+            >
+              仅已选
+            </Button>
           </Space>
         ) : null}
         {!project ? <Empty description="等待选择项目" image={Empty.PRESENTED_IMAGE_SIMPLE} /> : null}
@@ -96,11 +132,11 @@ export function ModuleTreePanel() {
           <Tree
             blockNode
             checkable
-            defaultExpandAll={Boolean(keyword.trim())}
-            key={keyword.trim() ? 'search-expanded' : 'initial-collapsed'}
+            expandedKeys={shouldExpandSearch ? filteredModuleIds : expandedKeys}
             checkedKeys={selectedModuleIds}
             selectedKeys={selectedModule ? [selectedModule.id] : []}
             treeData={treeData}
+            onExpand={(keys) => setExpandedKeys(keys)}
             onCheck={(checked) => {
               const keys = Array.isArray(checked) ? checked : checked.checked
               setSelectedModules(keys.map(String))

@@ -1,18 +1,18 @@
 import {create} from 'zustand'
 import {api, createDefaultBuildOptions, selectProjectDirectory} from '../services/tauri-api'
 import type {
-    BuildEnvironment,
-    BuildFinishedEvent,
-    BuildHistoryRecord,
-    BuildLogEvent,
-    BuildOptions,
-    BuildStatus,
-    BuildTemplate,
-    EnvironmentSettings,
-    GitRepositoryStatus,
-    MavenModule,
-    MavenProject,
-    PersistedBuildStatus,
+  BuildEnvironment,
+  BuildFinishedEvent,
+  BuildHistoryRecord,
+  BuildLogEvent,
+  BuildOptions,
+  BuildStatus,
+  BuildTemplate,
+  EnvironmentSettings,
+  GitRepositoryStatus,
+  MavenModule,
+  MavenProject,
+  PersistedBuildStatus,
 } from '../types/domain'
 
 interface AppState {
@@ -55,6 +55,7 @@ interface AppState {
   startBuild: () => Promise<void>
   cancelBuild: () => Promise<void>
   appendBuildLog: (event: BuildLogEvent) => void
+  clearBuildLogs: () => void
   finishBuild: (event: BuildFinishedEvent) => void
   loadHistoryAndTemplates: () => Promise<void>
   rerunHistory: (record: BuildHistoryRecord) => void
@@ -421,6 +422,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       logs: [...state.logs.slice(-4999), event],
     }))
+  },
+
+  clearBuildLogs: () => {
+    set({ logs: [] })
   },
 
   finishBuild: (event: BuildFinishedEvent) => {

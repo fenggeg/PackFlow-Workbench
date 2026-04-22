@@ -1,5 +1,5 @@
 import {Button, Card, Input, Modal, Space, Tag, Typography} from 'antd'
-import {PlayCircleOutlined, ReloadOutlined, SaveOutlined, StopOutlined} from '@ant-design/icons'
+import {CopyOutlined, PlayCircleOutlined, ReloadOutlined, SaveOutlined, StopOutlined} from '@ant-design/icons'
 import {useState} from 'react'
 import {useAppStore} from '../../store/useAppStore'
 import type {BuildStatus} from '../../types/domain'
@@ -27,6 +27,8 @@ export function CommandPreview() {
   const buildOptions = useAppStore((state) => state.buildOptions)
   const buildStatus = useAppStore((state) => state.buildStatus)
   const durationMs = useAppStore((state) => state.durationMs)
+  const project = useAppStore((state) => state.project)
+  const selectedModules = useAppStore((state) => state.selectedModules)
   const setEditableCommand = useAppStore((state) => state.setEditableCommand)
   const refreshCommandPreview = useAppStore((state) => state.refreshCommandPreview)
   const startBuild = useAppStore((state) => state.startBuild)
@@ -37,19 +39,30 @@ export function CommandPreview() {
 
   const running = buildStatus === 'RUNNING'
   const durationText = durationMs ? `${(durationMs / 1000).toFixed(1)} 秒` : '暂无'
+  const commandReady = Boolean(buildOptions.projectRoot && buildOptions.editableCommand.trim())
+  const displayStatus = buildStatus === 'IDLE' && commandReady ? 'READY' : buildStatus
+  const statusLabel = displayStatus === 'READY' ? '待执行' : statusText[buildStatus]
+  const moduleSummary = selectedModules.length > 0
+    ? selectedModules.length === 1
+      ? selectedModules[0].artifactId
+      : `${selectedModules.length} 个模块`
+    : project
+      ? '全部项目'
+      : '未选择'
 
   return (
-    <Card title="命令预览" className="panel-card command-preview-card" size="small">
+    <Card title="构建摘要" className="panel-card command-preview-card" size="small">
       <Space direction="vertical" size={12} style={{ width: '100%' }}>
         <div className="command-status-bar">
           <div>
             <Text type="secondary">当前状态</Text>
             <div>
-              <Tag color={statusColor[buildStatus]} className="status-tag">
-                {statusText[buildStatus]}
+              <Tag color={displayStatus === 'READY' ? 'blue' : statusColor[buildStatus]} className="status-tag">
+                {statusLabel}
               </Tag>
               <Text type="secondary">耗时：{durationText}</Text>
             </div>
+            <Text type="secondary">目标：{moduleSummary}</Text>
           </div>
           <div className="command-actions">
             <Button icon={<ReloadOutlined />} onClick={() => void refreshCommandPreview()}>
@@ -65,6 +78,13 @@ export function CommandPreview() {
             </Button>
             <Button danger icon={<StopOutlined />} disabled={!running} onClick={() => void cancelBuild()}>
               停止
+            </Button>
+            <Button
+              icon={<CopyOutlined />}
+              disabled={!buildOptions.editableCommand.trim()}
+              onClick={() => void navigator.clipboard?.writeText(buildOptions.editableCommand)}
+            >
+              复制命令
             </Button>
             <Button icon={<SaveOutlined />} disabled={!buildOptions.projectRoot} onClick={() => setTemplateOpen(true)}>
               保存模板
