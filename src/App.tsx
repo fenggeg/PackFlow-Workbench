@@ -118,7 +118,6 @@ function App() {
               </Space>
             </div>
             <Space size={12} className="app-header-actions">
-              <Text type="secondary" className="current-version">v{__APP_VERSION__}</Text>
               <UpdateChecker />
             </Space>
           </Header>

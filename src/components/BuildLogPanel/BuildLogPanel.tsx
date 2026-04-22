@@ -1,4 +1,5 @@
-import {Button, Card, Input, Modal, Space, Tag, Typography} from 'antd'
+import {FullscreenOutlined} from '@ant-design/icons'
+import {Button, Card, Input, Modal, Space, Tag, Tooltip, Typography} from 'antd'
 import {useEffect, useRef, useState} from 'react'
 import {useAppStore} from '../../store/useAppStore'
 import type {BuildLogEvent, BuildStatus} from '../../types/domain'
@@ -103,7 +104,14 @@ export function BuildLogPanel() {
           <Button size="small" type={autoScroll ? 'primary' : 'default'} onClick={() => setAutoScroll((value) => !value)}>
             自动滚动
           </Button>
-          <Button size="small" onClick={() => setExpanded(true)}>放大</Button>
+          <Tooltip title="放大查看">
+            <Button
+              aria-label="放大查看日志"
+              icon={<FullscreenOutlined />}
+              size="small"
+              onClick={() => setExpanded(true)}
+            />
+          </Tooltip>
         </Space>
       }
     >

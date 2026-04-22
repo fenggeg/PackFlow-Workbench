@@ -1,12 +1,15 @@
-import { Button, Popconfirm, Space, Table } from 'antd'
-import type { ColumnsType } from 'antd/es/table'
-import { useAppStore } from '../../store/useAppStore'
-import type { BuildTemplate } from '../../types/domain'
+import {FullscreenOutlined} from '@ant-design/icons'
+import {Button, Modal, Popconfirm, Space, Table, Tooltip} from 'antd'
+import type {ColumnsType} from 'antd/es/table'
+import {useState} from 'react'
+import {useAppStore} from '../../store/useAppStore'
+import type {BuildTemplate} from '../../types/domain'
 
 export function TemplatePanel() {
   const templates = useAppStore((state) => state.templates)
   const applyTemplate = useAppStore((state) => state.applyTemplate)
   const deleteTemplate = useAppStore((state) => state.deleteTemplate)
+  const [expanded, setExpanded] = useState(false)
 
   const columns: ColumnsType<BuildTemplate> = [
     {
@@ -48,14 +51,39 @@ export function TemplatePanel() {
     },
   ]
 
-  return (
+  const table = (large = false) => (
     <Table
       rowKey="id"
-      size="small"
+      size={large ? 'middle' : 'small'}
       columns={columns}
       dataSource={templates}
-      pagination={{ pageSize: 6 }}
+      pagination={{ pageSize: large ? 12 : 6 }}
       scroll={{ x: 680 }}
     />
+  )
+
+  return (
+    <>
+      <div className="table-toolbar">
+        <Tooltip title="放大查看">
+          <Button
+            aria-label="放大查看模板"
+            icon={<FullscreenOutlined />}
+            size="small"
+            onClick={() => setExpanded(true)}
+          />
+        </Tooltip>
+      </div>
+      {table()}
+      <Modal
+        title="模板"
+        open={expanded}
+        footer={null}
+        width="88vw"
+        onCancel={() => setExpanded(false)}
+      >
+        {table(true)}
+      </Modal>
+    </>
   )
 }

@@ -1,9 +1,10 @@
-import { Button, List, Modal, Space, Table, Tag, Typography } from 'antd'
-import type { ColumnsType } from 'antd/es/table'
-import { useState } from 'react'
-import { api } from '../../services/tauri-api'
-import { useAppStore } from '../../store/useAppStore'
-import type { BuildHistoryRecord } from '../../types/domain'
+import {FullscreenOutlined} from '@ant-design/icons'
+import {Button, List, Modal, Space, Table, Tag, Tooltip, Typography} from 'antd'
+import type {ColumnsType} from 'antd/es/table'
+import {useState} from 'react'
+import {api} from '../../services/tauri-api'
+import {useAppStore} from '../../store/useAppStore'
+import type {BuildHistoryRecord} from '../../types/domain'
 
 const { Link, Text } = Typography
 
@@ -118,7 +119,14 @@ export function HistoryTable() {
   return (
     <>
       <div className="table-toolbar">
-        <Button size="small" onClick={() => setExpanded(true)}>放大</Button>
+        <Tooltip title="放大查看">
+          <Button
+            aria-label="放大查看历史记录"
+            icon={<FullscreenOutlined />}
+            size="small"
+            onClick={() => setExpanded(true)}
+          />
+        </Tooltip>
       </div>
       {table()}
       <Modal
