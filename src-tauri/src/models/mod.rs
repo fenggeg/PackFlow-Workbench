@@ -1,7 +1,10 @@
 pub mod build;
+pub mod dependency;
+pub mod deployment;
 pub mod environment;
 pub mod git;
 pub mod history;
 pub mod module;
 pub mod project;
+pub mod task_pipeline;
 pub mod template;

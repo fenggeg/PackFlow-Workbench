@@ -5,21 +5,33 @@ import {open} from '@tauri-apps/plugin-dialog'
 import {relaunch} from '@tauri-apps/plugin-process'
 import {check, type DownloadEvent, type Update} from '@tauri-apps/plugin-updater'
 import type {
-  BuildArtifact,
-  BuildCommandPayload,
-  BuildEnvironment,
-  BuildFinishedEvent,
-  BuildHistoryRecord,
-  BuildLogEvent,
-  BuildOptions,
-  BuildTemplate,
-  EnvironmentSettings,
-  GitCommit,
-  GitPullResult,
-  GitRepositoryStatus,
-  GitSwitchBranchResult,
-  MavenProject,
-  StartBuildPayload,
+    BuildArtifact,
+    BuildCommandPayload,
+    BuildEnvironment,
+    BuildFinishedEvent,
+    BuildHistoryRecord,
+    BuildLogEvent,
+    BuildOptions,
+    BuildTemplate,
+    DeploymentLogEvent,
+    DeploymentProfile,
+    DeploymentTask,
+    EnvironmentSettings,
+    GitCommit,
+    GitPullResult,
+    GitRepositoryStatus,
+    GitSwitchBranchResult,
+    MavenProject,
+    ModuleDependencyGraph,
+    SaveServerProfilePayload,
+    ServerProfile,
+    StartBuildPayload,
+    StartDeploymentPayload,
+    StartTaskPipelinePayload,
+    TaskPipeline,
+    TaskPipelineLogEvent,
+    TaskPipelineRun,
+    TaskPipelineStepEvent,
 } from '../types/domain'
 
 type TauriWindow = Window & { __TAURI_INTERNALS__?: unknown }
@@ -118,6 +130,9 @@ export const api = {
   parseMavenProject: (rootPath: string) =>
     invoke<MavenProject>('parse_maven_project', { rootPath }),
 
+  analyzeProjectDependencies: (rootPath: string) =>
+    invoke<ModuleDependencyGraph>('analyze_project_dependencies', { rootPath }),
+
   detectEnvironment: (rootPath: string) =>
     invoke<BuildEnvironment>('detect_environment', { rootPath }),
 
@@ -153,6 +168,43 @@ export const api = {
 
   deleteTemplate: (templateId: string) =>
     invoke<void>('delete_template', { templateId }),
+
+  listTaskPipelines: () => invoke<TaskPipeline[]>('list_task_pipelines'),
+
+  saveTaskPipeline: (pipeline: TaskPipeline) =>
+    invoke<void>('save_task_pipeline', { pipeline }),
+
+  deleteTaskPipeline: (pipelineId: string) =>
+    invoke<void>('delete_task_pipeline', { pipelineId }),
+
+  listTaskPipelineRuns: () =>
+    invoke<TaskPipelineRun[]>('list_task_pipeline_runs'),
+
+  startTaskPipeline: (payload: StartTaskPipelinePayload) =>
+    invoke<string>('start_task_pipeline', { payload }),
+
+  listServerProfiles: () => invoke<ServerProfile[]>('list_server_profiles'),
+
+  saveServerProfile: (payload: SaveServerProfilePayload) =>
+    invoke<ServerProfile>('save_server_profile', { payload }),
+
+  deleteServerProfile: (serverId: string) =>
+    invoke<void>('delete_server_profile', { serverId }),
+
+  listDeploymentProfiles: () =>
+    invoke<DeploymentProfile[]>('list_deployment_profiles'),
+
+  saveDeploymentProfile: (profile: DeploymentProfile) =>
+    invoke<DeploymentProfile>('save_deployment_profile', { profile }),
+
+  deleteDeploymentProfile: (profileId: string) =>
+    invoke<void>('delete_deployment_profile', { profileId }),
+
+  listDeploymentTasks: () =>
+    invoke<DeploymentTask[]>('list_deployment_tasks'),
+
+  startDeployment: (payload: StartDeploymentPayload) =>
+    invoke<string>('start_deployment', { payload }),
 
   openPathInExplorer: (path: string) =>
     invoke<void>('open_path_in_explorer', { path }),
@@ -196,6 +248,58 @@ export async function registerBuildEvents(
 
   return () => {
     unlistenLog()
+    unlistenFinished()
+  }
+}
+
+export async function registerTaskPipelineEvents(
+  onLog: (event: TaskPipelineLogEvent) => void,
+  onStep: (event: TaskPipelineStepEvent) => void,
+  onFinished: (event: TaskPipelineRun) => void,
+) {
+  if (!isTauriRuntime()) {
+    return () => undefined
+  }
+
+  const unlistenLog = await listen<TaskPipelineLogEvent>('task-pipeline-log', (event) => {
+    onLog(event.payload)
+  })
+  const unlistenStep = await listen<TaskPipelineStepEvent>('task-pipeline-step', (event) => {
+    onStep(event.payload)
+  })
+  const unlistenFinished = await listen<TaskPipelineRun>('task-pipeline-finished', (event) => {
+    onFinished(event.payload)
+  })
+
+  return () => {
+    unlistenLog()
+    unlistenStep()
+    unlistenFinished()
+  }
+}
+
+export async function registerDeploymentEvents(
+  onLog: (event: DeploymentLogEvent) => void,
+  onUpdated: (event: DeploymentTask) => void,
+  onFinished: (event: DeploymentTask) => void,
+) {
+  if (!isTauriRuntime()) {
+    return () => undefined
+  }
+
+  const unlistenLog = await listen<DeploymentLogEvent>('deployment-log', (event) => {
+    onLog(event.payload)
+  })
+  const unlistenUpdated = await listen<DeploymentTask>('deployment-updated', (event) => {
+    onUpdated(event.payload)
+  })
+  const unlistenFinished = await listen<DeploymentTask>('deployment-finished', (event) => {
+    onFinished(event.payload)
+  })
+
+  return () => {
+    unlistenLog()
+    unlistenUpdated()
     unlistenFinished()
   }
 }

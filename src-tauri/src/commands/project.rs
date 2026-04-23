@@ -1,7 +1,8 @@
 use crate::error::AppResult;
+use crate::models::dependency::ModuleDependencyGraph;
 use crate::models::module::MavenModule;
 use crate::models::project::MavenProject;
-use crate::services::pom_parser;
+use crate::services::{dependency_graph_service, pom_parser};
 use crate::services::{app_logger, blocking};
 use tauri::AppHandle;
 
@@ -36,6 +37,38 @@ pub async fn parse_maven_project(app: AppHandle, root_path: String) -> AppResult
             Err(error)
         }
     }
+}
+
+#[tauri::command]
+pub async fn analyze_project_dependencies(
+    app: AppHandle,
+    root_path: String,
+) -> AppResult<ModuleDependencyGraph> {
+    app_logger::log_info(
+        &app,
+        "project.dependencies.start",
+        format!("root_path={}", root_path),
+    );
+    let log_root_path = root_path.clone();
+    let result = blocking::run(move || dependency_graph_service::analyze_project_dependencies(&root_path)).await;
+    match &result {
+        Ok(graph) => app_logger::log_info(
+            &app,
+            "project.dependencies.success",
+            format!(
+                "root_path={}, edge_count={}, cycle_count={}",
+                graph.root_path,
+                graph.edges.len(),
+                graph.cycles.len()
+            ),
+        ),
+        Err(error) => app_logger::log_error(
+            &app,
+            "project.dependencies.failed",
+            format!("root_path={}, error={}", log_root_path, error),
+        ),
+    }
+    result
 }
 
 fn count_modules(modules: &[MavenModule]) -> usize {

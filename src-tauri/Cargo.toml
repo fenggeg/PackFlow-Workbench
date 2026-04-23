@@ -20,6 +20,7 @@ tauri-build = { version = "2.5.6", features = [] }
 [dependencies]
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
+base64 = "0.22"
 log = "0.4"
 tauri = { version = "2.10.3", features = [] }
 tauri-plugin-log = "2"
@@ -31,4 +32,5 @@ encoding_rs = "0.8"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Cryptography", "Win32_System_JobObjects", "Win32_System_Memory", "Win32_System_Threading"] }

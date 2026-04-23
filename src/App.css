@@ -96,7 +96,18 @@
 
 .sidebar-panel-host > .panel-card > .ant-card-body {
   min-height: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.sidebar-panel-host > .module-tree-card {
+  flex: 0 0 auto;
+  min-height: auto;
+}
+
+.sidebar-panel-host > .module-tree-card > .ant-card-body {
+  min-height: auto;
+  overflow: visible;
 }
 
 .app-content {
@@ -129,6 +140,7 @@
   border: 1px solid #e5e7eb;
   border-radius: 12px;
   box-shadow: none;
+  background: #ffffff;
 }
 
 .panel-card .ant-card-head {
@@ -194,6 +206,58 @@
 .module-meta {
   color: #66716c;
   font-size: 12px;
+}
+
+.panel-card .ant-tree {
+  min-width: 0;
+  background: transparent;
+}
+
+.panel-card .ant-tree .ant-tree-list,
+.panel-card .ant-tree .ant-tree-list-holder,
+.panel-card .ant-tree .ant-tree-list-holder-inner {
+  background: transparent;
+  border-radius: 0;
+}
+
+.panel-card .ant-tree .ant-tree-treenode {
+  align-items: flex-start;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+.panel-card .ant-tree .ant-tree-checkbox {
+  align-self: flex-start;
+  margin-top: 11px;
+}
+
+.panel-card .ant-tree .ant-tree-switcher {
+  align-self: flex-start;
+  margin-top: 10px;
+}
+
+.panel-card .ant-tree .ant-tree-node-content-wrapper {
+  display: inline-flex;
+  min-height: 0;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  line-height: 1.35;
+  white-space: normal;
+  vertical-align: top;
+}
+
+.panel-card .ant-tree .ant-tree-title {
+  display: block;
+  min-width: 0;
+}
+
+.module-tree-title {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  overflow: hidden;
 }
 
 .module-loading-state {
@@ -672,6 +736,38 @@
 
 .diagnosis-keyword-lines pre {
   margin: 0 0 4px;
+  white-space: pre-wrap;
+}
+
+.dependency-info-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.workflow-step-item {
+  align-items: flex-start !important;
+}
+
+.workflow-step-item .ant-list-item-action {
+  margin-top: 0;
+}
+
+.workflow-run-card {
+  background: #f8fafc;
+  border-color: #dbe7df;
+}
+
+.workflow-log-panel {
+  max-height: 260px;
+  padding: 12px;
+  overflow: auto;
+  color: #d7e4dd;
+  background: #101513;
+  border-radius: 8px;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 12px;
+  line-height: 1.55;
   white-space: pre-wrap;
 }
 

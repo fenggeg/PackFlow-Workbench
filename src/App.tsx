@@ -2,26 +2,29 @@ import {useEffect, useState} from 'react'
 import type {TabsProps} from 'antd'
 import {App as AntApp, ConfigProvider, Layout, Menu, Space, Tabs, Tag, theme, Typography} from 'antd'
 import {
-  AppstoreAddOutlined,
-  BranchesOutlined,
-  FolderOpenOutlined,
-  FolderOutlined,
-  NodeIndexOutlined,
+    AppstoreAddOutlined,
+    BranchesOutlined,
+    FolderOpenOutlined,
+    FolderOutlined,
+    NodeIndexOutlined,
 } from '@ant-design/icons'
 import {AdvancedOptionsPanel} from './components/AdvancedOptions/AdvancedOptionsPanel'
 import {BuildLogPanel} from './components/BuildLogPanel/BuildLogPanel'
 import {BuildOptionsPanel} from './components/BuildOptions/BuildOptionsPanel'
 import {CommandPreview} from './components/CommandPreview/CommandPreview'
+import {DeploymentCenterPanel} from './components/Deployment/DeploymentCenterPanel'
 import {EnvPanel} from './components/EnvPanel/EnvPanel'
 import {FavoriteGroupsCard} from './components/FavoriteGroups/FavoriteGroupsCard'
 import {GitStatusCard} from './components/GitStatus/GitStatusCard'
-import {HistoryTable} from './components/HistoryTable/HistoryTable'
+import {WorkbenchHistoryPanel} from './components/HistoryTable/WorkbenchHistoryPanel'
 import {ModuleTreePanel} from './components/ModuleTree/ModuleTreePanel'
 import {ProjectSelector} from './components/ProjectSelector/ProjectSelector'
+import {TaskPipelinePanel} from './components/TaskPipeline/TaskPipelinePanel'
 import {TemplatePanel} from './components/TemplatePanel/TemplatePanel'
 import {UpdateChecker} from './components/UpdateChecker/UpdateChecker'
-import {registerBuildEvents} from './services/tauri-api'
+import {registerBuildEvents, registerDeploymentEvents, registerTaskPipelineEvents,} from './services/tauri-api'
 import {useAppStore} from './store/useAppStore'
+import {useWorkflowStore} from './store/useWorkflowStore'
 import './App.css'
 
 const { Header, Sider, Content } = Layout
@@ -48,25 +51,80 @@ function App() {
   const selectedModuleIds = useAppStore((state) => state.selectedModuleIds)
   const templates = useAppStore((state) => state.templates)
   const savedProjectPaths = useAppStore((state) => state.savedProjectPaths)
+  const initializeWorkflow = useWorkflowStore((state) => state.initialize)
+  const loadDependencyGraph = useWorkflowStore((state) => state.loadDependencyGraph)
+  const clearDependencyGraph = useWorkflowStore((state) => state.clearDependencyGraph)
+  const appendTaskPipelineLog = useWorkflowStore((state) => state.appendTaskPipelineLog)
+  const updateTaskPipelineStep = useWorkflowStore((state) => state.updateTaskPipelineStep)
+  const finishTaskPipeline = useWorkflowStore((state) => state.finishTaskPipeline)
+  const appendDeploymentLog = useWorkflowStore((state) => state.appendDeploymentLog)
+  const updateDeploymentTask = useWorkflowStore((state) => state.updateDeploymentTask)
+  const finishDeploymentTask = useWorkflowStore((state) => state.finishDeploymentTask)
 
   useEffect(() => {
     initialize()
+    void initializeWorkflow()
 
-    let cleanup: (() => void) | undefined
+    let cleanupBuild: (() => void) | undefined
+    let cleanupPipeline: (() => void) | undefined
+    let cleanupDeployment: (() => void) | undefined
     let disposed = false
     void registerBuildEvents(appendBuildLog, finishBuild).then((unlisten) => {
       if (disposed) {
         unlisten()
         return
       }
-      cleanup = unlisten
+      cleanupBuild = unlisten
+    })
+    void registerTaskPipelineEvents(
+      appendTaskPipelineLog,
+      updateTaskPipelineStep,
+      finishTaskPipeline,
+    ).then((unlisten) => {
+      if (disposed) {
+        unlisten()
+        return
+      }
+      cleanupPipeline = unlisten
+    })
+    void registerDeploymentEvents(
+      appendDeploymentLog,
+      updateDeploymentTask,
+      finishDeploymentTask,
+    ).then((unlisten) => {
+      if (disposed) {
+        unlisten()
+        return
+      }
+      cleanupDeployment = unlisten
     })
 
     return () => {
       disposed = true
-      cleanup?.()
+      cleanupBuild?.()
+      cleanupPipeline?.()
+      cleanupDeployment?.()
     }
-  }, [appendBuildLog, finishBuild, initialize])
+  }, [
+    appendBuildLog,
+    appendDeploymentLog,
+    appendTaskPipelineLog,
+    finishBuild,
+    finishDeploymentTask,
+    finishTaskPipeline,
+    initialize,
+    initializeWorkflow,
+    updateDeploymentTask,
+    updateTaskPipelineStep,
+  ])
+
+  useEffect(() => {
+    if (project?.rootPath) {
+      void loadDependencyGraph(project.rootPath)
+    } else {
+      clearDependencyGraph()
+    }
+  }, [clearDependencyGraph, loadDependencyGraph, project?.rootPath])
 
   const buildTabs: TabsProps['items'] = [
     {
@@ -78,6 +136,16 @@ function App() {
       key: 'environment',
       label: '环境中心',
       children: <EnvPanel />,
+    },
+    {
+      key: 'pipeline',
+      label: '任务编排',
+      children: <TaskPipelinePanel />,
+    },
+    {
+      key: 'deployment',
+      label: '部署中心',
+      children: <DeploymentCenterPanel />,
     },
     {
       key: 'advanced',
@@ -95,7 +163,7 @@ function App() {
     {
       key: 'history',
       label: '历史',
-      children: <HistoryTable />,
+      children: <WorkbenchHistoryPanel />,
     },
     {
       key: 'templates',

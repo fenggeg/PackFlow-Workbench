@@ -26,6 +26,7 @@ pub fn run() {
         .manage(BuildProcessState::default())
         .invoke_handler(tauri::generate_handler![
             commands::project::parse_maven_project,
+            commands::project::analyze_project_dependencies,
             commands::environment::detect_environment,
             commands::environment::load_environment_settings,
             commands::environment::save_environment_settings,
@@ -46,6 +47,19 @@ pub fn run() {
             commands::template::list_templates,
             commands::template::save_template,
             commands::template::delete_template,
+            commands::task_pipeline::list_task_pipelines,
+            commands::task_pipeline::save_task_pipeline,
+            commands::task_pipeline::delete_task_pipeline,
+            commands::task_pipeline::list_task_pipeline_runs,
+            commands::task_pipeline::start_task_pipeline,
+            commands::deployment::list_server_profiles,
+            commands::deployment::save_server_profile,
+            commands::deployment::delete_server_profile,
+            commands::deployment::list_deployment_profiles,
+            commands::deployment::save_deployment_profile,
+            commands::deployment::delete_deployment_profile,
+            commands::deployment::list_deployment_tasks,
+            commands::deployment::start_deployment,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,8 +1,9 @@
-import {Alert, Button, Card, Empty, Input, Space, Spin, Tooltip, Tree, Typography} from 'antd'
+import {Alert, Button, Card, Divider, Empty, Input, Space, Spin, Tag, Tooltip, Tree, Typography} from 'antd'
 import type {DataNode} from 'antd/es/tree'
 import type {Key} from 'react'
 import {useMemo, useState} from 'react'
 import {useAppStore} from '../../store/useAppStore'
+import {useWorkflowStore} from '../../store/useWorkflowStore'
 import type {MavenModule} from '../../types/domain'
 
 const { Text } = Typography
@@ -14,10 +15,10 @@ const moduleToTreeNode = (moduleItem: MavenModule): DataNode => ({
   key: moduleItem.id,
   title: (
     <Tooltip title={moduleItem.artifactId}>
-      <span>
+      <div className="module-tree-title">
         <strong>{shortenArtifactId(moduleItem.artifactId)}</strong>
-      <div className="module-meta">{moduleItem.relativePath || '根项目'}</div>
-      </span>
+        <div className="module-meta">{moduleItem.relativePath || '根项目'}</div>
+      </div>
     </Tooltip>
   ),
   children: moduleItem.children?.map(moduleToTreeNode),
@@ -55,6 +56,12 @@ const flattenModuleIds = (modules: MavenModule[]): string[] =>
     ...flattenModuleIds(moduleItem.children ?? []),
   ])
 
+const flattenModules = (modules: MavenModule[]): MavenModule[] =>
+  modules.flatMap((moduleItem) => [
+    moduleItem,
+    ...flattenModules(moduleItem.children ?? []),
+  ])
+
 export function ModuleTreePanel() {
   const project = useAppStore((state) => state.project)
   const loading = useAppStore((state) => state.loading)
@@ -64,6 +71,8 @@ export function ModuleTreePanel() {
   const setSelectedModule = useAppStore((state) => state.setSelectedModule)
   const setSelectedModules = useAppStore((state) => state.setSelectedModules)
   const selectAllProject = useAppStore((state) => state.selectAllProject)
+  const dependencyGraph = useWorkflowStore((state) => state.dependencyGraph)
+  const dependencyLoading = useWorkflowStore((state) => state.dependencyLoading)
   const [keyword, setKeyword] = useState('')
   const [showCheckedOnly, setShowCheckedOnly] = useState(false)
   const [expandedKeys, setExpandedKeys] = useState<Key[]>([])
@@ -87,9 +96,27 @@ export function ModuleTreePanel() {
     [filteredModules],
   )
   const shouldExpandSearch = Boolean(keyword.trim()) || showCheckedOnly
+  const selectedSummary = dependencyGraph?.summaries.find((item) => item.moduleId === selectedModule?.id)
+  const idToModule = useMemo(
+    () => Object.fromEntries(flattenModules(project?.modules ?? []).map((module) => [module.id, module])),
+    [project?.modules],
+  )
+
+  const renderModuleTags = (moduleIds: string[], color: string) =>
+    moduleIds.length > 0 ? (
+      <Space wrap>
+        {moduleIds.map((moduleId) => (
+          <Tag key={moduleId} color={color}>
+            {idToModule[moduleId]?.artifactId ?? moduleId}
+          </Tag>
+        ))}
+      </Space>
+    ) : (
+      <Text type="secondary">暂无</Text>
+    )
 
   return (
-    <Card title="模块列表" className="panel-card" size="small">
+    <Card title="模块列表" className="panel-card module-tree-card" size="small">
       <Space direction="vertical" size={12} style={{ width: '100%' }}>
         <Input
           placeholder="搜索 artifactId 或路径"
@@ -137,8 +164,9 @@ export function ModuleTreePanel() {
         ) : null}
         {!loading && treeData.length > 0 ? (
           <Tree
-            blockNode
+            className="module-tree"
             checkable
+            virtual={false}
             expandedKeys={shouldExpandSearch ? filteredModuleIds : expandedKeys}
             checkedKeys={selectedModuleIds}
             selectedKeys={selectedModule ? [selectedModule.id] : []}
@@ -168,6 +196,75 @@ export function ModuleTreePanel() {
               ? `${selectedModules[0].artifactId} (${selectedModules[0].packaging ?? 'unknown'})`
               : `${selectedModules.length} 个模块`}
           </Text>
+        ) : null}
+        {selectedModule ? <Divider style={{ margin: '8px 0' }} /> : null}
+        {selectedModule ? (
+          <Space direction="vertical" size={10} style={{ width: '100%' }}>
+            <Space wrap>
+              <Text strong>依赖洞察</Text>
+              {dependencyLoading ? <Spin size="small" /> : null}
+              {selectedSummary?.hasCycle ? <Tag color="red">检测到循环依赖</Tag> : null}
+            </Space>
+            <Text type="secondary">
+              当前模块：{selectedModule.artifactId}
+            </Text>
+            <div className="dependency-info-block">
+              <Text strong>依赖模块</Text>
+              {renderModuleTags(selectedSummary?.dependencies ?? [], 'blue')}
+            </div>
+            <div className="dependency-info-block">
+              <Text strong>被依赖模块</Text>
+              {renderModuleTags(selectedSummary?.dependents ?? [], 'gold')}
+            </div>
+            <Alert
+              type="info"
+              showIcon
+              message="实用打包逻辑：当前模块构建交给 Maven -am，发布范围看发布候选模块"
+              description="上游依赖由“同时构建依赖模块 (-am)”自动补齐；这里重点展示最终更值得打包发布的模块范围。"
+            />
+            <div className="dependency-info-block">
+              <Text strong>发布候选模块</Text>
+              <Text type="secondary">如果当前改动需要形成可发布产物，优先关注这些最终受影响模块。</Text>
+              {renderModuleTags(selectedSummary?.releaseCandidateModuleIds ?? [], 'green')}
+            </div>
+            {(selectedSummary?.releaseCandidateModuleIds.length ?? 0) > 0 ? (
+              <Button
+                size="small"
+                type="primary"
+                onClick={() => setSelectedModules([
+                  ...new Set([
+                    selectedModule.id,
+                    ...(selectedSummary?.releaseCandidateModuleIds ?? []),
+                  ]),
+                ])}
+              >
+                一键选中发布候选模块
+              </Button>
+            ) : null}
+            <div className="dependency-info-block">
+              <Text strong>验证建议模块</Text>
+              <Text type="secondary">更适合联调或回归时一起关注的直接下游模块。</Text>
+              {renderModuleTags(selectedSummary?.suggestedValidationModuleIds ?? [], 'gold')}
+            </div>
+            <div className="dependency-info-block">
+              <Text strong>聚合关联模块</Text>
+              <Text type="secondary">同父聚合或父子聚合关系，默认仅展示，不自动建议打包。</Text>
+              {renderModuleTags(selectedSummary?.relatedAggregationModuleIds ?? [], 'cyan')}
+            </div>
+            {(selectedSummary?.suggestedValidationModuleIds.length ?? 0) > 0 ? (
+              <Button
+                size="small"
+                onClick={() => setSelectedModules([
+                  ...new Set([
+                    ...(selectedModuleIds ?? []),
+                    ...(selectedSummary?.suggestedValidationModuleIds ?? []),
+                  ]),
+                ])}
+              >
+                一键加入验证建议模块
+              </Button>
+            ) : null}
+          </Space>
         ) : null}
       </Space>
     </Card>

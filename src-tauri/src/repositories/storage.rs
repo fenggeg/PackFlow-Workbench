@@ -44,6 +44,59 @@ fn initialize_database(connection: &Connection) -> AppResult<()> {
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 payload TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS task_pipelines (
+                id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                created_at TEXT,
+                updated_at TEXT,
+                payload TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_task_pipelines_name
+                ON task_pipelines(name ASC);
+
+            CREATE TABLE IF NOT EXISTS task_pipeline_runs (
+                id TEXT PRIMARY KEY NOT NULL,
+                pipeline_id TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                payload TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_task_pipeline_runs_started_at
+                ON task_pipeline_runs(started_at DESC);
+
+            CREATE TABLE IF NOT EXISTS server_profiles (
+                id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                created_at TEXT,
+                updated_at TEXT,
+                payload TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_server_profiles_name
+                ON server_profiles(name ASC);
+
+            CREATE TABLE IF NOT EXISTS deployment_profiles (
+                id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                created_at TEXT,
+                updated_at TEXT,
+                payload TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_deployment_profiles_name
+                ON deployment_profiles(name ASC);
+
+            CREATE TABLE IF NOT EXISTS deployment_tasks (
+                id TEXT PRIMARY KEY NOT NULL,
+                deployment_profile_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                payload TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_deployment_tasks_created_at
+                ON deployment_tasks(created_at DESC);
             "#,
         )
         .map_err(|error| to_user_error(format!("无法初始化本地数据库：{}", error)))

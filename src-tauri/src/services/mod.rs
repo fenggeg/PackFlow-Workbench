@@ -1,6 +1,12 @@
 pub mod app_logger;
 pub mod blocking;
 pub mod command_builder;
+pub mod dependency_graph_service;
+pub mod deployment_executor;
 pub mod env_detector;
+pub mod health_check_service;
 pub mod pom_parser;
 pub mod process_runner;
+pub mod secure_storage;
+pub mod ssh_transport_service;
+pub mod task_pipeline_executor;

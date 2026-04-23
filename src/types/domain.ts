@@ -25,6 +25,35 @@ export interface MavenModule {
   errorMessage?: string
 }
 
+export interface ModuleDependencyEdge {
+  fromModuleId: string
+  toModuleId: string
+  type: 'compile' | 'test' | 'runtime' | 'provided' | 'parent' | 'aggregation' | string
+}
+
+export interface ModuleDependencySummary {
+  moduleId: string
+  packaging?: string
+  dependencies: string[]
+  dependents: string[]
+  aggregationChildren: string[]
+  aggregationParent?: string
+  releaseCandidateModuleIds: string[]
+  requiredBuildModuleIds: string[]
+  suggestedValidationModuleIds: string[]
+  relatedAggregationModuleIds: string[]
+  recommendedModuleIds: string[]
+  hasCycle: boolean
+  cyclePaths: string[][]
+}
+
+export interface ModuleDependencyGraph {
+  rootPath: string
+  edges: ModuleDependencyEdge[]
+  summaries: ModuleDependencySummary[]
+  cycles: string[][]
+}
+
 export interface GitBranch {
   name: string
   isCurrent: boolean
@@ -195,6 +224,69 @@ export interface BuildTemplate {
   pinned?: boolean
 }
 
+export type TaskStepType = 'maven_goal' | 'shell_command' | 'open_directory' | 'notify'
+
+export interface TaskStep {
+  id: string
+  type: TaskStepType
+  label: string
+  enabled: boolean
+  payload: Record<string, unknown>
+}
+
+export interface TaskPipeline {
+  id: string
+  name: string
+  moduleIds: string[]
+  steps: TaskStep[]
+  createdAt?: string
+  updatedAt?: string
+}
+
+export type TaskStepRunStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped'
+
+export interface TaskStepRun {
+  stepId: string
+  label: string
+  type: TaskStepType | string
+  status: TaskStepRunStatus
+  startedAt?: string
+  finishedAt?: string
+  message?: string
+  output: string[]
+}
+
+export interface TaskPipelineRun {
+  id: string
+  pipelineId: string
+  pipelineName: string
+  projectRoot: string
+  moduleIds: string[]
+  status: 'running' | 'success' | 'failed'
+  totalDurationMs: number
+  startedAt: string
+  finishedAt?: string
+  steps: TaskStepRun[]
+}
+
+export interface TaskPipelineLogEvent {
+  runId: string
+  stepId?: string
+  level: 'info' | 'error' | string
+  line: string
+}
+
+export interface TaskPipelineStepEvent {
+  runId: string
+  step: TaskStepRun
+}
+
+export interface StartTaskPipelinePayload {
+  pipeline: TaskPipeline
+  projectRoot: string
+  environment: BuildEnvironment
+}
+
 export interface EnvironmentSettings {
   activeProfileId?: string
   profiles: EnvironmentProfile[]
@@ -211,4 +303,83 @@ export interface EnvironmentProfile {
   localRepoPath?: string
   useMavenWrapper: boolean
   updatedAt?: string
+}
+
+export interface ServerProfile {
+  id: string
+  name: string
+  host: string
+  port: number
+  username: string
+  authType: 'password' | 'private_key'
+  privateKeyPath?: string
+  group?: string
+  passwordConfigured: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface SaveServerProfilePayload {
+  id?: string
+  name: string
+  host: string
+  port: number
+  username: string
+  authType: 'password' | 'private_key'
+  password?: string
+  privateKeyPath?: string
+  group?: string
+}
+
+export interface DeploymentProfile {
+  id: string
+  name: string
+  serverId: string
+  moduleId: string
+  localArtifactPattern: string
+  remoteDeployPath: string
+  stopCommand?: string
+  startCommand?: string
+  restartCommand?: string
+  healthCheckUrl?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface DeploymentStage {
+  key: string
+  label: string
+  status: 'pending' | 'running' | 'success' | 'failed' | 'skipped'
+  startedAt?: string
+  finishedAt?: string
+  message?: string
+}
+
+export interface DeploymentTask {
+  id: string
+  buildTaskId?: string
+  deploymentProfileId: string
+  deploymentProfileName?: string
+  serverId: string
+  serverName?: string
+  moduleId: string
+  artifactPath: string
+  artifactName: string
+  status: 'pending' | 'uploading' | 'stopping' | 'starting' | 'checking' | 'success' | 'failed'
+  log: string[]
+  stages: DeploymentStage[]
+  createdAt: string
+  finishedAt?: string
+}
+
+export interface StartDeploymentPayload {
+  deploymentProfileId: string
+  localArtifactPath: string
+  buildTaskId?: string
+}
+
+export interface DeploymentLogEvent {
+  taskId: string
+  stageKey?: string
+  line: string
 }
