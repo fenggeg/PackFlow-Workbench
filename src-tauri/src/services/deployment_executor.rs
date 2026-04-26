@@ -944,10 +944,12 @@ where
 }
 
 fn expand_tokens(value: &str, context: &DeploymentContext) -> String {
+    let today = chrono::Local::now().format("%Y%m%d").to_string();
     value
         .replace("${artifactPath}", &context.artifact_path)
         .replace("${artifactName}", &context.artifact_name)
         .replace("${remoteDeployPath}", &context.remote_deploy_path)
+        .replace("${date}", &today)
 }
 
 fn normalize_remote_dir(value: &str) -> String {

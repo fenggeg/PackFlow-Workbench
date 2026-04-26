@@ -1,35 +1,35 @@
 import {
-    Alert,
-    Button,
-    Card,
-    Checkbox,
-    Empty,
-    Input,
-    InputNumber,
-    List,
-    Modal,
-    Popconfirm,
-    Select,
-    Space,
-    Steps,
-    Tabs,
-    Tag,
-    Typography,
+  Alert,
+  Button,
+  Card,
+  Checkbox,
+  Empty,
+  Input,
+  InputNumber,
+  List,
+  Modal,
+  Popconfirm,
+  Select,
+  Space,
+  Steps,
+  Tabs,
+  Tag,
+  Typography,
 } from 'antd'
 import {
-    ArrowDownOutlined,
-    ArrowUpOutlined,
-    CloudServerOutlined,
-    DeleteOutlined,
-    DeploymentUnitOutlined,
-    HistoryOutlined,
-    InboxOutlined,
-    PlayCircleOutlined,
-    PlusOutlined,
-    SaveOutlined,
-    StopOutlined,
+  ArrowDownOutlined,
+  ArrowUpOutlined,
+  CloudServerOutlined,
+  DeleteOutlined,
+  DeploymentUnitOutlined,
+  HistoryOutlined,
+  InboxOutlined,
+  PlayCircleOutlined,
+  PlusOutlined,
+  SaveOutlined,
+  StopOutlined,
 } from '@ant-design/icons'
-import {useEffect, useMemo, useState} from 'react'
+import {useEffect, useMemo, useRef, useState} from 'react'
 import {DeploymentHistoryTable} from './DeploymentHistoryTable'
 import {findDeployableArtifacts, flattenModules, moduleLabel,} from '../../services/deploymentTopologyService'
 import {selectLocalFile} from '../../services/tauri-api'
@@ -37,14 +37,14 @@ import {useAppStore} from '../../store/useAppStore'
 import {useNavigationStore} from '../../store/navigationStore'
 import {useWorkflowStore} from '../../store/useWorkflowStore'
 import type {
-    BuildArtifact,
-    DeployFailureStrategy,
-    DeploymentProfile,
-    DeploymentStage,
-    DeployStep,
-    DeployStepType,
-    SaveServerProfilePayload,
-    ServerProfile,
+  BuildArtifact,
+  DeployFailureStrategy,
+  DeploymentProfile,
+  DeploymentStage,
+  DeployStep,
+  DeployStepType,
+  SaveServerProfilePayload,
+  ServerProfile,
 } from '../../types/domain'
 
 const {Text} = Typography
@@ -192,7 +192,7 @@ const createSpringBootJarSteps = (): DeployStep[] => {
     createDeployStep('log_check', 100, '检查启动日志'),
   ]
 
-  steps[1].config = {command: 'if [ -f "${remoteDeployPath}/${artifactName}" ]; then cp -f "${remoteDeployPath}/${artifactName}" "${remoteDeployPath}/${artifactName}.bak"; fi', successExitCodes: [0]}
+  steps[1].config = {command: 'if [ -f "${remoteDeployPath}/${artifactName}" ]; then cp -f "${remoteDeployPath}/${artifactName}" "${remoteDeployPath}/${artifactName}.${date}"; fi', successExitCodes: [0]}
   steps[2].config = {command: 'pkill -f "${artifactName}" || true', successExitCodes: [0]}
   steps[3].config = {waitSeconds: 3}
   steps[4].config = {command: 'mv -f "${remoteDeployPath}/.${artifactName}.uploading" "${remoteDeployPath}/${artifactName}"', successExitCodes: [0]}
@@ -318,6 +318,8 @@ export function DeploymentCenterPanel() {
   const cancelDeployment = useWorkflowStore((state) => state.cancelDeployment)
   const [serverDraft, setServerDraft] = useState<SaveServerProfilePayload>(createServerDraft())
   const [deploymentDraft, setDeploymentDraft] = useState<DeploymentProfile>(createDeploymentDraft())
+  const deploymentDraftRef = useRef(deploymentDraft)
+  deploymentDraftRef.current = deploymentDraft
   const [selectedDeploymentProfileId, setSelectedDeploymentProfileId] = useState<string>()
   const [selectedServerId, setSelectedServerId] = useState<string>()
   const [selectedArtifactPath, setSelectedArtifactPath] = useState<string>()
@@ -985,7 +987,7 @@ export function DeploymentCenterPanel() {
                   </Card>
 
                   <Space wrap>
-                    <Button type="primary" icon={<SaveOutlined />} onClick={() => void saveDeploymentProfile(deploymentDraft)}>
+                    <Button type="primary" icon={<SaveOutlined />} onClick={() => void saveDeploymentProfile(deploymentDraftRef.current)}>
                       保存服务映射
                     </Button>
                     <Button onClick={() => setDeploymentDraft(createDeploymentDraft())}>
