@@ -26,6 +26,7 @@ interface WorkflowState {
   clearDependencyGraph: () => void
   saveServerProfile: (payload: SaveServerProfilePayload) => Promise<void>
   deleteServerProfile: (serverId: string) => Promise<void>
+  testServerConnection: (serverId: string) => Promise<string>
   saveDeploymentProfile: (profile: DeploymentProfile) => Promise<void>
   deleteDeploymentProfile: (profileId: string) => Promise<void>
   refreshDeploymentData: () => Promise<void>
@@ -141,6 +142,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       await get().refreshDeploymentData()
     } catch (error) {
       set({error: getErrorMessage(error)})
+    }
+  },
+
+  testServerConnection: async (serverId) => {
+    try {
+      return await api.testServerConnection(serverId)
+    } catch (error) {
+      throw new Error(getErrorMessage(error))
     }
   },
 

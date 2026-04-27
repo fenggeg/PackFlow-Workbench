@@ -603,7 +603,7 @@ fn execute_upload_step(
         local,
         &remote_path,
         || is_cancel_requested(app, task_id),
-        |uploaded, total| {
+        |uploaded, total, speed_bps| {
             let percent = if total == 0 {
                 100
             } else {
@@ -611,11 +611,14 @@ fn execute_upload_step(
             };
             if percent == 100 || percent >= last_upload_percent + 1 {
                 last_upload_percent = percent;
+                let speed_text = speed_bps
+                    .map(|s| format!(", {}", format_speed(s)))
+                    .unwrap_or_default();
                 update_stage(
                     task,
                     &step.id,
                     "running",
-                    Some(format!("上传进度 {}% ({}/{})", percent, format_bytes(uploaded), format_bytes(total))),
+                    Some(format!("上传进度 {}% ({}/{}){}", percent, format_bytes(uploaded), format_bytes(total), speed_text)),
                 );
                 emit_task_update(app, task);
             }
@@ -1013,5 +1016,17 @@ fn format_bytes(value: u64) -> String {
         format!("{:.1} KB", value as f64 / KB)
     } else {
         format!("{} B", value)
+    }
+}
+
+fn format_speed(bytes_per_sec: f64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = 1024.0 * 1024.0;
+    if bytes_per_sec >= MB {
+        format!("{:.1} MB/s", bytes_per_sec / MB)
+    } else if bytes_per_sec >= KB {
+        format!("{:.1} KB/s", bytes_per_sec / KB)
+    } else {
+        format!("{:.0} B/s", bytes_per_sec)
     }
 }

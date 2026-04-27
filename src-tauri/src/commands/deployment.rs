@@ -3,7 +3,7 @@ use crate::models::deployment::{
     DeploymentProfile, DeploymentTask, SaveServerProfilePayload, ServerProfile, StartDeploymentPayload,
 };
 use crate::repositories::deployment_repo;
-use crate::services::{app_logger, blocking, deployment_executor};
+use crate::services::{app_logger, blocking, deployment_executor, ssh_transport_service};
 use tauri::AppHandle;
 
 #[tauri::command]
@@ -164,6 +164,33 @@ pub async fn delete_deployment_task(app: AppHandle, task_id: String) -> AppResul
             "deployment.task.delete.failed",
             format!("error={}", error),
         );
+    }
+    result
+}
+
+#[tauri::command]
+pub async fn test_server_connection(app: AppHandle, server_id: String) -> AppResult<String> {
+    app_logger::log_info(
+        &app,
+        "deployment.server.test.start",
+        format!("server_id={}", server_id),
+    );
+    let task_app = app.clone();
+    let result = blocking::run(move || {
+        let profile = deployment_repo::get_server_profile_for_execution(&task_app, &server_id)?;
+        ssh_transport_service::test_server_connection(&profile)
+    }).await;
+    match &result {
+        Ok(message) => app_logger::log_info(
+            &app,
+            "deployment.server.test.success",
+            message.clone(),
+        ),
+        Err(error) => app_logger::log_error(
+            &app,
+            "deployment.server.test.failed",
+            format!("error={}", error),
+        ),
     }
     result
 }

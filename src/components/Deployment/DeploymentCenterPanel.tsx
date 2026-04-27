@@ -1,33 +1,33 @@
 import {
-  Alert,
-  Button,
-  Card,
-  Checkbox,
-  Empty,
-  Input,
-  InputNumber,
-  List,
-  Modal,
-  Popconfirm,
-  Select,
-  Space,
-  Steps,
-  Tabs,
-  Tag,
-  Typography,
+    Alert,
+    Button,
+    Card,
+    Checkbox,
+    Empty,
+    Input,
+    InputNumber,
+    List,
+    Modal,
+    Popconfirm,
+    Select,
+    Space,
+    Steps,
+    Tabs,
+    Tag,
+    Typography,
 } from 'antd'
 import {
-  ArrowDownOutlined,
-  ArrowUpOutlined,
-  CloudServerOutlined,
-  DeleteOutlined,
-  DeploymentUnitOutlined,
-  HistoryOutlined,
-  InboxOutlined,
-  PlayCircleOutlined,
-  PlusOutlined,
-  SaveOutlined,
-  StopOutlined,
+    ArrowDownOutlined,
+    ArrowUpOutlined,
+    CloudServerOutlined,
+    DeleteOutlined,
+    DeploymentUnitOutlined,
+    HistoryOutlined,
+    InboxOutlined,
+    PlayCircleOutlined,
+    PlusOutlined,
+    SaveOutlined,
+    StopOutlined,
 } from '@ant-design/icons'
 import {useEffect, useMemo, useRef, useState} from 'react'
 import {DeploymentHistoryTable} from './DeploymentHistoryTable'
@@ -37,14 +37,14 @@ import {useAppStore} from '../../store/useAppStore'
 import {useNavigationStore} from '../../store/navigationStore'
 import {useWorkflowStore} from '../../store/useWorkflowStore'
 import type {
-  BuildArtifact,
-  DeployFailureStrategy,
-  DeploymentProfile,
-  DeploymentStage,
-  DeployStep,
-  DeployStepType,
-  SaveServerProfilePayload,
-  ServerProfile,
+    BuildArtifact,
+    DeployFailureStrategy,
+    DeploymentProfile,
+    DeploymentStage,
+    DeployStep,
+    DeployStepType,
+    SaveServerProfilePayload,
+    ServerProfile,
 } from '../../types/domain'
 
 const {Text} = Typography
@@ -312,6 +312,7 @@ export function DeploymentCenterPanel() {
   const currentDeploymentTask = useWorkflowStore((state) => state.currentDeploymentTask)
   const saveServerProfile = useWorkflowStore((state) => state.saveServerProfile)
   const deleteServerProfile = useWorkflowStore((state) => state.deleteServerProfile)
+  const testServerConnection = useWorkflowStore((state) => state.testServerConnection)
   const saveDeploymentProfile = useWorkflowStore((state) => state.saveDeploymentProfile)
   const deleteDeploymentProfile = useWorkflowStore((state) => state.deleteDeploymentProfile)
   const startDeployment = useWorkflowStore((state) => state.startDeployment)
@@ -325,6 +326,8 @@ export function DeploymentCenterPanel() {
   const [selectedArtifactPath, setSelectedArtifactPath] = useState<string>()
   const [pipelineEditorOpen, setPipelineEditorOpen] = useState(false)
   const [selectedStepId, setSelectedStepId] = useState<string>()
+  const [testingServerId, setTestingServerId] = useState<string>()
+  const [testResult, setTestResult] = useState<{serverId: string; success: boolean; message: string}>()
   const deploymentPreselectProfileId = useNavigationStore((state) => state.deploymentPreselectProfileId)
   const clearDeploymentPreselect = useNavigationStore((state) => state.clearDeploymentPreselect)
 
@@ -868,7 +871,41 @@ export function DeploymentCenterPanel() {
                     >
                       保存服务器
                     </Button>
-                    <Button onClick={() => setServerDraft(createServerDraft())}>重置</Button>
+                    <Button
+                      icon={<CloudServerOutlined />}
+                      loading={testingServerId === 'draft'}
+                      onClick={() => {
+                        setTestingServerId('draft')
+                        setTestResult(undefined)
+                        void saveServerProfile(serverDraft).then(async () => {
+                          const saved = useWorkflowStore.getState().serverProfiles.find(
+                            (s) => s.host === serverDraft.host && s.username === serverDraft.username && s.port === serverDraft.port,
+                          )
+                          if (saved) {
+                            try {
+                              const msg = await testServerConnection(saved.id)
+                              setTestResult({serverId: 'draft', success: true, message: msg})
+                            } catch (err) {
+                              setTestResult({serverId: 'draft', success: false, message: err instanceof Error ? err.message : String(err)})
+                            }
+                          }
+                          setTestingServerId(undefined)
+                        })
+                      }}
+                    >
+                      测试连接
+                    </Button>
+                    <Button onClick={() => { setServerDraft(createServerDraft()); setTestResult(undefined) }}>重置</Button>
+                    {testResult?.serverId === 'draft' && (
+                      <Alert
+                        type={testResult.success ? 'success' : 'error'}
+                        message={testResult.message}
+                        showIcon
+                        closable
+                        onClose={() => setTestResult(undefined)}
+                        style={{maxWidth: 400}}
+                      />
+                    )}
                   </Space>
                   {serverProfiles.length === 0 ? (
                     <Empty description="暂无服务器配置" image={Empty.PRESENTED_IMAGE_SIMPLE} />
@@ -879,6 +916,16 @@ export function DeploymentCenterPanel() {
                       renderItem={(profile) => (
                         <List.Item
                           actions={[
+                            <Button key="test" size="small" icon={<CloudServerOutlined />} loading={testingServerId === profile.id} onClick={() => {
+                              setTestingServerId(profile.id)
+                              setTestResult(undefined)
+                              void testServerConnection(profile.id)
+                                .then((msg) => setTestResult({serverId: profile.id, success: true, message: msg}))
+                                .catch((err) => setTestResult({serverId: profile.id, success: false, message: err instanceof Error ? err.message : String(err)}))
+                                .finally(() => setTestingServerId(undefined))
+                            }}>
+                              测试
+                            </Button>,
                             <Button key="edit" size="small" onClick={() => openServer(profile)}>
                               编辑
                             </Button>,
@@ -902,6 +949,11 @@ export function DeploymentCenterPanel() {
                               <Tag>{profile.authType}</Tag>
                               {profile.passwordConfigured ? <Tag color="gold">已保存密码</Tag> : null}
                               {profile.group ? <Tag>{profile.group}</Tag> : null}
+                              {testResult?.serverId === profile.id && (
+                                <Tag color={testResult.success ? 'green' : 'red'}>
+                                  {testResult.success ? '连接成功' : '连接失败'}
+                                </Tag>
+                              )}
                             </Space>
                           </Space>
                         </List.Item>

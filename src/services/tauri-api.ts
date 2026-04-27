@@ -172,6 +172,9 @@ export const api = {
   deleteServerProfile: (serverId: string) =>
     invoke<void>('delete_server_profile', { serverId }),
 
+  testServerConnection: (serverId: string) =>
+    invoke<string>('test_server_connection', { serverId }),
+
   listDeploymentProfiles: () =>
     invoke<DeploymentProfile[]>('list_deployment_profiles'),
 

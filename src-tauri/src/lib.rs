@@ -60,6 +60,7 @@ pub fn run() {
             commands::deployment::start_deployment,
             commands::deployment::cancel_deployment,
             commands::deployment::delete_deployment_task,
+            commands::deployment::test_server_connection,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
