@@ -1,5 +1,7 @@
 use crate::error::AppResult;
-use crate::models::deployment::{DeploymentProfile, DeploymentTask, SaveServerProfilePayload, ServerProfile};
+use crate::models::deployment::{
+    DeploymentProfile, DeploymentTask, SaveServerProfilePayload, ServerProfile,
+};
 use crate::repositories::storage::open_database;
 use crate::services::secure_storage;
 use chrono::Utc;
@@ -123,7 +125,10 @@ pub fn save_server_profile(
 pub fn delete_server_profile(app: &AppHandle, server_id: &str) -> AppResult<()> {
     let connection = open_database(app)?;
     connection
-        .execute("DELETE FROM server_profiles WHERE id = ?1", params![server_id])
+        .execute(
+            "DELETE FROM server_profiles WHERE id = ?1",
+            params![server_id],
+        )
         .map_err(|error| format!("无法删除服务器配置：{}", error))?;
     Ok(())
 }
@@ -222,8 +227,8 @@ pub fn list_deployment_tasks(app: &AppHandle) -> AppResult<Vec<DeploymentTask>> 
 
 pub fn save_deployment_task(app: &AppHandle, task: DeploymentTask) -> AppResult<()> {
     let connection = open_database(app)?;
-    let payload = serde_json::to_string(&task)
-        .map_err(|error| format!("无法序列化部署历史：{}", error))?;
+    let payload =
+        serde_json::to_string(&task).map_err(|error| format!("无法序列化部署历史：{}", error))?;
     connection
         .execute(
             r#"
@@ -234,7 +239,12 @@ pub fn save_deployment_task(app: &AppHandle, task: DeploymentTask) -> AppResult<
                 created_at = excluded.created_at,
                 payload = excluded.payload
             "#,
-            params![task.id, task.deployment_profile_id, task.created_at, payload],
+            params![
+                task.id,
+                task.deployment_profile_id,
+                task.created_at,
+                payload
+            ],
         )
         .map_err(|error| format!("无法保存部署历史：{}", error))?;
 
@@ -257,7 +267,10 @@ pub fn save_deployment_task(app: &AppHandle, task: DeploymentTask) -> AppResult<
 pub fn delete_deployment_task(app: &AppHandle, task_id: &str) -> AppResult<()> {
     let connection = open_database(app)?;
     connection
-        .execute("DELETE FROM deployment_tasks WHERE id = ?1", params![task_id])
+        .execute(
+            "DELETE FROM deployment_tasks WHERE id = ?1",
+            params![task_id],
+        )
         .map_err(|error| format!("无法删除部署记录：{}", error))?;
     Ok(())
 }

@@ -66,7 +66,13 @@ pub struct DeploymentProfile {
     pub name: String,
     pub module_id: String,
     pub local_artifact_pattern: String,
+    #[serde(default)]
+    pub remote_artifact_name: Option<String>,
     pub remote_deploy_path: String,
+    #[serde(default)]
+    pub log_path: Option<String>,
+    #[serde(default = "default_true")]
+    pub enable_deploy_log: bool,
     #[serde(default)]
     pub deployment_steps: Vec<DeployStep>,
     #[serde(default)]

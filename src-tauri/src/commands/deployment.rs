@@ -1,6 +1,7 @@
 use crate::error::AppResult;
 use crate::models::deployment::{
-    DeploymentProfile, DeploymentTask, SaveServerProfilePayload, ServerProfile, StartDeploymentPayload,
+    DeploymentProfile, DeploymentTask, SaveServerProfilePayload, ServerProfile,
+    StartDeploymentPayload,
 };
 use crate::repositories::deployment_repo;
 use crate::services::{app_logger, blocking, deployment_executor, ssh_transport_service};
@@ -31,7 +32,8 @@ pub async fn save_server_profile(
     payload: SaveServerProfilePayload,
 ) -> AppResult<ServerProfile> {
     let task_app = app.clone();
-    let result = blocking::run(move || deployment_repo::save_server_profile(&task_app, payload)).await;
+    let result =
+        blocking::run(move || deployment_repo::save_server_profile(&task_app, payload)).await;
     if let Err(error) = &result {
         app_logger::log_error(
             &app,
@@ -45,7 +47,8 @@ pub async fn save_server_profile(
 #[tauri::command]
 pub async fn delete_server_profile(app: AppHandle, server_id: String) -> AppResult<()> {
     let task_app = app.clone();
-    let result = blocking::run(move || deployment_repo::delete_server_profile(&task_app, &server_id)).await;
+    let result =
+        blocking::run(move || deployment_repo::delete_server_profile(&task_app, &server_id)).await;
     if let Err(error) = &result {
         app_logger::log_error(
             &app,
@@ -140,11 +143,7 @@ pub fn start_deployment(app: AppHandle, payload: StartDeploymentPayload) -> AppR
 
 #[tauri::command]
 pub fn cancel_deployment(app: AppHandle, task_id: String) -> AppResult<()> {
-    app_logger::log_info(
-        &app,
-        "deployment.cancel",
-        format!("task_id={}", task_id),
-    );
+    app_logger::log_info(&app, "deployment.cancel", format!("task_id={}", task_id));
     deployment_executor::cancel_deployment(app, task_id)
 }
 
@@ -179,13 +178,12 @@ pub async fn test_server_connection(app: AppHandle, server_id: String) -> AppRes
     let result = blocking::run(move || {
         let profile = deployment_repo::get_server_profile_for_execution(&task_app, &server_id)?;
         ssh_transport_service::test_server_connection(&profile)
-    }).await;
+    })
+    .await;
     match &result {
-        Ok(message) => app_logger::log_info(
-            &app,
-            "deployment.server.test.success",
-            message.clone(),
-        ),
+        Ok(message) => {
+            app_logger::log_info(&app, "deployment.server.test.success", message.clone())
+        }
         Err(error) => app_logger::log_error(
             &app,
             "deployment.server.test.failed",

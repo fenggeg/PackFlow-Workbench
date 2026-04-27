@@ -5,7 +5,7 @@ import {BuildLogPanel} from '../components/BuildLogPanel/BuildLogPanel'
 import {useAppStore} from '../store/useAppStore'
 import {type InspectorTab, useNavigationStore} from '../store/navigationStore'
 import {useWorkflowStore} from '../store/useWorkflowStore'
-import type {BuildDiagnosis} from '../types/domain'
+import type {BuildDiagnosis, DeploymentStage} from '../types/domain'
 
 const {Text} = Typography
 
@@ -25,6 +25,101 @@ const diagnosisCategoryText: Record<BuildDiagnosis['category'], string> = {
 const deploymentRunning = (status?: string) =>
   Boolean(status && !['success', 'failed', 'cancelled'].includes(status))
 
+const deploymentStatusText = (status?: string) => {
+  switch (status) {
+    case 'success': return '部署成功'
+    case 'failed': return '部署失败'
+    case 'cancelled': return '已停止'
+    case 'pending': return '等待中'
+    case 'uploading': return '上传中'
+    case 'stopping': return '停止旧服务'
+    case 'starting': return '启动中'
+    case 'checking': return '检测中'
+    default: return status ?? '未知'
+  }
+}
+
+const stageStatusText = (status: string) => {
+  switch (status) {
+    case 'pending': return '等待中'
+    case 'waiting': return '等待中'
+    case 'running': return '执行中'
+    case 'checking': return '检测中'
+    case 'success': return '成功'
+    case 'failed': return '失败'
+    case 'skipped': return '已跳过'
+    case 'timeout': return '超时'
+    case 'cancelled': return '已停止'
+    default: return status
+  }
+}
+
+const stageStatusColor = (status: string) => {
+  switch (status) {
+    case 'success': return 'success'
+    case 'failed':
+    case 'timeout': return 'error'
+    case 'cancelled': return 'warning'
+    case 'running':
+    case 'checking':
+    case 'waiting': return 'processing'
+    case 'skipped': return 'default'
+    default: return 'default'
+  }
+}
+
+const stepTypeText = (type?: string) => {
+  switch (type) {
+    case 'ssh_command': return 'SSH 命令'
+    case 'wait': return '等待'
+    case 'port_check': return '端口检测'
+    case 'http_check': return 'HTTP 健康检查'
+    case 'log_check': return '日志关键字检测'
+    case 'upload_file': return '文件上传'
+    case 'startup_probe': return '启动探针'
+    default: return type ?? '部署步骤'
+  }
+}
+
+const probeTypeText = (type: string) => {
+  switch (type) {
+    case 'process': return '进程探针'
+    case 'port': return '端口探针'
+    case 'http': return 'HTTP 探针'
+    case 'log': return '日志探针'
+    case 'timeout': return '超时'
+    default: return type
+  }
+}
+
+const probeStatusColor = (status: string) => {
+  switch (status) {
+    case 'success':
+    case 'alive':
+    case 'open': return 'green'
+    case 'failed':
+    case 'dead':
+    case 'closed': return 'red'
+    case 'warning': return 'gold'
+    case 'checking': return 'processing'
+    default: return 'default'
+  }
+}
+
+const formatDuration = (durationMs?: number) => {
+  if (!durationMs) {
+    return ''
+  }
+  return durationMs >= 1000 ? `${(durationMs / 1000).toFixed(1)}s` : `${durationMs}ms`
+}
+
+const stageMetaText = (stage: DeploymentStage) =>
+  [
+    stepTypeText(stage.type),
+    stage.durationMs ? `耗时 ${formatDuration(stage.durationMs)}` : '',
+    stage.retryCount ? `重试 ${stage.currentRetry ?? 0}/${stage.retryCount}` : '',
+  ].filter(Boolean).join(' · ')
+
 export function InspectorDrawer() {
   const inspectorOpen = useNavigationStore((state) => state.inspectorOpen)
   const inspectorTab = useNavigationStore((state) => state.inspectorTab)
@@ -41,6 +136,27 @@ export function InspectorDrawer() {
   const serverProfiles = useWorkflowStore((state) => state.serverProfiles)
   const deploymentProfiles = useWorkflowStore((state) => state.deploymentProfiles)
   const [expanded, setExpanded] = useState(false)
+  const [inspectorWidth, setInspectorWidth] = useState(520)
+  const [resizing, setResizing] = useState(false)
+
+  useEffect(() => {
+    if (!resizing) {
+      return undefined
+    }
+    const onMouseMove = (event: MouseEvent) => {
+      const nextWidth = Math.min(840, Math.max(420, window.innerWidth - event.clientX))
+      setInspectorWidth(nextWidth)
+    }
+    const onMouseUp = () => setResizing(false)
+    document.body.classList.add('inspector-resizing')
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+    return () => {
+      document.body.classList.remove('inspector-resizing')
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [resizing])
 
   useEffect(() => {
     if (buildStatus === 'RUNNING') {
@@ -119,7 +235,7 @@ export function InspectorDrawer() {
     }
 
     const task = currentDeploymentTask
-    const currentStage = task?.stages.find((s) => s.status === 'running') ?? task?.stages.find((s) => s.status === 'failed')
+    const currentStage = task?.stages.find((s) => ['running', 'checking', 'waiting'].includes(s.status)) ?? task?.stages.find((s) => ['failed', 'timeout'].includes(s.status))
     const server = serverProfiles.find((s) => s.id === task?.serverId)
     const profile = deploymentProfiles.find((p) => p.id === task?.deploymentProfileId)
     return (
@@ -130,7 +246,7 @@ export function InspectorDrawer() {
           <Space direction="vertical" size={10} style={{width: '100%'}}>
             <Space size={8} wrap>
               <Tag color={task.status === 'success' ? 'success' : task.status === 'pending' ? 'processing' : task.status === 'cancelled' ? 'warning' : 'error'}>
-                {task.status === 'success' ? '部署成功' : task.status === 'pending' ? '等待中' : task.status === 'cancelled' ? '已取消' : '部署失败'}
+                {deploymentStatusText(task.status)}
               </Tag>
               <Text strong>{task.artifactName}</Text>
             </Space>
@@ -139,7 +255,7 @@ export function InspectorDrawer() {
             {currentStage && (
               <>
                 <Text strong type={currentStage.status === 'failed' ? 'danger' : undefined}>
-                  当前阶段：{currentStage.label} {currentStage.status === 'failed' ? '· 失败' : currentStage.status === 'running' ? '· 执行中' : ''}
+                  当前阶段：{currentStage.label} · {stageStatusText(currentStage.status)}
                 </Text>
                 {task.log && task.log.length > 0 && (
                   <div className="diagnosis-keyword-lines">
@@ -183,18 +299,47 @@ export function InspectorDrawer() {
             <Text type="secondary">部署产物：{task.artifactName}</Text>
             <Text type="secondary">目标服务器：{server?.name ?? task.serverId} ({server?.host ?? '-'})</Text>
             <Text type="secondary">部署配置：{profile?.name ?? task.deploymentProfileId}</Text>
-            <Text type="secondary">状态：{task.status}</Text>
-            <Text type="secondary">阶段进度：</Text>
-            <Space size={4} wrap>
-              {task.stages.map((stage) => (
-                <Tag
-                  key={stage.key}
-                  color={stage.status === 'success' ? 'success' : stage.status === 'failed' ? 'error' : stage.status === 'running' ? 'processing' : 'default'}
-                >
-                  {stage.label}
-                </Tag>
-              ))}
-            </Space>
+            <Text type="secondary">状态：{deploymentStatusText(task.status)}</Text>
+            <div className="inspector-deploy-flow">
+              <Text strong>部署流程</Text>
+              <List
+                size="small"
+                dataSource={task.stages}
+                locale={{emptyText: '暂无部署步骤'}}
+                renderItem={(stage, index) => (
+                  <List.Item className="inspector-deploy-step">
+                    <div className="inspector-deploy-step-index">{index + 1}</div>
+                    <div className="inspector-deploy-step-body">
+                      <Space size={6} wrap className="inspector-deploy-step-title">
+                        <Text strong>{stage.label}</Text>
+                        <Tag color={stageStatusColor(stage.status)}>{stageStatusText(stage.status)}</Tag>
+                      </Space>
+                      <Text type="secondary" className="inspector-deploy-step-meta">
+                        {stageMetaText(stage) || stepTypeText(stage.type)}
+                      </Text>
+                      {stage.message ? (
+                        <Text className="inspector-deploy-step-message">
+                          {stage.message}
+                        </Text>
+                      ) : null}
+                      {stage.probeStatuses && stage.probeStatuses.length > 0 ? (
+                        <div className="inspector-probe-list">
+                          {stage.probeStatuses.map((probe, probeIndex) => (
+                            <div className="inspector-probe-row" key={`${stage.key}-${probeIndex}`}>
+                              <Tag color={probeStatusColor(probe.status)}>{probe.status}</Tag>
+                              <Text className="inspector-probe-text">
+                                {probeTypeText(probe.probeType)}：{probe.message ?? probe.status}
+                                {probe.checkCount ? `（已检测 ${probe.checkCount} 次）` : ''}
+                              </Text>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  </List.Item>
+                )}
+              />
+            </div>
           </Space>
         )}
       </Card>
@@ -215,9 +360,15 @@ export function InspectorDrawer() {
   }
 
   return (
-    <aside className="inspector-drawer">
+    <aside className="inspector-drawer" style={{width: inspectorWidth}}>
+      <div
+        className="inspector-resize-handle"
+        role="separator"
+        aria-label="拖动调整右侧面板宽度"
+        onMouseDown={() => setResizing(true)}
+      />
       <div className="inspector-header">
-        <Text strong>Inspector</Text>
+        <Text strong>检查器</Text>
         <Space size={4}>
           <Button
             size="small"
@@ -258,7 +409,7 @@ export function InspectorDrawer() {
         ]}
       />
       <Modal
-        title="Inspector"
+        title="检查器"
         open={expanded}
         footer={null}
         width="90vw"

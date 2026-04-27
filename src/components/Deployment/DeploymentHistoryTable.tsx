@@ -95,6 +95,7 @@ const probeTypeLabel = (type: string) => {
     case 'port': return '端口探针'
     case 'http': return 'HTTP 探针'
     case 'log': return '日志探针'
+    case 'timeout': return '超时'
     default: return type
   }
 }
@@ -234,7 +235,7 @@ export function DeploymentHistoryTable() {
         </Space>
       ),
     },
-  ], [])
+  ], [deleteDeploymentTask, rerunDeployment])
 
   const openTaskLogs = openTask ? (deploymentLogsByTaskId[openTask.id] ?? openTask.log ?? []) : []
   const filteredLogs = logKeyword.trim()

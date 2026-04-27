@@ -1,7 +1,7 @@
 use crate::error::{to_user_error, AppResult};
 use crate::repositories::deployment_repo::ExecutionServerProfile;
 use encoding_rs::GBK;
-use ssh::algorithm::{Kex, PubKey, Enc};
+use ssh::algorithm::{Enc, Kex, PubKey};
 use ssh2::Session;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -36,7 +36,11 @@ impl SshConnection {
         }
         let session = match profile.auth_type.as_str() {
             "password" => {
-                if profile.password.as_deref().is_none_or(|value| value.trim().is_empty()) {
+                if profile
+                    .password
+                    .as_deref()
+                    .is_none_or(|value| value.trim().is_empty())
+                {
                     return Err(to_user_error("服务器密码不存在。"));
                 }
                 open_password_session(profile, &mut is_cancelled)?
@@ -101,9 +105,16 @@ impl SshConnection {
 
         let exit_status = channel
             .exit_status()
-            .map_err(|error| to_user_error(format!("读取远端命令退出码失败：{}", error)))? as i32;
+            .map_err(|error| to_user_error(format!("读取远端命令退出码失败：{}", error)))?
+            as i32;
 
-        parse_command_bytes(stdout, Vec::new(), exit_status, success_exit_codes, "远端命令执行失败")
+        parse_command_bytes(
+            stdout,
+            Vec::new(),
+            exit_status,
+            success_exit_codes,
+            "远端命令执行失败",
+        )
     }
 
     pub fn upload_file_with_progress<C, P>(
@@ -144,9 +155,24 @@ impl SshConnection {
         let _ = mkdir_channel.get_output();
 
         if let Some(sftp_arc) = &self.sftp_session {
-            upload_via_sftp(sftp_arc, &mut local_file, remote_path, file_size, &mut is_cancelled, &mut on_progress)
+            upload_via_sftp(
+                sftp_arc,
+                &mut local_file,
+                remote_path,
+                file_size,
+                &mut is_cancelled,
+                &mut on_progress,
+            )
         } else {
-            upload_via_base64(&mut self.session, &mut local_file, remote_path, &remote_dir, file_size, &mut is_cancelled, &mut on_progress)
+            upload_via_base64(
+                &mut self.session,
+                &mut local_file,
+                remote_path,
+                &remote_dir,
+                file_size,
+                &mut is_cancelled,
+                &mut on_progress,
+            )
         }
     }
 }
@@ -159,8 +185,8 @@ fn open_sftp_session(profile: &ExecutionServerProfile) -> AppResult<Arc<Mutex<Sf
     tcp.set_write_timeout(Some(Duration::from_secs(30)))
         .map_err(|error| to_user_error(format!("设置 SFTP 超时失败：{}", error)))?;
 
-    let mut session = Session::new()
-        .map_err(|error| to_user_error(format!("创建 SFTP 会话失败：{}", error)))?;
+    let mut session =
+        Session::new().map_err(|error| to_user_error(format!("创建 SFTP 会话失败：{}", error)))?;
     session.set_tcp_stream(tcp);
     session
         .handshake()
@@ -250,13 +276,21 @@ where
         let speed = if now.duration_since(last_progress_time) >= Duration::from_millis(200) {
             let elapsed_secs = now.duration_since(last_progress_time).as_secs_f64();
             let bytes_delta = uploaded.saturating_sub(last_uploaded) as f64;
-            let speed = if elapsed_secs > 0.0 { Some(bytes_delta / elapsed_secs) } else { None };
+            let speed = if elapsed_secs > 0.0 {
+                Some(bytes_delta / elapsed_secs)
+            } else {
+                None
+            };
             last_progress_time = now;
             last_uploaded = uploaded;
             speed
         } else {
             let total_elapsed = start_time.elapsed().as_secs_f64();
-            if total_elapsed > 0.0 { Some(uploaded as f64 / total_elapsed) } else { None }
+            if total_elapsed > 0.0 {
+                Some(uploaded as f64 / total_elapsed)
+            } else {
+                None
+            }
         };
 
         on_progress(uploaded, file_size, speed);
@@ -331,13 +365,21 @@ where
             let speed = if now.duration_since(last_progress_time) >= Duration::from_millis(200) {
                 let elapsed_secs = now.duration_since(last_progress_time).as_secs_f64();
                 let bytes_delta = uploaded.saturating_sub(last_uploaded) as f64;
-                let speed = if elapsed_secs > 0.0 { Some(bytes_delta / elapsed_secs) } else { None };
+                let speed = if elapsed_secs > 0.0 {
+                    Some(bytes_delta / elapsed_secs)
+                } else {
+                    None
+                };
                 last_progress_time = now;
                 last_uploaded = uploaded;
                 speed
             } else {
                 let total_elapsed = start_time.elapsed().as_secs_f64();
-                if total_elapsed > 0.0 { Some(uploaded as f64 / total_elapsed) } else { None }
+                if total_elapsed > 0.0 {
+                    Some(uploaded as f64 / total_elapsed)
+                } else {
+                    None
+                }
             };
 
             on_progress(uploaded, file_size, speed);
@@ -346,7 +388,10 @@ where
         let mut decode_channel = session
             .open_exec()
             .map_err(|error| to_user_error(format!("无法打开 SSH 命令通道：{}", error)))?;
-        let decode_cmd = format!("base64 -d {} > {} && rm -f {}", temp_b64, remote_path, temp_b64);
+        let decode_cmd = format!(
+            "base64 -d {} > {} && rm -f {}",
+            temp_b64, remote_path, temp_b64
+        );
         decode_channel
             .exec_command(&decode_cmd)
             .map_err(|error| to_user_error(format!("解码上传文件失败：{}", error)))?;
@@ -372,7 +417,10 @@ where
 
 const CONNECT_TIMEOUT_SECONDS: u64 = 10;
 
-fn open_password_session<C>(profile: &ExecutionServerProfile, mut is_cancelled: C) -> AppResult<ssh::LocalSession<TcpStream>>
+fn open_password_session<C>(
+    profile: &ExecutionServerProfile,
+    mut is_cancelled: C,
+) -> AppResult<ssh::LocalSession<TcpStream>>
 where
     C: FnMut() -> bool,
 {
@@ -403,13 +451,15 @@ where
         )
         .map_err(|error| to_user_error(format!("SSH 连接失败：{}", error)))?;
 
-    let session = connector
-        .run_local();
+    let session = connector.run_local();
 
     Ok(session)
 }
 
-fn open_private_key_session<C>(profile: &ExecutionServerProfile, mut is_cancelled: C) -> AppResult<ssh::LocalSession<TcpStream>>
+fn open_private_key_session<C>(
+    profile: &ExecutionServerProfile,
+    mut is_cancelled: C,
+) -> AppResult<ssh::LocalSession<TcpStream>>
 where
     C: FnMut() -> bool,
 {
@@ -440,62 +490,14 @@ where
         )
         .map_err(|error| to_user_error(format!("SSH 连接失败：{}", error)))?;
 
-    let session = connector
-        .run_local();
+    let session = connector.run_local();
 
     Ok(session)
 }
 
 pub fn test_server_connection(profile: &ExecutionServerProfile) -> AppResult<String> {
-    let tcp = TcpStream::connect((&profile.host as &str, profile.port))
-        .map_err(|error| to_user_error(format!("TCP 连接失败：{}", error)))?;
-    tcp.set_read_timeout(Some(Duration::from_secs(10)))
-        .map_err(|error| to_user_error(format!("设置超时失败：{}", error)))?;
-    tcp.set_write_timeout(Some(Duration::from_secs(10)))
-        .map_err(|error| to_user_error(format!("设置超时失败：{}", error)))?;
-
-    let mut session = Session::new()
-        .map_err(|error| to_user_error(format!("创建 SSH 会话失败：{}", error)))?;
-    session.set_tcp_stream(tcp);
-    session
-        .handshake()
-        .map_err(|error| to_user_error(format!("SSH 握手失败：{}", error)))?;
-
-    match profile.auth_type.as_str() {
-        "password" => {
-            let password = profile
-                .password
-                .as_deref()
-                .ok_or_else(|| to_user_error("服务器密码不存在。"))?;
-            session
-                .userauth_password(&profile.username, password)
-                .map_err(|error| to_user_error(format!("密码认证失败：{}", error)))?;
-        }
-        "private_key" => {
-            let key_path = profile
-                .private_key_path
-                .as_deref()
-                .ok_or_else(|| to_user_error("私钥认证需要提供私钥路径。"))?;
-            session
-                .userauth_pubkey_file(&profile.username, None, Path::new(key_path), None)
-                .map_err(|error| to_user_error(format!("私钥认证失败：{}", error)))?;
-        }
-        _ => return Err(to_user_error("暂不支持的认证方式。")),
-    }
-
-    if !session.authenticated() {
-        return Err(to_user_error("SSH 认证未通过。"));
-    }
-
-    let mut channel = session
-        .channel_session()
-        .map_err(|error| to_user_error(format!("打开命令通道失败：{}", error)))?;
-    channel
-        .exec("echo OK")
-        .map_err(|error| to_user_error(format!("执行测试命令失败：{}", error)))?;
-    channel
-        .wait_close()
-        .map_err(|error| to_user_error(format!("等待命令完成失败：{}", error)))?;
+    let mut connection = SshConnection::connect(profile, || false)?;
+    connection.execute_with_cancel("printf OK", || false)?;
 
     Ok(format!(
         "连接成功：{}@{}:{}（{} 认证）",

@@ -1,9 +1,9 @@
 import {
-  CopyOutlined,
-  DeleteOutlined,
-  FullscreenOutlined,
-  PauseCircleOutlined,
-  PlayCircleOutlined
+    CopyOutlined,
+    DeleteOutlined,
+    FullscreenOutlined,
+    PauseCircleOutlined,
+    PlayCircleOutlined
 } from '@ant-design/icons'
 import {Button, Card, Input, List, Modal, Radio, Space, Tag, Tooltip, Typography} from 'antd'
 import {useEffect, useRef, useState} from 'react'
@@ -18,9 +18,9 @@ type LogSource = 'build' | 'deployment'
 
 const statusText: Record<BuildStatus, string> = {
   IDLE: '未开始',
-  RUNNING: 'BUILDING',
-  SUCCESS: 'BUILD SUCCESS',
-  FAILED: 'BUILD FAILED',
+  RUNNING: '构建中',
+  SUCCESS: '构建成功',
+  FAILED: '构建失败',
   CANCELLED: '已停止',
 }
 
@@ -70,13 +70,27 @@ const classifyLine = (line: string) => {
   if (lower.includes('build success') || lower.includes('exit code 0') || lower.includes('部署完成')) {
     return 'success'
   }
-  if (lower.includes('[error]') || lower.includes('build failure') || lower.includes('命令执行失败') || lower.includes('部署失败')) {
+  if (lower.includes('[error]') || lower.includes('build failure') || lower.includes('命令执行失败') || lower.includes('部署失败') || lower.includes('timeout') || lower.includes('failed')) {
     return 'error'
   }
   if (lower.includes('[warning]') || lower.includes('warn')) {
     return 'warn'
   }
   return ''
+}
+
+const deploymentStatusLabel = (status: string) => {
+  switch (status) {
+    case 'success': return '部署成功'
+    case 'failed': return '部署失败'
+    case 'cancelled': return '已停止'
+    case 'pending': return '等待中'
+    case 'uploading': return '上传中'
+    case 'stopping': return '停止旧服务'
+    case 'starting': return '启动中'
+    case 'checking': return '检测中'
+    default: return status
+  }
 }
 
 export function BuildLogPanel() {
@@ -217,7 +231,14 @@ export function BuildLogPanel() {
     if (activeSource === 'deployment' && currentDeploymentTask) {
       const isRunning = !['success', 'failed', 'cancelled'].includes(currentDeploymentTask.status)
       const color = currentDeploymentTask.status === 'success' ? 'success' : currentDeploymentTask.status === 'cancelled' ? 'warning' : isRunning ? 'processing' : 'error'
-      return <Tag color={color}>{currentDeploymentTask.artifactName} · {currentDeploymentTask.status}</Tag>
+      const label = `${currentDeploymentTask.artifactName} · ${deploymentStatusLabel(currentDeploymentTask.status)}`
+      return (
+        <Tooltip title={label}>
+          <Tag color={color} className="log-status-tag">
+            <span>{label}</span>
+          </Tag>
+        </Tooltip>
+      )
     }
     return null
   }
@@ -246,10 +267,10 @@ export function BuildLogPanel() {
     <Space direction="vertical" size={12} style={{ width: '100%' }}>
       <Card
         title="日志输出"
-        className="panel-card"
+        className="panel-card log-panel-card"
         size="small"
         extra={
-          <Space wrap size={4}>
+          <Space wrap size={4} className="log-card-extra">
             {renderStatusTag()}
             {activeSource === 'build' && (
               <Tooltip title="停止构建">

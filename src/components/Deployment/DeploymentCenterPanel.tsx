@@ -29,10 +29,10 @@ import {
   SaveOutlined,
   StopOutlined,
 } from '@ant-design/icons'
-import {useEffect, useMemo, useRef, useState} from 'react'
+import {useEffect, useMemo, useState} from 'react'
 import {DeploymentHistoryTable} from './DeploymentHistoryTable'
 import {findDeployableArtifacts, flattenModules, moduleLabel,} from '../../services/deploymentTopologyService'
-import {selectLocalFile} from '../../services/tauri-api'
+import {api, selectLocalFile} from '../../services/tauri-api'
 import {useAppStore} from '../../store/useAppStore'
 import {useNavigationStore} from '../../store/navigationStore'
 import {useWorkflowStore} from '../../store/useWorkflowStore'
@@ -50,6 +50,19 @@ import type {
 } from '../../types/domain'
 
 const {Text} = Typography
+
+interface DeploymentTemplate {
+  id: string
+  name: string
+  description: string
+  steps: DeployStep[]
+  builtin?: boolean
+  updatedAt?: string
+}
+
+type FormMode = 'create' | 'edit'
+
+const DEPLOYMENT_TEMPLATE_STORAGE_KEY = 'maven-packager.deploymentTemplates.v1'
 
 const createServerDraft = (): SaveServerProfilePayload => ({
   name: '',
@@ -92,7 +105,10 @@ const createDeploymentDraft = (): DeploymentProfile => ({
   name: '',
   moduleId: '',
   localArtifactPattern: '*.jar',
+  remoteArtifactName: '',
   remoteDeployPath: '',
+  logPath: '',
+  enableDeployLog: true,
   deploymentSteps: [],
   customCommands: [],
   startupProbe: createDefaultStartupProbe(),
@@ -216,21 +232,117 @@ const createSpringBootJarSteps = (): DeployStep[] => {
     createDeployStep('ssh_command', 60, '启动新服务'),
   ]
 
-  steps[1].config = {command: 'if [ -f "${remoteDeployPath}/${artifactName}" ]; then cp -f "${remoteDeployPath}/${artifactName}" "${remoteDeployPath}/${artifactName}.${date}"; fi', successExitCodes: [0]}
-  steps[2].config = {command: 'PID_FILE="${remoteDeployPath}/${artifactName}.pid"; if [ -f "$PID_FILE" ]; then PID=$(cat "$PID_FILE"); kill "$PID" 2>/dev/null || true; rm -f "$PID_FILE"; fi; pkill -f "${artifactName}" || true', successExitCodes: [0]}
+  steps[1].config = {command: 'if [ -f "${remoteDeployPath}/${remoteArtifactName}" ]; then cp -f "${remoteDeployPath}/${remoteArtifactName}" "${remoteDeployPath}/${remoteArtifactName}.${date}"; fi', successExitCodes: [0]}
+  steps[2].config = {command: 'APP_NAME="${remoteArtifactName%.*}"; PID_FILE="${remoteDeployPath}/$APP_NAME.pid"; if [ -f "$PID_FILE" ]; then PID=$(cat "$PID_FILE"); kill "$PID" 2>/dev/null || true; rm -f "$PID_FILE"; fi; pkill -f "${remoteArtifactName}" || true', successExitCodes: [0]}
   steps[3].config = {waitSeconds: 3}
-  steps[4].config = {command: 'mv -f "${remoteDeployPath}/.${artifactName}.uploading" "${remoteDeployPath}/${artifactName}"', successExitCodes: [0]}
-  steps[5].config = {command: 'DEPLOY_LOG="${remoteDeployPath}/${artifactName}.$(date +%Y%m%d_%H%M%S).log"; nohup java -jar "${remoteDeployPath}/${artifactName}" > "$DEPLOY_LOG" 2>&1 & echo $! > "${remoteDeployPath}/${artifactName}.pid"; echo "PID=$!; LOG=$DEPLOY_LOG"', successExitCodes: [0]}
+  steps[4].config = {command: 'mv -f "${remoteDeployPath}/.${artifactName}.uploading" "${remoteDeployPath}/${remoteArtifactName}"', successExitCodes: [0]}
+  steps[5].config = {command: 'APP_NAME="${remoteArtifactName%.*}"; LOG_DIR="${remoteDeployPath}/logs"; DEPLOY_LOG="$LOG_DIR/$APP_NAME-$(date +%Y%m%d%H%M%S).log"; mkdir -p "$LOG_DIR"; cd "${remoteDeployPath}" && nohup java -jar "${remoteDeployPath}/${remoteArtifactName}" > "$DEPLOY_LOG" 2>&1 & PID=$!; echo "$PID" > "${remoteDeployPath}/$APP_NAME.pid"; echo "$DEPLOY_LOG" > "${remoteDeployPath}/$APP_NAME.log.path"; echo "PID=$PID; LOG_FILE=$DEPLOY_LOG"', successExitCodes: [0]}
   return steps
 }
 
-const probeStatusIcon = (status: string) => {
+const createTomcatWarSteps = (): DeployStep[] => {
+  const steps: DeployStep[] = [
+    createDeployStep('upload_file', 10, '上传 war 包'),
+    createDeployStep('ssh_command', 20, '停止 Tomcat'),
+    createDeployStep('ssh_command', 30, '备份旧包'),
+    createDeployStep('ssh_command', 40, '替换 war 包'),
+    createDeployStep('ssh_command', 50, '启动 Tomcat'),
+    createDeployStep('http_check', 60, 'HTTP 验证'),
+  ]
+  steps[0].config = {localPath: '${artifactPath}', remotePath: '${remoteDeployPath}/.${artifactName}.uploading', overwrite: true}
+  steps[1].config = {command: 'if [ -x "${remoteDeployPath}/bin/shutdown.sh" ]; then "${remoteDeployPath}/bin/shutdown.sh" || true; fi', successExitCodes: [0]}
+  steps[2].config = {command: 'if [ -f "${remoteDeployPath}/webapps/${remoteArtifactName}" ]; then cp -f "${remoteDeployPath}/webapps/${remoteArtifactName}" "${remoteDeployPath}/webapps/${remoteArtifactName}.${date}"; fi', successExitCodes: [0]}
+  steps[3].config = {command: 'mv -f "${remoteDeployPath}/.${artifactName}.uploading" "${remoteDeployPath}/webapps/${remoteArtifactName}"', successExitCodes: [0]}
+  steps[4].config = {command: 'if [ -x "${remoteDeployPath}/bin/startup.sh" ]; then "${remoteDeployPath}/bin/startup.sh"; fi', successExitCodes: [0]}
+  steps[5].config = {url: 'http://127.0.0.1:8080/', method: 'GET', expectedStatusCodes: [200, 302], expectedBodyContains: '', checkIntervalSeconds: 5}
+  return steps
+}
+
+const createStaticFileSteps = (): DeployStep[] => {
+  const steps: DeployStep[] = [
+    createDeployStep('upload_file', 10, '上传静态包'),
+    createDeployStep('ssh_command', 20, '备份当前目录'),
+    createDeployStep('ssh_command', 30, '解压并替换'),
+    createDeployStep('http_check', 40, '站点验证'),
+  ]
+  steps[0].config = {localPath: '${artifactPath}', remotePath: '${remoteDeployPath}/.${artifactName}.uploading', overwrite: true}
+  steps[1].config = {command: 'if [ -d "${remoteDeployPath}/current" ]; then cp -a "${remoteDeployPath}/current" "${remoteDeployPath}/backup-${date}"; fi', successExitCodes: [0]}
+  steps[2].config = {command: 'rm -rf "${remoteDeployPath}/next" && mkdir -p "${remoteDeployPath}/next" && unzip -oq "${remoteDeployPath}/.${artifactName}.uploading" -d "${remoteDeployPath}/next" && rm -rf "${remoteDeployPath}/current" && mv "${remoteDeployPath}/next" "${remoteDeployPath}/current"', successExitCodes: [0]}
+  steps[3].config = {url: 'http://127.0.0.1/', method: 'GET', expectedStatusCodes: [200], expectedBodyContains: '', checkIntervalSeconds: 5}
+  return steps
+}
+
+const cloneDeploySteps = (steps: DeployStep[]) =>
+  steps.map((step, index) => ({
+    ...step,
+    id: crypto.randomUUID(),
+    order: (index + 1) * 10,
+    config: JSON.parse(JSON.stringify(step.config)) as DeployStep['config'],
+  }))
+
+const builtinDeploymentTemplates = (): DeploymentTemplate[] => [
+  {
+    id: 'builtin-spring-boot-jar',
+    name: 'Spring Boot Jar 滚动替换',
+    description: '上传、备份、停止旧进程、替换 Jar、nohup 启动并写入 PID/日志指针。',
+    steps: createSpringBootJarSteps(),
+    builtin: true,
+  },
+  {
+    id: 'builtin-tomcat-war',
+    name: 'Tomcat War 替换',
+    description: '适用于独立 Tomcat：停服、备份 webapps、替换 War、启动后 HTTP 验证。',
+    steps: createTomcatWarSteps(),
+    builtin: true,
+  },
+  {
+    id: 'builtin-static-files',
+    name: '静态站点压缩包发布',
+    description: '上传 zip、备份 current、解压替换并验证站点首页。',
+    steps: createStaticFileSteps(),
+    builtin: true,
+  },
+]
+
+const loadDeploymentTemplates = (): DeploymentTemplate[] => {
+  if (typeof window === 'undefined') {
+    return builtinDeploymentTemplates()
+  }
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(DEPLOYMENT_TEMPLATE_STORAGE_KEY) ?? '[]') as DeploymentTemplate[]
+    return [...builtinDeploymentTemplates(), ...saved.filter((item) => !item.builtin)]
+  } catch {
+    return builtinDeploymentTemplates()
+  }
+}
+
+const saveCustomDeploymentTemplates = (templates: DeploymentTemplate[]) => {
+  window.localStorage.setItem(
+    DEPLOYMENT_TEMPLATE_STORAGE_KEY,
+    JSON.stringify(templates.filter((item) => !item.builtin)),
+  )
+}
+
+const createTemplateDraft = (): DeploymentTemplate => ({
+  id: crypto.randomUUID(),
+  name: '',
+  description: '',
+  steps: createSpringBootJarSteps(),
+  updatedAt: new Date().toISOString(),
+})
+
+const probeStatusMeta = (status: string) => {
   switch (status) {
-    case 'success': return '✅'
-    case 'failed': return '❌'
-    case 'warning': return '⚠️'
-    case 'checking': return '🔄'
-    default: return '⏳'
+    case 'success': return {label: '通过', color: 'green'}
+    case 'alive': return {label: '存活', color: 'green'}
+    case 'open': return {label: '已监听', color: 'green'}
+    case 'failed': return {label: '失败', color: 'red'}
+    case 'dead': return {label: '已退出', color: 'red'}
+    case 'closed': return {label: '未监听', color: 'red'}
+    case 'warning': return {label: '告警', color: 'gold'}
+    case 'checking': return {label: '检测中', color: 'processing'}
+    case 'unknown': return {label: '未知', color: 'default'}
+    default: return {label: status, color: 'default'}
   }
 }
 
@@ -240,6 +352,7 @@ const probeTypeLabel = (type: string) => {
     case 'port': return '端口探针'
     case 'http': return 'HTTP 探针'
     case 'log': return '日志探针'
+    case 'timeout': return '超时'
     default: return type
   }
 }
@@ -339,24 +452,32 @@ export function DeploymentCenterPanel() {
   const deploymentProfiles = useWorkflowStore((state) => state.deploymentProfiles)
   const deploymentTasks = useWorkflowStore((state) => state.deploymentTasks)
   const currentDeploymentTask = useWorkflowStore((state) => state.currentDeploymentTask)
-  const saveServerProfile = useWorkflowStore((state) => state.saveServerProfile)
   const deleteServerProfile = useWorkflowStore((state) => state.deleteServerProfile)
   const testServerConnection = useWorkflowStore((state) => state.testServerConnection)
   const saveDeploymentProfile = useWorkflowStore((state) => state.saveDeploymentProfile)
   const deleteDeploymentProfile = useWorkflowStore((state) => state.deleteDeploymentProfile)
+  const refreshDeploymentData = useWorkflowStore((state) => state.refreshDeploymentData)
   const startDeployment = useWorkflowStore((state) => state.startDeployment)
   const cancelDeployment = useWorkflowStore((state) => state.cancelDeployment)
   const [serverDraft, setServerDraft] = useState<SaveServerProfilePayload>(createServerDraft())
+  const [serverFormMode, setServerFormMode] = useState<FormMode>('create')
   const [deploymentDraft, setDeploymentDraft] = useState<DeploymentProfile>(createDeploymentDraft())
-  const deploymentDraftRef = useRef(deploymentDraft)
-  deploymentDraftRef.current = deploymentDraft
+  const [deploymentFormMode, setDeploymentFormMode] = useState<FormMode>('create')
   const [selectedDeploymentProfileId, setSelectedDeploymentProfileId] = useState<string>()
   const [selectedServerId, setSelectedServerId] = useState<string>()
   const [selectedArtifactPath, setSelectedArtifactPath] = useState<string>()
+  const [pendingDeployAfterBuild, setPendingDeployAfterBuild] = useState<{profileId: string; serverId: string}>()
+  const [serverPickerOpen, setServerPickerOpen] = useState(false)
+  const [serverPickerKeyword, setServerPickerKeyword] = useState('')
   const [pipelineEditorOpen, setPipelineEditorOpen] = useState(false)
+  const [pipelineEditorTarget, setPipelineEditorTarget] = useState<'deployment' | 'template'>('deployment')
   const [selectedStepId, setSelectedStepId] = useState<string>()
   const [testingServerId, setTestingServerId] = useState<string>()
   const [testResult, setTestResult] = useState<{serverId: string; success: boolean; message: string}>()
+  const [deploymentTemplates, setDeploymentTemplates] = useState<DeploymentTemplate[]>(loadDeploymentTemplates)
+  const [templateDraft, setTemplateDraft] = useState<DeploymentTemplate>(createTemplateDraft())
+  const [templateFormMode, setTemplateFormMode] = useState<FormMode>('create')
+  const [selectedTemplateStepId, setSelectedTemplateStepId] = useState<string>()
   const deploymentPreselectProfileId = useNavigationStore((state) => state.deploymentPreselectProfileId)
   const clearDeploymentPreselect = useNavigationStore((state) => state.clearDeploymentPreselect)
 
@@ -410,6 +531,49 @@ export function DeploymentCenterPanel() {
         value: artifact.path,
       }))
   }, [artifactPool, modules, selectedProfile, selectedProfileModule])
+  const filteredServerProfiles = useMemo(() => {
+    const keyword = serverPickerKeyword.trim().toLowerCase()
+    if (!keyword) {
+      return serverProfiles
+    }
+    return serverProfiles.filter((server) =>
+      [
+        server.name,
+        server.group,
+        server.host,
+        server.username,
+        String(server.port),
+      ].filter(Boolean).some((value) => String(value).toLowerCase().includes(keyword)))
+  }, [serverPickerKeyword, serverProfiles])
+
+  useEffect(() => {
+    if (!pendingDeployAfterBuild || buildStatus !== 'SUCCESS' || buildRunning || deploymentRunning) {
+      return
+    }
+    const profile = deploymentProfiles.find((item) => item.id === pendingDeployAfterBuild.profileId)
+    if (!profile) {
+      return
+    }
+    const artifactPath = findDeployableArtifacts(artifactPool, profile, modules)[0]?.path
+    if (!artifactPath) {
+      return
+    }
+    queueMicrotask(() => {
+      setSelectedDeploymentProfileId(pendingDeployAfterBuild.profileId)
+      setSelectedArtifactPath(artifactPath)
+      setPendingDeployAfterBuild(undefined)
+      void startDeployment(pendingDeployAfterBuild.profileId, pendingDeployAfterBuild.serverId, artifactPath)
+    })
+  }, [
+    artifactPool,
+    buildRunning,
+    buildStatus,
+    deploymentRunning,
+    deploymentProfiles,
+    modules,
+    pendingDeployAfterBuild,
+    startDeployment,
+  ])
   const showPackageArtifactHint = Boolean(selectedProfile && !selectedProfileModuleMissing && artifactOptions.length === 0)
   const packageTargetLabel = selectedProfileModule?.artifactId ?? '当前项目'
   const buildOptionSummary = [
@@ -427,6 +591,11 @@ export function DeploymentCenterPanel() {
     [deploymentDraft.deploymentSteps],
   )
   const selectedPipelineStep = deploymentSteps.find((step) => step.id === selectedStepId) ?? deploymentSteps[0]
+  const templateSteps = useMemo(
+    () => [...(templateDraft.steps ?? [])].sort((left, right) => left.order - right.order),
+    [templateDraft.steps],
+  )
+  const selectedTemplateStep = templateSteps.find((step) => step.id === selectedTemplateStepId) ?? templateSteps[0]
   const enabledStepCount = (deploymentDraft.deploymentSteps ?? []).filter((step) => step.enabled).length
   const serverStatus = (serverId: string) => {
     const latestTask = deploymentTasks.find((task) => task.serverId === serverId)
@@ -456,14 +625,36 @@ export function DeploymentCenterPanel() {
     }
   }
 
+  const updateTemplateSteps = (steps: DeployStep[], nextSelectedStepId?: string) => {
+    const normalized = steps.map((step, index) => ({...step, order: (index + 1) * 10}))
+    setTemplateDraft((state) => ({...state, steps: normalized, updatedAt: new Date().toISOString()}))
+    if (nextSelectedStepId !== undefined) {
+      setSelectedTemplateStepId(nextSelectedStepId)
+    } else if (selectedTemplateStepId && !normalized.some((step) => step.id === selectedTemplateStepId)) {
+      setSelectedTemplateStepId(normalized[0]?.id)
+    }
+  }
+
   const addDeploymentStep = (type: DeployStepType = 'ssh_command') => {
     const nextStep = createDeployStep(type, (deploymentSteps.length + 1) * 10)
     updateDeploymentSteps([...deploymentSteps, nextStep], nextStep.id)
   }
 
+  const addTemplateStep = (type: DeployStepType = 'ssh_command') => {
+    const nextStep = createDeployStep(type, (templateSteps.length + 1) * 10)
+    updateTemplateSteps([...templateSteps, nextStep], nextStep.id)
+  }
+
   const patchDeploymentStep = (stepId: string, patch: Partial<DeployStep>) => {
     updateDeploymentSteps(
       deploymentSteps.map((step) => step.id === stepId ? {...step, ...patch} : step),
+      stepId,
+    )
+  }
+
+  const patchTemplateStep = (stepId: string, patch: Partial<DeployStep>) => {
+    updateTemplateSteps(
+      templateSteps.map((step) => step.id === stepId ? {...step, ...patch} : step),
       stepId,
     )
   }
@@ -478,8 +669,22 @@ export function DeploymentCenterPanel() {
     )
   }
 
+  const patchTemplateStepConfig = (stepId: string, patch: Record<string, unknown>) => {
+    updateTemplateSteps(
+      templateSteps.map((step) =>
+        step.id === stepId
+          ? {...step, config: {...stepConfigRecord(step), ...patch} as DeployStep['config']}
+          : step),
+      stepId,
+    )
+  }
+
   const removeDeploymentStep = (stepId: string) => {
     updateDeploymentSteps(deploymentSteps.filter((step) => step.id !== stepId))
+  }
+
+  const removeTemplateStep = (stepId: string) => {
+    updateTemplateSteps(templateSteps.filter((step) => step.id !== stepId))
   }
 
   const moveDeploymentStep = (stepId: string, direction: -1 | 1) => {
@@ -494,13 +699,59 @@ export function DeploymentCenterPanel() {
     updateDeploymentSteps(next, stepId)
   }
 
-  const applySpringBootTemplate = () => {
-    const steps = createSpringBootJarSteps()
+  const moveTemplateStep = (stepId: string, direction: -1 | 1) => {
+    const index = templateSteps.findIndex((step) => step.id === stepId)
+    const targetIndex = index + direction
+    if (index < 0 || targetIndex < 0 || targetIndex >= templateSteps.length) {
+      return
+    }
+    const next = [...templateSteps]
+    const [removed] = next.splice(index, 1)
+    next.splice(targetIndex, 0, removed)
+    updateTemplateSteps(next, stepId)
+  }
+
+  const applyDeploymentTemplate = (template: DeploymentTemplate) => {
+    const steps = cloneDeploySteps(template.steps)
     updateDeploymentSteps(steps, steps[0]?.id)
     setPipelineEditorOpen(true)
+    setPipelineEditorTarget('deployment')
+  }
+
+  const saveDeploymentTemplate = () => {
+    const nextTemplate: DeploymentTemplate = {
+      ...templateDraft,
+      name: templateDraft.name.trim() || '未命名部署模板',
+      description: templateDraft.description.trim(),
+      builtin: false,
+      steps: cloneDeploySteps(templateDraft.steps),
+      updatedAt: new Date().toISOString(),
+    }
+    const nextTemplates = [
+      ...deploymentTemplates.filter((item) => item.id !== nextTemplate.id),
+      nextTemplate,
+    ]
+    setDeploymentTemplates(nextTemplates)
+    saveCustomDeploymentTemplates(nextTemplates)
+    setTemplateDraft(createTemplateDraft())
+    setTemplateFormMode('create')
+    setSelectedTemplateStepId(undefined)
+  }
+
+  const editDeploymentTemplate = (template: DeploymentTemplate) => {
+    setTemplateDraft({...template, steps: cloneDeploySteps(template.steps), builtin: false})
+    setTemplateFormMode(template.builtin ? 'create' : 'edit')
+    setSelectedTemplateStepId(template.steps[0]?.id)
+  }
+
+  const deleteDeploymentTemplate = (templateId: string) => {
+    const nextTemplates = deploymentTemplates.filter((item) => item.id !== templateId)
+    setDeploymentTemplates(nextTemplates)
+    saveCustomDeploymentTemplates(nextTemplates)
   }
 
   const openServer = (profile: ServerProfile) => {
+    setServerFormMode('edit')
     setServerDraft({
       id: profile.id,
       name: profile.name,
@@ -514,14 +765,67 @@ export function DeploymentCenterPanel() {
     })
   }
 
+  const newServer = () => {
+    setServerFormMode('create')
+    setServerDraft(createServerDraft())
+    setTestResult(undefined)
+  }
+
   const openDeployment = (profile: DeploymentProfile) => {
+    setDeploymentFormMode('edit')
     setDeploymentDraft({
       ...profile,
+      remoteArtifactName: profile.remoteArtifactName ?? '',
+      logPath: profile.logPath ?? '',
+      enableDeployLog: profile.enableDeployLog ?? true,
       deploymentSteps: profile.deploymentSteps ?? [],
       customCommands: profile.customCommands ?? [],
       startupProbe: profile.startupProbe ?? createDefaultStartupProbe(),
     })
     setSelectedStepId(profile.deploymentSteps?.[0]?.id)
+  }
+
+  const newDeployment = () => {
+    setDeploymentFormMode('create')
+    setDeploymentDraft(createDeploymentDraft())
+    setSelectedStepId(undefined)
+  }
+
+  const saveServerDraft = async () => {
+    if (serverFormMode === 'create') {
+      const created = await api.saveServerProfile({...serverDraft, id: undefined})
+      await refreshDeploymentData()
+      setServerFormMode('edit')
+      setServerDraft({...serverDraft, id: created.id, password: ''})
+      return created
+    }
+    const saved = await api.saveServerProfile(serverDraft)
+    await refreshDeploymentData()
+    setServerDraft({...serverDraft, id: saved.id, password: ''})
+    return saved
+  }
+
+  const testServerDraft = async () => {
+    setTestingServerId('draft')
+    setTestResult(undefined)
+    try {
+      const saved = await saveServerDraft()
+      const msg = await testServerConnection(saved.id)
+      setTestResult({serverId: 'draft', success: true, message: msg})
+    } catch (err) {
+      setTestResult({serverId: 'draft', success: false, message: err instanceof Error ? err.message : String(err)})
+    } finally {
+      setTestingServerId(undefined)
+    }
+  }
+
+  const saveDeploymentDraft = async () => {
+    const profile = deploymentFormMode === 'create'
+      ? {...deploymentDraft, id: crypto.randomUUID()}
+      : deploymentDraft
+    await saveDeploymentProfile(profile)
+    setDeploymentFormMode('edit')
+    setDeploymentDraft(profile)
   }
 
   const packageDeploymentArtifact = async () => {
@@ -532,9 +836,12 @@ export function DeploymentCenterPanel() {
     await startPackageBuild(selectedProfile.moduleId ? [selectedProfile.moduleId] : [])
   }
 
-  const renderStepConfigFields = (step: DeployStep) => {
+  const renderStepConfigFields = (step: DeployStep, target: 'deployment' | 'template' = 'deployment') => {
     const config = stepConfigRecord(step)
-    const updateConfig = (patch: Record<string, unknown>) => patchDeploymentStepConfig(step.id, patch)
+    const updateConfig = (patch: Record<string, unknown>) =>
+      target === 'template'
+        ? patchTemplateStepConfig(step.id, patch)
+        : patchDeploymentStepConfig(step.id, patch)
 
     switch (step.type) {
       case 'ssh_command':
@@ -679,6 +986,14 @@ export function DeploymentCenterPanel() {
         return null
     }
   }
+
+  const activePipelineSteps = pipelineEditorTarget === 'template' ? templateSteps : deploymentSteps
+  const activePipelineStep = pipelineEditorTarget === 'template' ? selectedTemplateStep : selectedPipelineStep
+  const activeAddStep = pipelineEditorTarget === 'template' ? addTemplateStep : addDeploymentStep
+  const activePatchStep = pipelineEditorTarget === 'template' ? patchTemplateStep : patchDeploymentStep
+  const activeRemoveStep = pipelineEditorTarget === 'template' ? removeTemplateStep : removeDeploymentStep
+  const activeMoveStep = pipelineEditorTarget === 'template' ? moveTemplateStep : moveDeploymentStep
+  const setActiveStepId = pipelineEditorTarget === 'template' ? setSelectedTemplateStepId : setSelectedStepId
 
   return (
     <Card title="部署中心" className="panel-card" size="small">
@@ -841,6 +1156,17 @@ export function DeploymentCenterPanel() {
               label: '环境资源',
               children: (
                 <Space direction="vertical" size={16} style={{width: '100%'}}>
+                  <Alert
+                    type={serverFormMode === 'edit' ? 'warning' : 'info'}
+                    showIcon
+                    message={serverFormMode === 'edit' ? `正在编辑服务器：${serverDraft.name || serverDraft.host}` : '正在新增服务器'}
+                    description={serverFormMode === 'edit' ? '保存会覆盖当前服务器配置；如需新建，请先点击“新增服务器”。' : '填写服务器连接信息后保存；测试连接会先保存当前表单再复用部署连接逻辑验证。'}
+                    action={(
+                      <Button size="small" onClick={newServer}>
+                        新增服务器
+                      </Button>
+                    )}
+                  />
                   <Space wrap>
                     <Input
                       placeholder="名称"
@@ -897,35 +1223,18 @@ export function DeploymentCenterPanel() {
                     <Button
                       type="primary"
                       icon={<SaveOutlined />}
-                      onClick={() => void saveServerProfile(serverDraft)}
+                      onClick={() => void saveServerDraft()}
                     >
-                      保存服务器
+                      {serverFormMode === 'edit' ? '保存修改' : '保存新增'}
                     </Button>
                     <Button
                       icon={<CloudServerOutlined />}
                       loading={testingServerId === 'draft'}
-                      onClick={() => {
-                        setTestingServerId('draft')
-                        setTestResult(undefined)
-                        void saveServerProfile(serverDraft).then(async () => {
-                          const saved = useWorkflowStore.getState().serverProfiles.find(
-                            (s) => s.host === serverDraft.host && s.username === serverDraft.username && s.port === serverDraft.port,
-                          )
-                          if (saved) {
-                            try {
-                              const msg = await testServerConnection(saved.id)
-                              setTestResult({serverId: 'draft', success: true, message: msg})
-                            } catch (err) {
-                              setTestResult({serverId: 'draft', success: false, message: err instanceof Error ? err.message : String(err)})
-                            }
-                          }
-                          setTestingServerId(undefined)
-                        })
-                      }}
+                      onClick={() => void testServerDraft()}
                     >
                       测试连接
                     </Button>
-                    <Button onClick={() => { setServerDraft(createServerDraft()); setTestResult(undefined) }}>重置</Button>
+                    <Button onClick={newServer}>取消编辑</Button>
                     {testResult?.serverId === 'draft' && (
                       <Alert
                         type={testResult.success ? 'success' : 'error'}
@@ -957,7 +1266,7 @@ export function DeploymentCenterPanel() {
                               测试
                             </Button>,
                             <Button key="edit" size="small" onClick={() => openServer(profile)}>
-                              编辑
+                              编辑此服务器
                             </Button>,
                             <Popconfirm
                               key="delete"
@@ -998,6 +1307,13 @@ export function DeploymentCenterPanel() {
               label: '服务映射',
               children: (
                 <Space direction="vertical" size={16} style={{width: '100%'}}>
+                  <Alert
+                    type={deploymentFormMode === 'edit' ? 'warning' : 'info'}
+                    showIcon
+                    message={deploymentFormMode === 'edit' ? `正在编辑服务映射：${deploymentDraft.name || '未命名'}` : '正在新增服务映射'}
+                    description={deploymentFormMode === 'edit' ? '保存会覆盖当前映射；应用模板只替换此映射的流程副本，不会修改模板。' : '新增映射会创建独立配置；可先选择模板快速生成部署流程。'}
+                    action={<Button size="small" onClick={newDeployment}>新增映射</Button>}
+                  />
                   <Input
                     addonBefore="服务名称"
                     value={deploymentDraft.name}
@@ -1026,16 +1342,49 @@ export function DeploymentCenterPanel() {
                     value={deploymentDraft.remoteDeployPath}
                     onChange={(event) => setDeploymentDraft((state) => ({...state, remoteDeployPath: event.target.value}))}
                   />
+                  <Input
+                    addonBefore="远端 jar 名称"
+                    placeholder="留空则使用原始产物名称"
+                    value={deploymentDraft.remoteArtifactName ?? ''}
+                    onChange={(event) => setDeploymentDraft((state) => ({...state, remoteArtifactName: event.target.value || undefined}))}
+                  />
+                  <Space wrap>
+                    <Input
+                      addonBefore="日志路径"
+                      placeholder="留空使用默认路径"
+                      style={{minWidth: 360}}
+                      value={deploymentDraft.logPath ?? ''}
+                      onChange={(event) => setDeploymentDraft((state) => ({...state, logPath: event.target.value || undefined}))}
+                    />
+                    <Checkbox
+                      checked={deploymentDraft.enableDeployLog ?? true}
+                      onChange={(event) => setDeploymentDraft((state) => ({...state, enableDeployLog: event.target.checked}))}
+                    >
+                      输出部署日志
+                    </Checkbox>
+                  </Space>
                   <Card
                     title="部署流程"
                     size="small"
                     className="panel-card"
                     extra={(
                       <Space wrap>
-                        <Button size="small" onClick={applySpringBootTemplate}>
-                          Spring Boot Jar 模板
-                        </Button>
-                        <Button size="small" type="primary" onClick={() => setPipelineEditorOpen(true)}>
+                        <Select
+                          size="small"
+                          placeholder="应用模板"
+                          style={{width: 220}}
+                          options={deploymentTemplates.map((template) => ({
+                            label: template.builtin ? `${template.name}（内置）` : template.name,
+                            value: template.id,
+                          }))}
+                          onChange={(templateId) => {
+                            const template = deploymentTemplates.find((item) => item.id === templateId)
+                            if (template) {
+                              applyDeploymentTemplate(template)
+                            }
+                          }}
+                        />
+                        <Button size="small" type="primary" onClick={() => { setPipelineEditorTarget('deployment'); setPipelineEditorOpen(true) }}>
                           配置流程
                         </Button>
                       </Space>
@@ -1131,7 +1480,7 @@ export function DeploymentCenterPanel() {
                             <div className="step-field">
                               <Text type="secondary">PID 文件路径（留空使用默认）</Text>
                               <Input
-                                placeholder="${remoteDeployPath}/${artifactName}.pid"
+                                placeholder="${remoteDeployPath}/<远端包名去扩展名>.pid"
                                 value={deploymentDraft.startupProbe?.processProbe?.pidFile ?? ''}
                                 onChange={(event) => setDeploymentDraft((state) => ({
                                   ...state,
@@ -1296,7 +1645,7 @@ export function DeploymentCenterPanel() {
                               <div className="step-field step-field-full">
                                 <Text type="secondary">日志路径（留空使用本次部署独立日志）</Text>
                                 <Input
-                                  placeholder="${remoteDeployPath}/${artifactName}.YYYYMMDD_HHMMSS.log"
+                                  placeholder="${remoteDeployPath}/logs/<远端包名去扩展名>-YYYYMMDDHHMMSS.log"
                                   value={deploymentDraft.startupProbe?.logProbe?.logPath ?? ''}
                                   onChange={(event) => setDeploymentDraft((state) => ({
                                     ...state,
@@ -1382,12 +1731,10 @@ export function DeploymentCenterPanel() {
                   </Card>
 
                   <Space wrap>
-                    <Button type="primary" icon={<SaveOutlined />} onClick={() => void saveDeploymentProfile(deploymentDraftRef.current)}>
-                      保存服务映射
+                    <Button type="primary" icon={<SaveOutlined />} onClick={() => void saveDeploymentDraft()}>
+                      {deploymentFormMode === 'edit' ? '保存映射修改' : '保存新增映射'}
                     </Button>
-                    <Button onClick={() => setDeploymentDraft(createDeploymentDraft())}>
-                      新建映射
-                    </Button>
+                    <Button onClick={newDeployment}>取消编辑</Button>
                   </Space>
                   {deploymentProfiles.length === 0 ? (
                     <Empty description="暂无服务映射" image={Empty.PRESENTED_IMAGE_SIMPLE} />
@@ -1399,7 +1746,7 @@ export function DeploymentCenterPanel() {
                         <List.Item
                           actions={[
                             <Button key="edit" size="small" onClick={() => openDeployment(profile)}>
-                              编辑
+                              编辑此映射
                             </Button>,
                             <Popconfirm
                               key="delete"
@@ -1433,6 +1780,102 @@ export function DeploymentCenterPanel() {
               ),
             },
             {
+              key: 'templates',
+              label: '部署模板',
+              children: (
+                <Space direction="vertical" size={16} style={{width: '100%'}}>
+                  <Alert
+                    type={templateFormMode === 'edit' ? 'warning' : 'info'}
+                    showIcon
+                    message={templateFormMode === 'edit' ? `正在编辑模板：${templateDraft.name}` : '正在新增部署模板'}
+                    description="模板是可复用的流程蓝图；服务映射应用模板时会复制一份流程，之后修改映射流程不会影响模板。"
+                    action={<Button size="small" onClick={() => { setTemplateDraft(createTemplateDraft()); setTemplateFormMode('create'); setSelectedTemplateStepId(undefined) }}>新增模板</Button>}
+                  />
+                  <Input
+                    addonBefore="模板名称"
+                    value={templateDraft.name}
+                    onChange={(event) => setTemplateDraft((state) => ({...state, name: event.target.value}))}
+                  />
+                  <Input.TextArea
+                    rows={2}
+                    placeholder="模板说明"
+                    value={templateDraft.description}
+                    onChange={(event) => setTemplateDraft((state) => ({...state, description: event.target.value}))}
+                  />
+                  <Card
+                    title="模板流程"
+                    size="small"
+                    className="panel-card"
+                    extra={(
+                      <Space wrap>
+                        <Button size="small" onClick={() => { setPipelineEditorTarget('template'); setPipelineEditorOpen(true) }}>
+                          编辑模板流程
+                        </Button>
+                        <Button type="primary" size="small" icon={<SaveOutlined />} onClick={saveDeploymentTemplate}>
+                          {templateFormMode === 'edit' ? '保存模板修改' : '保存新增模板'}
+                        </Button>
+                      </Space>
+                    )}
+                  >
+                    {templateSteps.length === 0 ? (
+                      <Empty description="暂无模板步骤" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                    ) : (
+                      <List
+                        size="small"
+                        dataSource={templateSteps.slice(0, 6)}
+                        renderItem={(step, index) => (
+                          <List.Item>
+                            <Space size={8} wrap className="artifact-item">
+                              <Tag>{index + 1}</Tag>
+                              <Tag color={step.enabled ? 'blue' : 'default'}>{stepTypeLabel(step.type)}</Tag>
+                              <Text strong>{step.name}</Text>
+                              <Text type="secondary" ellipsis className="artifact-meta">{stepSummary(step)}</Text>
+                            </Space>
+                          </List.Item>
+                        )}
+                      />
+                    )}
+                  </Card>
+                  <List
+                    bordered
+                    dataSource={deploymentTemplates}
+                    renderItem={(template) => (
+                      <List.Item
+                        actions={[
+                          <Button key="apply" size="small" type="primary" onClick={() => applyDeploymentTemplate(template)}>
+                            应用到当前映射
+                          </Button>,
+                          <Button key="edit" size="small" onClick={() => editDeploymentTemplate(template)}>
+                            {template.builtin ? '基于此模板新建' : '编辑模板'}
+                          </Button>,
+                          template.builtin ? null : (
+                            <Popconfirm
+                              key="delete"
+                              title="删除部署模板？"
+                              okText="删除"
+                              cancelText="取消"
+                              onConfirm={() => deleteDeploymentTemplate(template.id)}
+                            >
+                              <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+                            </Popconfirm>
+                          ),
+                        ].filter(Boolean)}
+                      >
+                        <Space direction="vertical" size={2}>
+                          <Space size={8} wrap>
+                            <Text strong>{template.name}</Text>
+                            {template.builtin ? <Tag>内置</Tag> : <Tag color="blue">自定义</Tag>}
+                          </Space>
+                          <Text type="secondary">{template.description || '无说明'}</Text>
+                          <Text type="secondary">流程步骤：{template.steps.length}</Text>
+                        </Space>
+                      </List.Item>
+                    )}
+                  />
+                </Space>
+              ),
+            },
+            {
               key: 'run',
               label: '部署执行',
               children: (
@@ -1447,17 +1890,18 @@ export function DeploymentCenterPanel() {
                       setSelectedArtifactPath(undefined)
                     }}
                   />
-                  <Select
-                    placeholder="选择目标服务器"
-                    style={{minWidth: 260}}
-                    value={selectedServerId}
-                    options={serverProfiles.map((item) => ({
-                      label: `${item.name}（${item.username}@${item.host}:${item.port}）`,
-                      value: item.id,
-                    }))}
-                    onChange={setSelectedServerId}
-                    notFoundContent="请先在环境资源中添加服务器"
-                  />
+                  <div className="deployment-server-select">
+                    <Button onClick={() => setServerPickerOpen(true)}>
+                      {selectedServer
+                        ? `${selectedServer.name}（${selectedServer.username}@${selectedServer.host}:${selectedServer.port}）`
+                        : '选择目标服务器'}
+                    </Button>
+                    {selectedServer ? (
+                      <Text type="secondary">{selectedServer.group || '默认环境'} · 当前仅支持单服务器部署</Text>
+                    ) : (
+                      <Text type="secondary">从服务器列表中选择一个目标环境</Text>
+                    )}
+                  </div>
                   <Select
                     placeholder="选择构建产物（来自配置绑定模块）"
                     style={{minWidth: 260}}
@@ -1515,12 +1959,34 @@ export function DeploymentCenterPanel() {
                       icon={<PlayCircleOutlined />}
                       disabled={!selectedDeploymentProfileId || !selectedServerId || !selectedArtifactPath || selectedProfileModuleMissing || deploymentRunning}
                       onClick={() => {
+                        let repackageBeforeDeploy = false
                         Modal.confirm({
                           title: '确认执行部署？',
-                          content: `将部署到 ${selectedServer?.name ?? '目标服务器'}（${selectedServer?.host ?? ''}），请确认配置无误。`,
+                          content: (
+                            <Space direction="vertical" size={8}>
+                              <Text>
+                                将部署到 {selectedServer?.name ?? '目标服务器'}（{selectedServer?.host ?? ''}），请确认配置无误。
+                              </Text>
+                              <Checkbox
+                                disabled={buildRunning || !projectRoot}
+                                onChange={(event) => {
+                                  repackageBeforeDeploy = event.target.checked
+                                }}
+                              >
+                                重新打包后使用最新产物部署
+                              </Checkbox>
+                            </Space>
+                          ),
                           okText: '确认部署',
                           cancelText: '取消',
-                          onOk: () => startDeployment(selectedDeploymentProfileId!, selectedServerId!, selectedArtifactPath!),
+                          onOk: () => {
+                            if (repackageBeforeDeploy) {
+                              setPendingDeployAfterBuild({profileId: selectedDeploymentProfileId!, serverId: selectedServerId!})
+                              void packageDeploymentArtifact()
+                              return
+                            }
+                            startDeployment(selectedDeploymentProfileId!, selectedServerId!, selectedArtifactPath!)
+                          },
                         })
                       }}
                     >
@@ -1553,7 +2019,9 @@ export function DeploymentCenterPanel() {
                           <Tag color={deploymentTaskColor(currentDeploymentTask.status)}>
                             {deploymentTaskLabel(currentDeploymentTask.status)}
                           </Tag>
-                          <Text>{currentDeploymentTask.deploymentProfileName ?? currentDeploymentTask.deploymentProfileId}</Text>
+                          <Text className="pipeline-run-title" title={currentDeploymentTask.deploymentProfileName ?? currentDeploymentTask.deploymentProfileId}>
+                            {currentDeploymentTask.deploymentProfileName ?? currentDeploymentTask.deploymentProfileId}
+                          </Text>
                       </Space>
                       <Text type="secondary" className="path-text">{currentDeploymentTask.artifactPath}</Text>
                       {currentDeploymentTask.log.length > 0 ? (
@@ -1573,13 +2041,19 @@ export function DeploymentCenterPanel() {
                             <Space direction="vertical" size={2}>
                               <span>{deploymentStageDescription(stage)}</span>
                               {stage.probeStatuses && stage.probeStatuses.length > 0 ? (
-                                <div style={{marginTop: 4}}>
-                                  {stage.probeStatuses.map((ps: ProbeStatus, idx: number) => (
-                                    <div key={idx} style={{fontSize: 12, lineHeight: '20px'}}>
-                                      {probeStatusIcon(ps.status)} {probeTypeLabel(ps.probeType)}：{ps.message ?? ps.status}
-                                      {ps.checkCount ? ` (已检测 ${ps.checkCount} 次)` : ''}
-                                    </div>
-                                  ))}
+                                <div className="probe-status-list">
+                                  {stage.probeStatuses.map((ps: ProbeStatus, idx: number) => {
+                                    const meta = probeStatusMeta(ps.status)
+                                    return (
+                                      <div key={idx} className="probe-status-row">
+                                        <Tag color={meta.color}>{meta.label}</Tag>
+                                        <Text className="probe-status-text">
+                                          {probeTypeLabel(ps.probeType)}：{ps.message ?? ps.status}
+                                          {ps.checkCount ? `（已检测 ${ps.checkCount} 次）` : ''}
+                                        </Text>
+                                      </div>
+                                    )
+                                  })}
                                 </div>
                               ) : null}
                             </Space>
@@ -1618,7 +2092,58 @@ export function DeploymentCenterPanel() {
           ]}
         />
         <Modal
-          title="部署流程配置"
+          title="选择目标服务器"
+          open={serverPickerOpen}
+          width={760}
+          footer={null}
+          onCancel={() => setServerPickerOpen(false)}
+        >
+          <Space direction="vertical" size={12} style={{width: '100%'}}>
+            <Input
+              allowClear
+              placeholder="搜索服务器名称、分组、主机、用户名或端口"
+              value={serverPickerKeyword}
+              onChange={(event) => setServerPickerKeyword(event.target.value)}
+            />
+            <List
+              bordered
+              className="deployment-server-list"
+              dataSource={filteredServerProfiles}
+              locale={{emptyText: '没有匹配的服务器'}}
+              renderItem={(server) => (
+                <List.Item
+                  className={server.id === selectedServerId ? 'deployment-server-item active' : 'deployment-server-item'}
+                  actions={[
+                    <Button
+                      key="select"
+                      type={server.id === selectedServerId ? 'primary' : 'default'}
+                      size="small"
+                      onClick={() => {
+                        setSelectedServerId(server.id)
+                        setServerPickerOpen(false)
+                      }}
+                    >
+                      {server.id === selectedServerId ? '已选择' : '选择'}
+                    </Button>,
+                  ]}
+                >
+                  <Space direction="vertical" size={2} className="artifact-item">
+                    <Space size={8} wrap>
+                      <Text strong>{server.name}</Text>
+                      <Tag>{server.group || '默认环境'}</Tag>
+                      <Tag>{server.authType === 'password' ? '密码' : '私钥'}</Tag>
+                    </Space>
+                    <Text type="secondary">
+                      {server.username}@{server.host}:{server.port}
+                    </Text>
+                  </Space>
+                </List.Item>
+              )}
+            />
+          </Space>
+        </Modal>
+        <Modal
+          title={pipelineEditorTarget === 'template' ? '模板流程配置' : '部署流程配置'}
           open={pipelineEditorOpen}
           width={1040}
           okText="完成"
@@ -1629,30 +2154,29 @@ export function DeploymentCenterPanel() {
           <div className="deployment-pipeline-editor">
             <div className="deployment-step-list">
               <Space wrap style={{marginBottom: 10}}>
-                <Button icon={<PlusOutlined />} onClick={() => addDeploymentStep('ssh_command')}>
+                <Button icon={<PlusOutlined />} onClick={() => activeAddStep('ssh_command')}>
                   添加步骤
                 </Button>
                 <Select
                   placeholder="按类型添加"
                   style={{width: 180}}
                   options={stepTypeOptions}
-                  onChange={(value) => addDeploymentStep(value)}
+                  onChange={(value) => activeAddStep(value)}
                 />
-                <Button onClick={applySpringBootTemplate}>生成 Spring Boot 模板</Button>
               </Space>
-              {deploymentSteps.length === 0 ? (
+              {activePipelineSteps.length === 0 ? (
                 <Empty description="暂无部署步骤" image={Empty.PRESENTED_IMAGE_SIMPLE} />
               ) : (
                 <List
                   size="small"
-                  dataSource={deploymentSteps}
+                  dataSource={activePipelineSteps}
                   renderItem={(step, index) => (
                     <List.Item
-                      className={step.id === selectedPipelineStep?.id ? 'deployment-step-item active' : 'deployment-step-item'}
-                      onClick={() => setSelectedStepId(step.id)}
+                      className={step.id === activePipelineStep?.id ? 'deployment-step-item active' : 'deployment-step-item'}
+                      onClick={() => setActiveStepId(step.id)}
                       actions={[
-                        <Button key="up" size="small" type="text" icon={<ArrowUpOutlined />} disabled={index === 0} onClick={(event) => { event.stopPropagation(); moveDeploymentStep(step.id, -1) }} />,
-                        <Button key="down" size="small" type="text" icon={<ArrowDownOutlined />} disabled={index === deploymentSteps.length - 1} onClick={(event) => { event.stopPropagation(); moveDeploymentStep(step.id, 1) }} />,
+                        <Button key="up" size="small" type="text" icon={<ArrowUpOutlined />} disabled={index === 0} onClick={(event) => { event.stopPropagation(); activeMoveStep(step.id, -1) }} />,
+                        <Button key="down" size="small" type="text" icon={<ArrowDownOutlined />} disabled={index === activePipelineSteps.length - 1} onClick={(event) => { event.stopPropagation(); activeMoveStep(step.id, 1) }} />,
                         <Popconfirm
                           key="delete"
                           title="删除该部署步骤？"
@@ -1660,7 +2184,7 @@ export function DeploymentCenterPanel() {
                           cancelText="取消"
                           onConfirm={(event) => {
                             event?.stopPropagation()
-                            removeDeploymentStep(step.id)
+                            activeRemoveStep(step.id)
                           }}
                         >
                           <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={(event) => event.stopPropagation()} />
@@ -1684,23 +2208,23 @@ export function DeploymentCenterPanel() {
             </div>
 
             <div className="deployment-step-detail">
-              {selectedPipelineStep ? (
+              {activePipelineStep ? (
                 <Space direction="vertical" size={14} style={{width: '100%'}}>
                   <Space wrap>
                     <Checkbox
-                      checked={selectedPipelineStep.enabled}
-                      onChange={(event) => patchDeploymentStep(selectedPipelineStep.id, {enabled: event.target.checked})}
+                      checked={activePipelineStep.enabled}
+                      onChange={(event) => activePatchStep(activePipelineStep.id, {enabled: event.target.checked})}
                     >
                       启用
                     </Checkbox>
                     <Select
                       style={{width: 180}}
-                      value={selectedPipelineStep.type}
+                      value={activePipelineStep.type}
                       options={stepTypeOptions}
                       onChange={(value: DeployStepType) =>
-                        patchDeploymentStep(selectedPipelineStep.id, {
+                        activePatchStep(activePipelineStep.id, {
                           type: value,
-                          name: selectedPipelineStep.name || stepTypeLabel(value),
+                          name: activePipelineStep.name || stepTypeLabel(value),
                           config: createDefaultStepConfig(value),
                         })}
                     />
@@ -1709,43 +2233,43 @@ export function DeploymentCenterPanel() {
                     <div className="step-field step-field-full">
                       <Text type="secondary">步骤名称</Text>
                       <Input
-                        value={selectedPipelineStep.name}
-                        onChange={(event) => patchDeploymentStep(selectedPipelineStep.id, {name: event.target.value})}
+                        value={activePipelineStep.name}
+                        onChange={(event) => activePatchStep(activePipelineStep.id, {name: event.target.value})}
                       />
                     </div>
                     <div className="step-field">
                       <Text type="secondary">超时时间（秒）</Text>
                       <InputNumber
                         min={1}
-                        value={selectedPipelineStep.timeoutSeconds}
-                        onChange={(value) => patchDeploymentStep(selectedPipelineStep.id, {timeoutSeconds: Number(value) || undefined})}
+                        value={activePipelineStep.timeoutSeconds}
+                        onChange={(value) => activePatchStep(activePipelineStep.id, {timeoutSeconds: Number(value) || undefined})}
                       />
                     </div>
                     <div className="step-field">
                       <Text type="secondary">重试次数</Text>
                       <InputNumber
                         min={0}
-                        value={selectedPipelineStep.retryCount ?? 0}
-                        onChange={(value) => patchDeploymentStep(selectedPipelineStep.id, {retryCount: Number(value) || 0})}
+                        value={activePipelineStep.retryCount ?? 0}
+                        onChange={(value) => activePatchStep(activePipelineStep.id, {retryCount: Number(value) || 0})}
                       />
                     </div>
                     <div className="step-field">
                       <Text type="secondary">重试间隔（秒）</Text>
                       <InputNumber
                         min={1}
-                        value={selectedPipelineStep.retryIntervalSeconds ?? 3}
-                        onChange={(value) => patchDeploymentStep(selectedPipelineStep.id, {retryIntervalSeconds: Number(value) || 1})}
+                        value={activePipelineStep.retryIntervalSeconds ?? 3}
+                        onChange={(value) => activePatchStep(activePipelineStep.id, {retryIntervalSeconds: Number(value) || 1})}
                       />
                     </div>
                     <div className="step-field">
                       <Text type="secondary">失败策略</Text>
                       <Select
-                        value={selectedPipelineStep.failureStrategy ?? 'stop'}
+                        value={activePipelineStep.failureStrategy ?? 'stop'}
                         options={failureStrategyOptions}
-                        onChange={(value) => patchDeploymentStep(selectedPipelineStep.id, {failureStrategy: value})}
+                        onChange={(value) => activePatchStep(activePipelineStep.id, {failureStrategy: value})}
                       />
                     </div>
-                    {renderStepConfigFields(selectedPipelineStep)}
+                    {renderStepConfigFields(activePipelineStep, pipelineEditorTarget)}
                   </div>
                 </Space>
               ) : (

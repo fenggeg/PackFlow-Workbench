@@ -16,8 +16,8 @@ use tauri::{Emitter, Manager, Window};
 use uuid::Uuid;
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
 use windows_sys::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject, TerminateJobObject,
-    JobObjectExtendedLimitInformation, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+    SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
 
@@ -135,7 +135,10 @@ pub fn start_build(
             app_logger::append_build_line(
                 &build_log_path,
                 "system",
-                format!("构建进程 Job 管理启用失败，停止操作将使用备用方式：{}", error),
+                format!(
+                    "构建进程 Job 管理启用失败，停止操作将使用备用方式：{}",
+                    error
+                ),
             );
             None
         }
@@ -147,7 +150,11 @@ pub fn start_build(
             "build_id={}, pid={}, job={}",
             build_id,
             pid,
-            if job_handle.is_some() { "enabled" } else { "disabled" }
+            if job_handle.is_some() {
+                "enabled"
+            } else {
+                "disabled"
+            }
         ),
     );
     app_logger::append_build_line(&build_log_path, "system", format!("pid={}", pid));
@@ -381,7 +388,12 @@ fn cancel_build_by_id(
                     app_logger::log_warn(
                         &kill_app,
                         "build.cancelled",
-                        format!("build_id={}, pid={}, output={}", kill_build_id, pid, output.trim()),
+                        format!(
+                            "build_id={}, pid={}, output={}",
+                            kill_build_id,
+                            pid,
+                            output.trim()
+                        ),
                     );
                     let _ = kill_window.emit(
                         "build-finished",
@@ -396,7 +408,8 @@ fn cancel_build_by_id(
                     if let Ok(mut cancelled_builds) = kill_cancelled_builds.lock() {
                         cancelled_builds.remove(&kill_build_id);
                     }
-                    let message = "停止构建失败：进程仍在运行，请稍后重试或手动结束 Maven/Java 进程。";
+                    let message =
+                        "停止构建失败：进程仍在运行，请稍后重试或手动结束 Maven/Java 进程。";
                     if let Some(log_path) = log_path.as_deref() {
                         app_logger::append_build_line(log_path, "system", message);
                     }
@@ -411,7 +424,12 @@ fn cancel_build_by_id(
                     app_logger::log_error(
                         &kill_app,
                         "build.cancel.still.running",
-                        format!("build_id={}, pid={}, output={}", kill_build_id, pid, output.trim()),
+                        format!(
+                            "build_id={}, pid={}, output={}",
+                            kill_build_id,
+                            pid,
+                            output.trim()
+                        ),
                     );
                 }
                 Err(error) => {
@@ -461,7 +479,10 @@ fn create_kill_on_close_job() -> Result<HANDLE, String> {
     unsafe {
         let job_handle = CreateJobObjectW(std::ptr::null_mut(), std::ptr::null());
         if job_handle.is_null() {
-            return Err(format!("CreateJobObjectW failed: {}", std::io::Error::last_os_error()));
+            return Err(format!(
+                "CreateJobObjectW failed: {}",
+                std::io::Error::last_os_error()
+            ));
         }
 
         let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = zeroed();
@@ -550,7 +571,13 @@ if ($remaining.Count -gt 0) {{ exit 1 }}
 "#
     );
     let powershell_output = Command::new("powershell")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script])
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ])
         .creation_flags(CREATE_NO_WINDOW)
         .output();
 
@@ -565,9 +592,17 @@ if ($remaining.Count -gt 0) {{ exit 1 }}
         Ok(output) => {
             let powershell_text = command_output_text(&output);
             if is_process_gone(pid) || is_process_not_found(&taskkill_text) {
-                Ok(format!("{} {}", powershell_text.trim(), taskkill_text.trim()))
+                Ok(format!(
+                    "{} {}",
+                    powershell_text.trim(),
+                    taskkill_text.trim()
+                ))
             } else {
-                Err(format!("{} {}", powershell_text.trim(), taskkill_text.trim()))
+                Err(format!(
+                    "{} {}",
+                    powershell_text.trim(),
+                    taskkill_text.trim()
+                ))
             }
         }
         Err(error) => {
@@ -589,7 +624,11 @@ if ($remaining.Count -gt 0) {{ exit 1 }}
 }
 
 fn command_output_text(output: &std::process::Output) -> String {
-    format!("{}{}", decode_command_bytes(&output.stdout), decode_command_bytes(&output.stderr))
+    format!(
+        "{}{}",
+        decode_command_bytes(&output.stdout),
+        decode_command_bytes(&output.stderr)
+    )
 }
 
 fn decode_command_bytes(bytes: &[u8]) -> String {
@@ -606,9 +645,7 @@ fn decode_command_bytes(bytes: &[u8]) -> String {
 
     decoded
         .chars()
-        .filter(|character| {
-            !character.is_control() || matches!(character, '\r' | '\n' | '\t')
-        })
+        .filter(|character| !character.is_control() || matches!(character, '\r' | '\n' | '\t'))
         .collect()
 }
 

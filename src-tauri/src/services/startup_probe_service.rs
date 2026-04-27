@@ -1,11 +1,11 @@
 use crate::models::deployment::{
-    HttpProbeConfig, LogProbeConfig, PortProbeConfig, ProcessProbeConfig, ProbeStatus,
+    HttpProbeConfig, LogProbeConfig, PortProbeConfig, ProbeStatus, ProcessProbeConfig,
     StartupProbeConfig,
 };
 use crate::services::ssh_transport_service::SshConnection;
 use chrono::Utc;
-use std::time::{Duration, Instant};
 use std::thread;
+use std::time::{Duration, Instant};
 
 pub struct ProbeResult {
     pub success: bool,
@@ -30,33 +30,13 @@ pub fn run_startup_probe(
     let mut port_success_count: u32 = 0;
     let mut log_success_matched = false;
     let mut detected_pid: Option<String> = None;
-    let mut detected_log_path: Option<String> = None;
+    let mut detected_log_path = resolve_initial_log_path(config, context);
     let mut attempts: u32 = 0;
-
-    if let Some(log_probe) = &config.log_probe {
-        if log_probe.enabled {
-            if let Some(log_path) = &log_probe.log_path {
-                detected_log_path = Some(expand_probe_tokens(log_path, context));
-            } else {
-                detected_log_path = Some(context.deploy_log_path.clone());
-            }
-        }
-    }
+    let mut ever_seen_process_alive = false;
 
     if let Some(process_probe) = &config.process_probe {
         if process_probe.enabled {
-            let pid_file = process_probe
-                .pid_file
-                .as_deref()
-                .unwrap_or(&context.default_pid_file);
-            let pid_file = expand_probe_tokens(pid_file, context);
-            let cmd = format!("cat {} 2>/dev/null", shell_quote(&pid_file));
-            if let Ok(result) = conn.execute_with_cancel(&cmd, || is_cancelled()) {
-                let pid = result.output.trim().to_string();
-                if !pid.is_empty() && pid.chars().all(|c| c.is_ascii_digit()) {
-                    detected_pid = Some(pid);
-                }
-            }
+            detected_pid = read_pid_from_candidates(conn, process_probe, context, is_cancelled);
         }
     }
 
@@ -68,16 +48,28 @@ pub fn run_startup_probe(
         attempts += 1;
         let mut statuses = Vec::new();
 
-        let process_alive = check_process_probe(conn, config, context, &detected_pid, &mut statuses);
+        let process_alive = check_process_probe(
+            conn,
+            config,
+            context,
+            &mut detected_pid,
+            ever_seen_process_alive,
+            &mut statuses,
+        );
         let port_open = check_port_probe(conn, config, context, &mut statuses);
         let http_ok = check_http_probe(conn, config, context, &mut statuses);
-        let log_result = check_log_probe(conn, config, context, &detected_log_path, &mut statuses);
+        let log_result =
+            check_log_probe(conn, config, context, &mut detected_log_path, &mut statuses);
+
+        if process_alive {
+            ever_seen_process_alive = true;
+        }
 
         if let Some(process_probe) = &config.process_probe {
-            if process_probe.enabled && !process_alive {
+            if process_probe.enabled && ever_seen_process_alive && !process_alive {
                 return Ok(ProbeResult {
                     success: false,
-                    reason: "启动失败：进程已退出".to_string(),
+                    reason: "启动失败：本次探针曾确认进程存活，但随后该进程已退出。".to_string(),
                     pid: detected_pid,
                     log_path: detected_log_path,
                     probe_statuses: statuses,
@@ -88,7 +80,10 @@ pub fn run_startup_probe(
         if log_result.failure_matched {
             return Ok(ProbeResult {
                 success: false,
-                reason: format!("启动失败：日志命中强失败关键字：{}", log_result.failure_keyword),
+                reason: format!(
+                    "启动失败：日志命中强失败关键字：{}",
+                    log_result.failure_keyword
+                ),
                 pid: detected_pid,
                 log_path: detected_log_path,
                 probe_statuses: statuses,
@@ -112,10 +107,7 @@ pub fn run_startup_probe(
         }
 
         if let Some(log_path) = &detected_log_path {
-            let tail_cmd = format!(
-                "tail -n 50 {} 2>/dev/null || true",
-                shell_quote(log_path)
-            );
+            let tail_cmd = format!("tail -n 50 {} 2>/dev/null || true", shell_quote(log_path));
             if let Ok(result) = conn.execute_with_cancel(&tail_cmd, || is_cancelled()) {
                 for line in result.output.lines() {
                     on_log(line);
@@ -126,6 +118,7 @@ pub fn run_startup_probe(
         let success = evaluate_success(
             config,
             process_alive,
+            ever_seen_process_alive,
             port_success_count,
             http_success_count,
             log_success_matched,
@@ -156,10 +149,7 @@ pub fn run_startup_probe(
     final_statuses.push(ProbeStatus {
         probe_type: "timeout".to_string(),
         status: "failed".to_string(),
-        message: Some(format!(
-            "启动探针检测超时（{}秒）",
-            config.timeout_seconds
-        )),
+        message: Some(format!("启动探针检测超时（{}秒）", config.timeout_seconds)),
         check_count: Some(attempts),
         last_check_at: Some(Utc::now().to_rfc3339()),
     });
@@ -176,19 +166,32 @@ pub fn run_startup_probe(
 pub struct ProbeContext {
     pub remote_deploy_path: String,
     pub artifact_name: String,
+    pub remote_artifact_name: String,
+    pub remote_artifact_base_name: String,
     pub default_pid_file: String,
     pub deploy_log_path: String,
+    pub log_path_file: String,
+    pub custom_log_path: Option<String>,
+    pub enable_deploy_log: bool,
 }
 
 impl ProbeContext {
-    pub fn new(remote_deploy_path: &str, artifact_name: &str) -> Self {
-        let base_name = artifact_name
+    pub fn new(
+        remote_deploy_path: &str,
+        artifact_name: &str,
+        remote_artifact_name: &str,
+        custom_log_path: Option<&str>,
+        enable_deploy_log: bool,
+    ) -> Self {
+        let base_name = remote_artifact_name
             .rsplit_once('.')
             .map(|(name, _)| name)
-            .unwrap_or(artifact_name);
+            .unwrap_or(remote_artifact_name);
         Self {
             remote_deploy_path: remote_deploy_path.to_string(),
             artifact_name: artifact_name.to_string(),
+            remote_artifact_name: remote_artifact_name.to_string(),
+            remote_artifact_base_name: base_name.to_string(),
             default_pid_file: format!("{}/{}.pid", remote_deploy_path, base_name),
             deploy_log_path: format!(
                 "{}/logs/{}-{}.log",
@@ -196,15 +199,76 @@ impl ProbeContext {
                 base_name,
                 chrono::Local::now().format("%Y%m%d%H%M%S")
             ),
+            log_path_file: format!("{}/{}.log.path", remote_deploy_path, base_name),
+            custom_log_path: custom_log_path.map(|s| s.to_string()),
+            enable_deploy_log,
         }
     }
+}
+
+fn resolve_initial_log_path(config: &StartupProbeConfig, context: &ProbeContext) -> Option<String> {
+    if let Some(log_probe) = &config.log_probe {
+        if !log_probe.enabled {
+            return None;
+        }
+        if let Some(log_path) = &log_probe.log_path {
+            return Some(expand_probe_tokens(log_path, context));
+        }
+    }
+
+    if let Some(custom) = &context.custom_log_path {
+        return Some(expand_probe_tokens(custom, context));
+    }
+    if context.enable_deploy_log {
+        return Some(context.deploy_log_path.clone());
+    }
+    None
+}
+
+fn read_pid_from_candidates(
+    conn: &mut SshConnection,
+    process_probe: &ProcessProbeConfig,
+    context: &ProbeContext,
+    is_cancelled: &dyn Fn() -> bool,
+) -> Option<String> {
+    for pid_file in pid_file_candidates(process_probe, context) {
+        let cmd = format!("cat {} 2>/dev/null", shell_quote(&pid_file));
+        if let Ok(result) = conn.execute_with_cancel(&cmd, || is_cancelled()) {
+            let pid = result.output.trim().to_string();
+            if !pid.is_empty() && pid.chars().all(|c| c.is_ascii_digit()) {
+                return Some(pid);
+            }
+        }
+    }
+    None
+}
+
+fn pid_file_candidates(process_probe: &ProcessProbeConfig, context: &ProbeContext) -> Vec<String> {
+    if let Some(pid_file) = process_probe
+        .pid_file
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        return vec![expand_probe_tokens(pid_file, context)];
+    }
+
+    let mut candidates = vec![context.default_pid_file.clone()];
+    let legacy_full_name_pid = format!(
+        "{}/{}.pid",
+        context.remote_deploy_path, context.remote_artifact_name
+    );
+    if legacy_full_name_pid != context.default_pid_file {
+        candidates.push(legacy_full_name_pid);
+    }
+    candidates
 }
 
 fn check_process_probe(
     conn: &mut SshConnection,
     config: &StartupProbeConfig,
     context: &ProbeContext,
-    detected_pid: &Option<String>,
+    detected_pid: &mut Option<String>,
+    ever_seen_process_alive: bool,
     statuses: &mut Vec<ProbeStatus>,
 ) -> bool {
     let process_probe = match &config.process_probe {
@@ -214,27 +278,22 @@ fn check_process_probe(
 
     let pid = match detected_pid {
         Some(p) if !p.is_empty() => p.clone(),
-        _ => {
-            let pid_file = process_probe
-                .pid_file
-                .as_deref()
-                .unwrap_or(&context.default_pid_file);
-            let pid_file = expand_probe_tokens(pid_file, context);
-            let cmd = format!("cat {} 2>/dev/null", shell_quote(&pid_file));
-            match conn.execute_with_cancel(&cmd, || false) {
-                Ok(result) => result.output.trim().to_string(),
-                Err(_) => {
-                    statuses.push(ProbeStatus {
-                        probe_type: "process".to_string(),
-                        status: "unknown".to_string(),
-                        message: Some("无法读取 PID 文件".to_string()),
-                        check_count: None,
-                        last_check_at: Some(Utc::now().to_rfc3339()),
-                    });
-                    return false;
-                }
+        _ => match read_pid_from_candidates(conn, process_probe, context, &|| false) {
+            Some(pid) => {
+                *detected_pid = Some(pid.clone());
+                pid
             }
-        }
+            None => {
+                statuses.push(ProbeStatus {
+                    probe_type: "process".to_string(),
+                    status: "unknown".to_string(),
+                    message: Some("未读取到 PID 文件".to_string()),
+                    check_count: None,
+                    last_check_at: Some(Utc::now().to_rfc3339()),
+                });
+                return false;
+            }
+        },
     };
 
     if pid.is_empty() {
@@ -253,11 +312,23 @@ fn check_process_probe(
 
     statuses.push(ProbeStatus {
         probe_type: "process".to_string(),
-        status: if alive { "alive" } else { "dead" }.to_string(),
+        status: if alive {
+            "alive"
+        } else if ever_seen_process_alive {
+            "dead"
+        } else {
+            "warning"
+        }
+        .to_string(),
         message: Some(if alive {
             format!("PID {} 存活", pid)
-        } else {
+        } else if ever_seen_process_alive {
             format!("PID {} 已退出", pid)
+        } else {
+            format!(
+                "PID {} 未存活，可能是旧 PID 文件；继续使用端口/HTTP/日志判断",
+                pid
+            )
         }),
         check_count: None,
         last_check_at: Some(Utc::now().to_rfc3339()),
@@ -402,7 +473,7 @@ fn check_log_probe(
     conn: &mut SshConnection,
     config: &StartupProbeConfig,
     context: &ProbeContext,
-    detected_log_path: &Option<String>,
+    detected_log_path: &mut Option<String>,
     statuses: &mut Vec<ProbeStatus>,
 ) -> LogCheckResult {
     let log_probe = match &config.log_probe {
@@ -416,12 +487,30 @@ fn check_log_probe(
         }
     };
 
+    if detected_log_path.is_none() || log_probe.only_current_deploy_log {
+        if let Some(resolved) =
+            resolve_runtime_log_path(conn, context, detected_log_path.as_deref())
+        {
+            *detected_log_path = Some(resolved);
+        }
+    }
+
     let log_path = match detected_log_path {
         Some(p) => p.clone(),
-        None => match &log_probe.log_path {
-            Some(p) => expand_probe_tokens(p, context),
-            None => context.deploy_log_path.clone(),
-        },
+        None => {
+            statuses.push(ProbeStatus {
+                probe_type: "log".to_string(),
+                status: "unknown".to_string(),
+                message: Some("未找到启动日志路径".to_string()),
+                check_count: None,
+                last_check_at: Some(Utc::now().to_rfc3339()),
+            });
+            return LogCheckResult {
+                success_matched: false,
+                failure_matched: false,
+                failure_keyword: String::new(),
+            };
+        }
     };
 
     let cmd = format!("tail -n 500 {} 2>/dev/null || true", shell_quote(&log_path));
@@ -521,9 +610,67 @@ fn check_log_probe(
     }
 }
 
+fn resolve_runtime_log_path(
+    conn: &mut SshConnection,
+    context: &ProbeContext,
+    current_log_path: Option<&str>,
+) -> Option<String> {
+    let pointer_cmd = format!("cat {} 2>/dev/null", shell_quote(&context.log_path_file));
+    if let Ok(result) = conn.execute_with_cancel(&pointer_cmd, || false) {
+        let path = result.output.trim();
+        if !path.is_empty() {
+            return Some(path.to_string());
+        }
+    }
+
+    if let Some(current) = current_log_path {
+        if remote_file_exists(conn, current) {
+            return Some(current.to_string());
+        }
+    }
+
+    latest_log_from_globs(conn, context)
+}
+
+fn latest_log_from_globs(conn: &mut SshConnection, context: &ProbeContext) -> Option<String> {
+    let commands = [
+        format!(
+            "ls -t {}/{}-*.log 2>/dev/null | head -n 1",
+            shell_quote(&format!("{}/logs", context.remote_deploy_path)),
+            shell_glob_fragment(&context.remote_artifact_base_name)
+        ),
+        format!(
+            "ls -t {}/{}.*.log 2>/dev/null | head -n 1",
+            shell_quote(&context.remote_deploy_path),
+            shell_glob_fragment(&context.remote_artifact_name)
+        ),
+        format!(
+            "ls -t {}/{}*.log 2>/dev/null | head -n 1",
+            shell_quote(&context.remote_deploy_path),
+            shell_glob_fragment(&context.remote_artifact_base_name)
+        ),
+    ];
+
+    for command in commands {
+        if let Ok(result) = conn.execute_with_cancel(&command, || false) {
+            let path = result.output.lines().next().unwrap_or("").trim();
+            if !path.is_empty() {
+                return Some(path.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn remote_file_exists(conn: &mut SshConnection, path: &str) -> bool {
+    let command = format!("test -f {}", shell_quote(path));
+    conn.execute_with_cancel(&command, || false).is_ok()
+}
+
 fn evaluate_success(
     config: &StartupProbeConfig,
     process_alive: bool,
+    ever_seen_process_alive: bool,
     port_success_count: u32,
     http_success_count: u32,
     log_success_matched: bool,
@@ -543,61 +690,46 @@ fn evaluate_success(
         .as_ref()
         .map(|p| p.enabled)
         .unwrap_or(false);
+    let has_process = config
+        .process_probe
+        .as_ref()
+        .map(|p| p.enabled)
+        .unwrap_or(false);
 
-    if has_http {
+    let process_ok = !has_process || process_alive || !ever_seen_process_alive;
+
+    if has_http && http_success_count > 0 {
         let required = config
             .http_probe
             .as_ref()
             .map(|p| p.consecutive_successes)
             .unwrap_or(2);
-        if process_alive && http_success_count >= required {
-            return Some(format!(
-                "HTTP 健康检查连续成功 {} 次",
-                http_success_count
-            ));
+        if has_log && config.success_policy == "all" {
+            if process_ok && http_success_count >= required && log_success_matched {
+                return Some("HTTP 健康检查成功且日志出现启动成功关键字".to_string());
+            }
+        } else if process_ok && http_success_count >= required {
+            return Some(format!("HTTP 健康检查连续成功 {} 次", http_success_count));
         }
     }
 
-    if has_http && has_log {
-        let required = config
-            .http_probe
-            .as_ref()
-            .map(|p| p.consecutive_successes)
-            .unwrap_or(2);
-        if process_alive && http_success_count >= required && log_success_matched {
-            return Some(format!(
-                "HTTP 健康检查成功且日志出现启动成功关键字"
-            ));
-        }
-    }
-
-    if has_port && has_log {
+    if has_port && port_success_count > 0 {
         let required = config
             .port_probe
             .as_ref()
             .map(|p| p.consecutive_successes)
             .unwrap_or(2);
-        if process_alive && port_success_count >= required && log_success_matched {
-            return Some("端口已监听且日志出现启动成功关键字".to_string());
-        }
-    }
-
-    if has_port && !has_log {
-        let required = config
-            .port_probe
-            .as_ref()
-            .map(|p| p.consecutive_successes)
-            .unwrap_or(2);
-        if process_alive && port_success_count >= required {
-            return Some(format!(
-                "端口已监听，连续成功 {} 次",
-                port_success_count
-            ));
+        if has_log && config.success_policy == "all" {
+            if process_ok && port_success_count >= required && log_success_matched {
+                return Some("端口已监听且日志出现启动成功关键字".to_string());
+            }
+        } else if process_ok && port_success_count >= required {
+            return Some(format!("端口已监听，连续成功 {} 次", port_success_count));
         }
     }
 
     if has_log && !has_http && !has_port {
-        if process_alive && log_success_matched {
+        if process_ok && log_success_matched {
             return Some("日志出现启动成功关键字".to_string());
         }
     }
@@ -610,11 +742,19 @@ fn expand_probe_tokens(value: &str, context: &ProbeContext) -> String {
     value
         .replace("${remoteDeployPath}", &context.remote_deploy_path)
         .replace("${artifactName}", &context.artifact_name)
+        .replace("${remoteArtifactName}", &context.remote_artifact_name)
         .replace("${date}", &today)
 }
 
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+fn shell_glob_fragment(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-'))
+        .collect()
 }
 
 fn regex_match(pattern: &str, content: &str) -> bool {
@@ -623,7 +763,8 @@ fn regex_match(pattern: &str, content: &str) -> bool {
         .unwrap_or(false)
 }
 
-pub fn create_default_startup_probe() -> StartupProbeConfig {
+#[allow(dead_code)]
+fn create_default_startup_probe() -> StartupProbeConfig {
     StartupProbeConfig {
         enabled: true,
         timeout_seconds: 120,

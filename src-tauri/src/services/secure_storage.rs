@@ -1,7 +1,7 @@
 use crate::error::{to_user_error, AppResult};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::ptr::{null, null_mut};
-use windows_sys::Win32::Foundation::{HLOCAL, LocalFree};
+use windows_sys::Win32::Foundation::{LocalFree, HLOCAL};
 use windows_sys::Win32::Security::Cryptography::{
     CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
 };

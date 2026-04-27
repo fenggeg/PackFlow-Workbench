@@ -447,7 +447,10 @@ export interface DeploymentProfile {
   name: string
   moduleId: string
   localArtifactPattern: string
+  remoteArtifactName?: string
   remoteDeployPath: string
+  logPath?: string
+  enableDeployLog: boolean
   deploymentSteps: DeployStep[]
   customCommands: DeploymentCustomCommand[]
   startupProbe?: StartupProbeConfig

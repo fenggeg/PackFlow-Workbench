@@ -2,8 +2,8 @@ use crate::error::AppResult;
 use crate::models::dependency::ModuleDependencyGraph;
 use crate::models::module::MavenModule;
 use crate::models::project::MavenProject;
-use crate::services::{dependency_graph_service, pom_parser};
 use crate::services::{app_logger, blocking};
+use crate::services::{dependency_graph_service, pom_parser};
 use tauri::AppHandle;
 
 #[tauri::command]
@@ -50,7 +50,9 @@ pub async fn analyze_project_dependencies(
         format!("root_path={}", root_path),
     );
     let log_root_path = root_path.clone();
-    let result = blocking::run(move || dependency_graph_service::analyze_project_dependencies(&root_path)).await;
+    let result =
+        blocking::run(move || dependency_graph_service::analyze_project_dependencies(&root_path))
+            .await;
     match &result {
         Ok(graph) => app_logger::log_info(
             &app,

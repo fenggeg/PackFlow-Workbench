@@ -149,14 +149,47 @@
 }
 
 .inspector-drawer {
+  position: relative;
   display: flex;
   flex-direction: column;
-  width: 400px;
-  min-width: 0;
+  width: 520px;
+  max-width: min(840px, 60vw);
+  min-width: 420px;
   min-height: 0;
   overflow: hidden auto;
   background: #ffffff;
   border-left: 1px solid #e5e7eb;
+}
+
+.inspector-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  z-index: 4;
+  width: 8px;
+  cursor: col-resize;
+}
+
+.inspector-resize-handle::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  content: "";
+  background: transparent;
+  transition: background-color 0.16s ease;
+}
+
+.inspector-resize-handle:hover::after,
+.inspector-resizing .inspector-resize-handle::after {
+  background: #16a34a;
+}
+
+.inspector-resizing {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .inspector-collapsed {
@@ -696,7 +729,7 @@
 
 .env-profile-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px 34px;
+  grid-template-columns: minmax(0, 1fr) auto auto 34px;
   gap: 8px;
   min-width: 0;
 }
@@ -1032,6 +1065,44 @@
   white-space: pre-wrap;
 }
 
+.log-panel-card .ant-card-head-wrapper {
+  min-width: 0;
+  gap: 8px;
+}
+
+.log-panel-card .ant-card-head-title {
+  flex: 0 0 auto;
+  min-width: 72px;
+  padding-right: 0;
+}
+
+.log-panel-card .ant-card-extra {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.log-card-extra {
+  max-width: 100%;
+  justify-content: flex-end;
+}
+
+.log-card-extra .ant-space-item {
+  min-width: 0;
+}
+
+.log-status-tag {
+  display: inline-flex;
+  max-width: min(260px, 34vw);
+  margin-inline-end: 0;
+}
+
+.log-status-tag span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .log-panel-large {
   height: 70vh;
 }
@@ -1096,6 +1167,79 @@
   white-space: pre-wrap;
 }
 
+.inspector-deploy-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+
+.inspector-deploy-step {
+  display: grid !important;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 8px;
+  align-items: flex-start !important;
+  padding: 8px 0 !important;
+}
+
+.inspector-deploy-step-index {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  color: #1677ff;
+  background: #e6f4ff;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.inspector-deploy-step-body,
+.inspector-deploy-step-title {
+  min-width: 0;
+}
+
+.inspector-deploy-step-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+
+.inspector-deploy-step-meta,
+.inspector-deploy-step-message {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.inspector-probe-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.inspector-probe-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.inspector-probe-row .ant-tag {
+  margin-inline-end: 0;
+}
+
+.inspector-probe-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .dependency-info-block {
   display: flex;
   flex-direction: column;
@@ -1133,6 +1277,20 @@
 
 .pipeline-run-heading {
   min-width: 0;
+  width: 100%;
+}
+
+.pipeline-run-heading .ant-space-item {
+  min-width: 0;
+}
+
+.pipeline-run-title {
+  display: inline-block;
+  max-width: min(520px, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
 }
 
 .pipeline-run-bar .ant-steps {
@@ -1143,6 +1301,34 @@
   overflow: visible;
 }
 
+.deployment-server-select {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.deployment-server-select .ant-btn {
+  max-width: min(520px, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deployment-server-list {
+  max-height: 56vh;
+  overflow: auto;
+}
+
+.deployment-server-item {
+  cursor: pointer;
+}
+
+.deployment-server-item.active {
+  background: #f0fdf4;
+}
+
 .deployment-connection-log {
   padding: 6px 10px;
   background: #f8fafc;
@@ -1150,6 +1336,32 @@
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.5;
+}
+
+.probe-status-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.probe-status-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.probe-status-row .ant-tag {
+  margin-inline-end: 0;
+}
+
+.probe-status-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .workflow-step-list {
@@ -1442,6 +1654,16 @@
 
   .inspector-collapsed {
     display: none;
+  }
+
+  .inspector-resize-handle {
+    display: none;
+  }
+
+  .inspector-drawer {
+    width: 100% !important;
+    max-width: none;
+    min-width: 0;
   }
 
   .workspace-page {

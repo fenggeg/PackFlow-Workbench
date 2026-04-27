@@ -1,6 +1,6 @@
-import {Alert, Button, Card, Empty, List, Select, Space, Tag, Typography} from 'antd'
+import {Alert, Button, Card, Empty, Input, List, Modal, Select, Space, Tag, Typography} from 'antd'
 import {FolderOpenOutlined, RocketOutlined, SettingOutlined} from '@ant-design/icons'
-import {useEffect, useMemo, useState} from 'react'
+import {useMemo, useState} from 'react'
 import {api} from '../../services/tauri-api'
 import {findDeployableArtifacts, flattenModules, pickDefaultTestServer,} from '../../services/deploymentTopologyService'
 import {useAppStore} from '../../store/useAppStore'
@@ -23,6 +23,8 @@ export function BuildNextActionsPanel() {
   const [selectedDeploymentProfileId, setSelectedDeploymentProfileId] = useState<string>()
   const [selectedServerId, setSelectedServerId] = useState<string>()
   const [selectedArtifactPath, setSelectedArtifactPath] = useState<string>()
+  const [serverPickerOpen, setServerPickerOpen] = useState(false)
+  const [serverPickerKeyword, setServerPickerKeyword] = useState('')
 
   const modules = useMemo(() => flattenModules(project?.modules ?? []), [project?.modules])
   const mappedProfiles = useMemo(
@@ -30,7 +32,10 @@ export function BuildNextActionsPanel() {
       artifacts.some((artifact) => findDeployableArtifacts([artifact], profile, modules).length > 0)),
     [artifacts, deploymentProfiles, modules],
   )
-  const selectedProfile = mappedProfiles.find((profile) => profile.id === selectedDeploymentProfileId)
+  const effectiveDeploymentProfileId = mappedProfiles.some((profile) => profile.id === selectedDeploymentProfileId)
+    ? selectedDeploymentProfileId
+    : mappedProfiles[0]?.id
+  const selectedProfile = mappedProfiles.find((profile) => profile.id === effectiveDeploymentProfileId)
   const artifactOptions = useMemo(
     () => selectedProfile
       ? findDeployableArtifacts(artifacts, selectedProfile, modules).map((artifact) => ({
@@ -43,24 +48,23 @@ export function BuildNextActionsPanel() {
   const deploymentRunning = Boolean(currentDeploymentTask && !deploymentFinished(currentDeploymentTask.status))
   const hasServiceMapping = mappedProfiles.length > 0
   const defaultTestServer = useMemo(() => pickDefaultTestServer(serverProfiles), [serverProfiles])
-
-  useEffect(() => {
-    if (!selectedDeploymentProfileId || !mappedProfiles.some((profile) => profile.id === selectedDeploymentProfileId)) {
-      setSelectedDeploymentProfileId(mappedProfiles[0]?.id)
+  const effectiveServerId = serverProfiles.some((server) => server.id === selectedServerId)
+    ? selectedServerId
+    : defaultTestServer?.id
+  const effectiveServer = serverProfiles.find((server) => server.id === effectiveServerId)
+  const filteredServers = useMemo(() => {
+    const keyword = serverPickerKeyword.trim().toLowerCase()
+    if (!keyword) {
+      return serverProfiles
     }
-  }, [mappedProfiles, selectedDeploymentProfileId])
-
-  useEffect(() => {
-    if (!selectedServerId || !serverProfiles.some((server) => server.id === selectedServerId)) {
-      setSelectedServerId(defaultTestServer?.id)
-    }
-  }, [defaultTestServer?.id, selectedServerId, serverProfiles])
-
-  useEffect(() => {
-    if (!selectedArtifactPath || !artifactOptions.some((artifact) => artifact.value === selectedArtifactPath)) {
-      setSelectedArtifactPath(artifactOptions[0]?.value)
-    }
-  }, [artifactOptions, selectedArtifactPath])
+    return serverProfiles.filter((server) =>
+      [server.name, server.group, server.host, server.username, String(server.port)]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(keyword)))
+  }, [serverPickerKeyword, serverProfiles])
+  const effectiveArtifactPath = artifactOptions.some((artifact) => artifact.value === selectedArtifactPath)
+    ? selectedArtifactPath
+    : artifactOptions[0]?.value
 
   if (buildStatus !== 'SUCCESS') {
     return null
@@ -88,28 +92,25 @@ export function BuildNextActionsPanel() {
                 <Select
                   placeholder="服务映射"
                   style={{minWidth: 220}}
-                  value={selectedDeploymentProfileId}
+                  value={effectiveDeploymentProfileId}
                   options={mappedProfiles.map((profile) => ({label: profile.name, value: profile.id}))}
                   onChange={(value) => {
                     setSelectedDeploymentProfileId(value)
                     setSelectedArtifactPath(undefined)
                   }}
                 />
-                <Select
-                  placeholder="测试环境服务器"
-                  style={{minWidth: 240}}
-                  value={selectedServerId}
-                  options={serverProfiles.map((server) => ({
-                    label: `${server.name}${server.group ? ` · ${server.group}` : ''}`,
-                    value: server.id,
-                  }))}
-                  onChange={setSelectedServerId}
-                  notFoundContent="请先在部署中心添加服务器"
-                />
+                <div className="deployment-server-select">
+                  <Button onClick={() => setServerPickerOpen(true)}>
+                    {effectiveServer
+                      ? `${effectiveServer.name}（${effectiveServer.username}@${effectiveServer.host}:${effectiveServer.port}）`
+                      : '选择测试服务器'}
+                  </Button>
+                  <Text type="secondary">当前仅支持单服务器部署</Text>
+                </div>
                 <Select
                   placeholder="构建产物"
                   style={{minWidth: 260}}
-                  value={selectedArtifactPath}
+                  value={effectiveArtifactPath}
                   options={artifactOptions}
                   onChange={setSelectedArtifactPath}
                   notFoundContent="当前映射没有匹配产物"
@@ -117,13 +118,13 @@ export function BuildNextActionsPanel() {
                 <Button
                   type="primary"
                   icon={<RocketOutlined />}
-                  disabled={!selectedDeploymentProfileId || !selectedServerId || !selectedArtifactPath || deploymentRunning}
+                  disabled={!effectiveDeploymentProfileId || !effectiveServerId || !effectiveArtifactPath || deploymentRunning}
                   onClick={() => {
-                    if (selectedDeploymentProfileId && selectedServerId && selectedArtifactPath) {
+                    if (effectiveDeploymentProfileId && effectiveServerId && effectiveArtifactPath) {
                       void startDeployment(
-                        selectedDeploymentProfileId,
-                        selectedServerId,
-                        selectedArtifactPath,
+                        effectiveDeploymentProfileId,
+                        effectiveServerId,
+                        effectiveArtifactPath,
                         currentBuildId,
                       )
                     }
@@ -175,6 +176,57 @@ export function BuildNextActionsPanel() {
           <Empty description="暂无可操作产物" image={Empty.PRESENTED_IMAGE_SIMPLE} />
         )}
       </Space>
+      <Modal
+        title="选择测试服务器"
+        open={serverPickerOpen}
+        width={720}
+        footer={null}
+        onCancel={() => setServerPickerOpen(false)}
+      >
+        <Space direction="vertical" size={12} style={{width: '100%'}}>
+          <Input
+            allowClear
+            placeholder="搜索服务器名称、分组、主机、用户名或端口"
+            value={serverPickerKeyword}
+            onChange={(event) => setServerPickerKeyword(event.target.value)}
+          />
+          <List
+            bordered
+            className="deployment-server-list"
+            dataSource={filteredServers}
+            locale={{emptyText: '没有匹配的服务器'}}
+            renderItem={(server) => (
+              <List.Item
+                className={server.id === effectiveServerId ? 'deployment-server-item active' : 'deployment-server-item'}
+                actions={[
+                  <Button
+                    key="select"
+                    type={server.id === effectiveServerId ? 'primary' : 'default'}
+                    size="small"
+                    onClick={() => {
+                      setSelectedServerId(server.id)
+                      setServerPickerOpen(false)
+                    }}
+                  >
+                    {server.id === effectiveServerId ? '已选择' : '选择'}
+                  </Button>,
+                ]}
+              >
+                <Space direction="vertical" size={2} className="artifact-item">
+                  <Space size={8} wrap>
+                    <Text strong>{server.name}</Text>
+                    <Tag>{server.group || '默认环境'}</Tag>
+                    <Tag>{server.authType === 'password' ? '密码' : '私钥'}</Tag>
+                  </Space>
+                  <Text type="secondary">
+                    {server.username}@{server.host}:{server.port}
+                  </Text>
+                </Space>
+              </List.Item>
+            )}
+          />
+        </Space>
+      </Modal>
     </Card>
   )
 }

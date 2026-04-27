@@ -7,6 +7,7 @@ import {useAppStore} from '../../store/useAppStore'
 import type {EnvironmentProfile} from '../../types/domain'
 
 const { Text } = Typography
+type EnvProfileMode = 'create' | 'edit'
 
 export function EnvPanel() {
   const environment = useAppStore((state) => state.environment)
@@ -17,6 +18,7 @@ export function EnvPanel() {
   const saveEnvironmentProfile = useAppStore((state) => state.saveEnvironmentProfile)
   const deleteEnvironmentProfile = useAppStore((state) => state.deleteEnvironmentProfile)
   const [profileName, setProfileName] = useState('')
+  const [profileMode, setProfileMode] = useState<EnvProfileMode>('create')
 
   const javaValue = environment?.javaHome ?? ''
   const mavenValue = environment?.mavenHome ?? environment?.mavenPath ?? ''
@@ -90,6 +92,8 @@ export function EnvPanel() {
             ]}
             onChange={(value) => {
               if (value === '__auto__') {
+                setProfileMode('create')
+                setProfileName('')
                 void updateEnvironment({
                   ...(environmentSettings ?? { profiles: [] }),
                   activeProfileId: undefined,
@@ -97,18 +101,22 @@ export function EnvPanel() {
                 })
                 return
               }
+              setProfileMode('edit')
+              const profile = profiles.find((item) => item.id === value)
+              setProfileName(profile?.name ?? '')
               void applyEnvironmentProfile(value)
             }}
           />
           <div className="env-profile-actions">
             <Input
               className="env-profile-name"
-              placeholder={activeProfile?.name ?? '方案名称'}
+              placeholder={profileMode === 'edit' ? '编辑当前方案名称' : '新增方案名称'}
               value={profileName}
               onChange={(event) => setProfileName(event.target.value)}
               onPressEnter={() => {
                 void saveEnvironmentProfile(profileName || activeProfile?.name || '自定义环境')
                 setProfileName('')
+                setProfileMode('edit')
               }}
             />
             <Button
@@ -116,14 +124,31 @@ export function EnvPanel() {
               onClick={() => {
                 void saveEnvironmentProfile(profileName || activeProfile?.name || '自定义环境')
                 setProfileName('')
+                setProfileMode('edit')
               }}
-            />
+            >
+              {profileMode === 'edit' ? '保存修改' : '新增方案'}
+            </Button>
+            <Button
+              onClick={() => {
+                setProfileMode('create')
+                setProfileName('')
+              }}
+            >
+              新增
+            </Button>
             <Popconfirm
               title="删除当前环境方案？"
               okText="删除"
               cancelText="取消"
               disabled={!activeProfile}
-              onConfirm={() => activeProfile && void deleteEnvironmentProfile(activeProfile.id)}
+              onConfirm={() => {
+                if (activeProfile) {
+                  void deleteEnvironmentProfile(activeProfile.id)
+                  setProfileMode('create')
+                  setProfileName('')
+                }
+              }}
             >
               <Button danger disabled={!activeProfile} icon={<DeleteOutlined />} />
             </Popconfirm>

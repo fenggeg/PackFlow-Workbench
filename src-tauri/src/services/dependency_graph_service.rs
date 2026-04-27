@@ -252,10 +252,20 @@ fn detect_cycles(edges: &[ModuleDependencyEdge]) -> Vec<Vec<String>> {
     for start in adjacency.keys() {
         let mut stack = Vec::new();
         let mut visiting = HashSet::new();
-        dfs_cycles(start, start, &adjacency, &mut stack, &mut visiting, &mut cycles);
+        dfs_cycles(
+            start,
+            start,
+            &adjacency,
+            &mut stack,
+            &mut visiting,
+            &mut cycles,
+        );
     }
 
-    cycles.into_iter().map(|cycle| cycle.into_iter().collect()).collect()
+    cycles
+        .into_iter()
+        .map(|cycle| cycle.into_iter().collect())
+        .collect()
 }
 
 fn dfs_cycles(
@@ -339,22 +349,16 @@ fn build_summaries(
             .collect::<Vec<_>>();
         let release_candidate_module_ids =
             compute_release_candidates(module, modules, &business_edges);
-        let required_build_module_ids = collect_unique(
-            edges.iter().filter_map(|edge| {
-                (edge.from_module_id == module.id
-                    && matches!(
-                        edge.edge_type.as_str(),
-                        "compile" | "runtime" | "provided" | "parent"
-                    ))
-                .then_some(edge.to_module_id.clone())
-            }),
-        );
-        let suggested_validation_module_ids = collect_unique(
-            dependents
-                .iter()
-                .cloned()
-                .filter(|item| item != &module.id),
-        );
+        let required_build_module_ids = collect_unique(edges.iter().filter_map(|edge| {
+            (edge.from_module_id == module.id
+                && matches!(
+                    edge.edge_type.as_str(),
+                    "compile" | "runtime" | "provided" | "parent"
+                ))
+            .then_some(edge.to_module_id.clone())
+        }));
+        let suggested_validation_module_ids =
+            collect_unique(dependents.iter().cloned().filter(|item| item != &module.id));
         let related_aggregation_module_ids = collect_unique(
             aggregation_children
                 .iter()

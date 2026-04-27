@@ -353,8 +353,7 @@ fn push_unique_path(paths: &mut Vec<String>, path: String) {
 
 fn detect_local_repository_from_settings(settings_xml_path: &str) -> Option<String> {
     let content = fs::read_to_string(settings_xml_path).ok()?;
-    extract_local_repository(&content)
-        .map(|value| path_to_string(resolve_maven_path_value(&value)))
+    extract_local_repository(&content).map(|value| path_to_string(resolve_maven_path_value(&value)))
 }
 
 fn extract_local_repository(content: &str) -> Option<String> {
@@ -373,7 +372,10 @@ fn resolve_maven_path_value(value: &str) -> PathBuf {
     if expanded == "~" {
         return user_home().unwrap_or_else(|| PathBuf::from(expanded));
     }
-    if let Some(rest) = expanded.strip_prefix("~/").or_else(|| expanded.strip_prefix("~\\")) {
+    if let Some(rest) = expanded
+        .strip_prefix("~/")
+        .or_else(|| expanded.strip_prefix("~\\"))
+    {
         if let Some(home) = user_home() {
             return home.join(rest);
         }
@@ -405,7 +407,9 @@ fn user_home() -> Option<PathBuf> {
 }
 
 fn user_m2_path() -> PathBuf {
-    user_home().unwrap_or_else(|| PathBuf::from(".")).join(".m2")
+    user_home()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".m2")
 }
 
 fn environment_status(errors: &[String]) -> EnvironmentStatus {
