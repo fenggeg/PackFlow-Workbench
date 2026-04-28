@@ -33,6 +33,7 @@ pub fn run_startup_probe(
     let mut detected_log_path = resolve_initial_log_path(config, context);
     let mut attempts: u32 = 0;
     let mut ever_seen_process_alive = false;
+    let mut log_lines_emitted: usize = 0;
 
     if let Some(process_probe) = &config.process_probe {
         if process_probe.enabled {
@@ -70,10 +71,32 @@ pub fn run_startup_probe(
         }
 
         if let Some(log_path) = &detected_log_path {
-            let tail_cmd = format!("tail -n 50 {} 2>/dev/null || true", shell_quote(log_path));
-            if let Ok(result) = conn.execute_with_cancel(&tail_cmd, || is_cancelled()) {
-                for line in result.output.lines() {
-                    on_log(line);
+            // Incremental read: only emit lines that haven't been sent yet
+            let total_cmd = format!("wc -l {} 2>/dev/null || echo 0", shell_quote(log_path));
+            if let Ok(wc_result) = conn.execute_with_cancel(&total_cmd, || is_cancelled()) {
+                if let Ok(total_lines) = wc_result
+                    .output
+                    .trim()
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("0")
+                    .parse::<usize>()
+                {
+                    if total_lines > log_lines_emitted {
+                        let skip = log_lines_emitted;
+                        let tail_cmd = format!(
+                            "tail -n +{} {} 2>/dev/null || true",
+                            skip + 1,
+                            shell_quote(log_path)
+                        );
+                        if let Ok(result) = conn.execute_with_cancel(&tail_cmd, || is_cancelled())
+                        {
+                            for line in result.output.lines() {
+                                on_log(line);
+                            }
+                        }
+                        log_lines_emitted = total_lines;
+                    }
                 }
             }
         }
