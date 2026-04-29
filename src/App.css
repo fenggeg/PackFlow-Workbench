@@ -1021,7 +1021,27 @@
 }
 
 .service-dictionary-table .ant-table-cell {
-  vertical-align: top;
+  vertical-align: middle;
+}
+
+.service-dictionary-table .ant-table {
+  background: transparent;
+}
+
+.service-dictionary-table .ant-table-thead > tr > th {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  background: #f8fafc;
+}
+
+.service-dictionary-table .ant-table-tbody > tr > td {
+  padding-block: 14px;
+  border-bottom-color: #eef2f7;
+}
+
+.service-dictionary-table .ant-table-tbody > tr:hover > td {
+  background: #f8fafc;
 }
 
 .service-dictionary-cell {
@@ -1038,6 +1058,136 @@
 .service-dictionary-cell code {
   white-space: normal;
   word-break: break-all;
+}
+
+.service-profile-cell,
+.service-target-cell,
+.service-runtime-cell {
+  min-width: 0;
+}
+
+.service-profile-title,
+.service-target-heading,
+.service-runtime-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-bottom: 6px;
+}
+
+.service-profile-title .ant-typography,
+.service-target-heading .ant-typography {
+  min-width: 0;
+}
+
+.service-profile-desc {
+  display: block;
+  max-width: 100%;
+  margin-bottom: 8px;
+}
+
+.service-profile-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.service-target-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.service-target-row > span {
+  color: #94a3b8;
+}
+
+.service-target-row .ant-typography {
+  min-width: 0;
+  margin: 0;
+  color: #475569;
+}
+
+.service-target-row code {
+  max-width: 100%;
+}
+
+.service-runtime-url {
+  display: block;
+  max-width: 100%;
+  margin-top: 6px;
+}
+
+.service-row-actions {
+  flex-wrap: nowrap;
+}
+
+.service-row-actions .ant-btn {
+  width: 30px;
+  height: 30px;
+}
+
+.server-list-search {
+  width: min(320px, 100%);
+  margin-bottom: 8px;
+}
+
+.server-profile-table {
+  max-width: 100%;
+}
+
+.server-profile-table .ant-table {
+  table-layout: fixed;
+}
+
+.server-profile-table .ant-table-cell {
+  vertical-align: middle;
+}
+
+.server-profile-cell,
+.server-profile-title {
+  min-width: 0;
+}
+
+.server-profile-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.server-profile-title .ant-typography,
+.server-profile-cell > .ant-typography {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.server-profile-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.server-profile-tags .ant-tag {
+  max-width: 100%;
+  margin-inline-end: 0;
+}
+
+.server-row-actions {
+  flex-wrap: nowrap;
+}
+
+.server-row-actions .ant-btn {
+  width: 30px;
+  height: 30px;
 }
 
 .deployment-history-table .ant-table-cell {

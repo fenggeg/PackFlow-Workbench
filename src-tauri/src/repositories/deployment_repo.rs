@@ -407,7 +407,10 @@ fn normalize_privilege_config(mut config: ServerPrivilegeConfig) -> ServerPrivil
         "login_password" | "separate" => config.password_mode.trim().to_string(),
         _ => "none".to_string(),
     };
-    config.upload_temp_dir = non_empty_or(config.upload_temp_dir, "~/.packflow/deploy/${deploymentId}");
+    config.upload_temp_dir = non_empty_or(
+        config.upload_temp_dir,
+        "${loginHome}/.packflow/deploy/${deploymentId}",
+    );
     config.shell = non_empty_or(config.shell, "bash -lc");
     config.custom_wrapper = config
         .custom_wrapper

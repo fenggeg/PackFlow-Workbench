@@ -378,7 +378,7 @@ fn default_privilege_password_mode() -> String {
 }
 
 fn default_privilege_upload_temp_dir() -> String {
-    "~/.packflow/deploy/${deploymentId}".to_string()
+    "${loginHome}/.packflow/deploy/${deploymentId}".to_string()
 }
 
 fn default_privilege_shell() -> String {

@@ -184,9 +184,9 @@ export function HistoryTable() {
       >
         {openRecord ? (
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
-            <Button onClick={() => void api.openPathInExplorer(openRecord.projectRoot)}>
-              打开项目根目录
-            </Button>
+            <Tooltip title="打开项目根目录">
+              <Button icon={<FolderOpenOutlined />} onClick={() => void api.openPathInExplorer(openRecord.projectRoot)} />
+            </Tooltip>
             <List
               bordered
               dataSource={modulePaths(openRecord)}
@@ -195,13 +195,13 @@ export function HistoryTable() {
                 return (
                   <List.Item
                     actions={[
-                      <Button
-                        key="open"
-                        size="small"
-                        onClick={() => void api.openPathInExplorer(fullPath)}
-                      >
-                        打开
-                      </Button>,
+                      <Tooltip key="open" title="打开目录">
+                        <Button
+                          size="small"
+                          icon={<FolderOpenOutlined />}
+                          onClick={() => void api.openPathInExplorer(fullPath)}
+                        />
+                      </Tooltip>,
                     ]}
                   >
                     <Text className="path-text" ellipsis={{ tooltip: fullPath }}>

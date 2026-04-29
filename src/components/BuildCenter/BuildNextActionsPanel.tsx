@@ -1,5 +1,5 @@
-import {Alert, Button, Card, Empty, Input, List, Modal, Select, Space, Tag, Typography} from 'antd'
-import {FolderOpenOutlined, RocketOutlined, SettingOutlined} from '@ant-design/icons'
+import {Alert, Button, Card, Empty, Input, List, Modal, Select, Space, Tag, Tooltip, Typography} from 'antd'
+import {CheckOutlined, FolderOpenOutlined, RocketOutlined, SettingOutlined} from '@ant-design/icons'
 import {useMemo, useState} from 'react'
 import {api} from '../../services/tauri-api'
 import {
@@ -164,14 +164,13 @@ export function BuildNextActionsPanel() {
             renderItem={(artifact) => (
               <List.Item
                 actions={[
-                  <Button
-                    key="open"
-                    size="small"
-                    icon={<FolderOpenOutlined />}
-                    onClick={() => void api.openPathInExplorer(artifact.path)}
-                  >
-                    定位
-                  </Button>,
+                  <Tooltip key="open" title="定位产物">
+                    <Button
+                      size="small"
+                      icon={<FolderOpenOutlined />}
+                      onClick={() => void api.openPathInExplorer(artifact.path)}
+                    />
+                  </Tooltip>,
                 ]}
               >
                 <Space direction="vertical" size={0} className="artifact-item">
@@ -210,17 +209,17 @@ export function BuildNextActionsPanel() {
               <List.Item
                 className={server.id === effectiveServerId ? 'deployment-server-item active' : 'deployment-server-item'}
                 actions={[
-                  <Button
-                    key="select"
-                    type={server.id === effectiveServerId ? 'primary' : 'default'}
-                    size="small"
-                    onClick={() => {
-                      setSelectedServerId(server.id)
-                      setServerPickerOpen(false)
-                    }}
-                  >
-                    {server.id === effectiveServerId ? '已选择' : '选择'}
-                  </Button>,
+                  <Tooltip key="select" title={server.id === effectiveServerId ? '已选择' : '选择服务器'}>
+                    <Button
+                      type={server.id === effectiveServerId ? 'primary' : 'default'}
+                      size="small"
+                      icon={<CheckOutlined />}
+                      onClick={() => {
+                        setSelectedServerId(server.id)
+                        setServerPickerOpen(false)
+                      }}
+                    />
+                  </Tooltip>,
                 ]}
               >
                 <Space direction="vertical" size={2} className="artifact-item">

@@ -1,4 +1,12 @@
 import {Alert, Button, Card, Divider, Empty, Input, Space, Spin, Tag, Tooltip, Tree, Typography} from 'antd'
+import {
+    AppstoreOutlined,
+    CheckSquareOutlined,
+    ClearOutlined,
+    CompressOutlined,
+    ExpandOutlined,
+    FilterOutlined,
+} from '@ant-design/icons'
 import type {DataNode} from 'antd/es/tree'
 import type {Key} from 'react'
 import {useMemo, useState} from 'react'
@@ -125,31 +133,33 @@ export function ModuleTreePanel() {
         />
         {project ? (
           <Space wrap>
-            <Button size="small" type={selectedModules.length === 0 ? 'primary' : 'default'} onClick={selectAllProject}>
-              全部项目打包
-            </Button>
-            <Button
-              size="small"
-              onClick={() => setSelectedModules(allModulesChecked ? [] : allModuleIds)}
-            >
-              {allModulesChecked ? '取消全选' : '全选模块'}
-            </Button>
-            <Button size="small" onClick={() => setSelectedModules([])}>
-              清空选择
-            </Button>
-            <Button size="small" onClick={() => setExpandedKeys(allModuleIds)}>
-              展开全部
-            </Button>
-            <Button size="small" onClick={() => setExpandedKeys([])}>
-              收起全部
-            </Button>
-            <Button
-              size="small"
-              type={showCheckedOnly ? 'primary' : 'default'}
-              onClick={() => setShowCheckedOnly((value) => !value)}
-            >
-              仅已选
-            </Button>
+            <Tooltip title="全部项目打包">
+              <Button size="small" icon={<AppstoreOutlined />} type={selectedModules.length === 0 ? 'primary' : 'default'} onClick={selectAllProject} />
+            </Tooltip>
+            <Tooltip title={allModulesChecked ? '取消全选' : '全选模块'}>
+              <Button
+                size="small"
+                icon={<CheckSquareOutlined />}
+                onClick={() => setSelectedModules(allModulesChecked ? [] : allModuleIds)}
+              />
+            </Tooltip>
+            <Tooltip title="清空选择">
+              <Button size="small" icon={<ClearOutlined />} onClick={() => setSelectedModules([])} />
+            </Tooltip>
+            <Tooltip title="展开全部">
+              <Button size="small" icon={<ExpandOutlined />} onClick={() => setExpandedKeys(allModuleIds)} />
+            </Tooltip>
+            <Tooltip title="收起全部">
+              <Button size="small" icon={<CompressOutlined />} onClick={() => setExpandedKeys([])} />
+            </Tooltip>
+            <Tooltip title="仅显示已选">
+              <Button
+                size="small"
+                icon={<FilterOutlined />}
+                type={showCheckedOnly ? 'primary' : 'default'}
+                onClick={() => setShowCheckedOnly((value) => !value)}
+              />
+            </Tooltip>
           </Space>
         ) : null}
         {loading ? (

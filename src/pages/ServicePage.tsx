@@ -1,5 +1,13 @@
-import {CloudServerOutlined, DatabaseOutlined, RocketOutlined, SearchOutlined} from '@ant-design/icons'
-import {Button, Card, Descriptions, Empty, Input, Modal, Space, Table, Tag, Typography} from 'antd'
+import {
+    CloudServerOutlined,
+    CopyOutlined,
+    DatabaseOutlined,
+    FileTextOutlined,
+    FullscreenOutlined,
+    RocketOutlined,
+    SearchOutlined
+} from '@ant-design/icons'
+import {Button, Card, Descriptions, Empty, Input, Modal, Space, Table, Tag, Tooltip, Typography} from 'antd'
 import {useMemo, useState} from 'react'
 import {belongsToProject, flattenModules, profileModuleLabel} from '../services/deploymentTopologyService'
 import {useAppStore} from '../store/useAppStore'
@@ -179,13 +187,13 @@ export function ServicePage() {
                 className="panel-card"
                 size="small"
                 extra={
-                  <Button
-                    size="small"
-                    icon={<RocketOutlined />}
-                    onClick={() => navigateToDeployment(profile.id)}
-                  >
-                    去部署
-                  </Button>
+                  <Tooltip title="去部署">
+                    <Button
+                      size="small"
+                      icon={<RocketOutlined />}
+                      onClick={() => navigateToDeployment(profile.id)}
+                    />
+                  </Tooltip>
                 }
               >
                 <Space direction="vertical" size={12} style={{width: '100%'}}>
@@ -276,18 +284,19 @@ export function ServicePage() {
                             title: '操作',
                             width: 100,
                             render: (_, record) => (
-                              <Button
-                                size="small"
-                                disabled={!record.task}
-                                onClick={() => {
-                                  if (record.task) {
-                                    setOpenTask(record.task)
-                                    setLogKeyword('')
-                                  }
-                                }}
-                              >
-                                日志
-                              </Button>
+                              <Tooltip title="查看日志">
+                                <Button
+                                  size="small"
+                                  icon={<FileTextOutlined />}
+                                  disabled={!record.task}
+                                  onClick={() => {
+                                    if (record.task) {
+                                      setOpenTask(record.task)
+                                      setLogKeyword('')
+                                    }
+                                  }}
+                                />
+                              </Tooltip>
                             ),
                           },
                         ]}
@@ -363,16 +372,17 @@ export function ServicePage() {
                 value={logKeyword}
                 onChange={(event) => setLogKeyword(event.target.value)}
               />
-              <Button
-                size="small"
-                disabled={openTaskLogs.length === 0}
-                onClick={() => void navigator.clipboard?.writeText(openTaskLogs.join('\n'))}
-              >
-                复制日志
-              </Button>
-              <Button size="small" onClick={() => setLogExpanded(true)}>
-                放大查看
-              </Button>
+              <Tooltip title="复制日志">
+                <Button
+                  size="small"
+                  icon={<CopyOutlined />}
+                  disabled={openTaskLogs.length === 0}
+                  onClick={() => void navigator.clipboard?.writeText(openTaskLogs.join('\n'))}
+                />
+              </Tooltip>
+              <Tooltip title="放大查看">
+                <Button size="small" icon={<FullscreenOutlined />} onClick={() => setLogExpanded(true)} />
+              </Tooltip>
             </Space>
             <div className="workflow-log-panel">
               {renderLogContent()}

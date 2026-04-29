@@ -1,8 +1,17 @@
-import { Card, Checkbox, Input, Space, Tooltip, Typography } from 'antd'
-import { InfoCircleOutlined } from '@ant-design/icons'
-import { useAppStore } from '../../store/useAppStore'
+import {Card, Checkbox, Input, Space, Tooltip, Typography} from 'antd'
+import {InfoCircleOutlined} from '@ant-design/icons'
+import {useAppStore} from '../../store/useAppStore'
 
 const { Text } = Typography
+
+const AddonHelp = ({ label, help }: { label: string; help: string }) => (
+  <Space size={4} align="center">
+    <span>{label}</span>
+    <Tooltip title={help}>
+      <InfoCircleOutlined />
+    </Tooltip>
+  </Space>
+)
 
 const splitArgs = (value: string) =>
   value
@@ -133,14 +142,14 @@ export function BuildOptionsPanel() {
         </div>
 
         <Input
-          addonBefore="Profiles"
-          placeholder="例如 dev,test，会生成 -Pdev,test"
+          addonBefore={<AddonHelp label="Profiles" help="填写 Maven profile，多个用逗号或空格分隔，最终会生成 -P 参数。" />}
+          placeholder="例如 dev,test"
           value={buildOptions.profiles.join(',')}
           onChange={(event) => setBuildOption('profiles', splitArgs(event.target.value))}
         />
         <Input
-          addonBefore="自定义"
-          placeholder="例如 -DskipDocker -Drevision=1.0.0"
+          addonBefore={<AddonHelp label="自定义" help="追加到 Maven 命令末尾的参数，例如 -DskipDocker 或 -Drevision=1.0.0。" />}
+          placeholder="例如 -DskipDocker"
           value={manualCustomArgs.join(' ')}
           onChange={(event) => setManualArgs(event.target.value)}
         />

@@ -1,8 +1,8 @@
 use crate::error::{to_user_error, AppResult};
 use crate::models::deployment::{
     BackupConfig, DeployStep, DeploymentProfile, DeploymentStage, DeploymentTask, ProbeStatus,
-    ProbeStatusEvent, RollbackResult, ServerPrivilegeConfig, StartDeploymentPayload, StartupProbeConfig,
-    UploadProgressEvent,
+    ProbeStatusEvent, RollbackResult, ServerPrivilegeConfig, StartDeploymentPayload,
+    StartupProbeConfig, UploadProgressEvent,
 };
 use crate::repositories::deployment_repo;
 use crate::services::ssh_transport_service::SshConnection;
@@ -499,7 +499,8 @@ fn execute_deployment(
         );
     }
 
-    if task.status == "success" && context.privilege.cleanup_on_success {
+    if task.status == "success" && uses_privilege(&context) && context.privilege.cleanup_on_success
+    {
         cleanup_remote_upload_dir(app, &mut conn, &mut task, &context);
     }
 
@@ -2114,6 +2115,7 @@ fn resolve_upload_temp_dir(
     run_as_user: &str,
     remote_artifact_name: &str,
 ) -> String {
+    let login_home = default_login_home(login_user);
     let artifact_base = remote_artifact_name
         .rsplit_once('.')
         .map(|(name, _)| name)
@@ -2121,10 +2123,30 @@ fn resolve_upload_temp_dir(
     let resolved = template
         .replace("${deploymentId}", deployment_id)
         .replace("${loginUser}", login_user)
+        .replace("${loginHome}", &login_home)
         .replace("${runAsUser}", run_as_user)
         .replace("${remoteArtifactName}", remote_artifact_name)
         .replace("${remoteArtifactBaseName}", artifact_base);
-    normalize_remote_dir(&resolved)
+    normalize_remote_dir(&expand_home_dir(&resolved, &login_home))
+}
+
+fn default_login_home(login_user: &str) -> String {
+    let user = login_user.trim();
+    if user == "root" {
+        "/root".to_string()
+    } else if user.is_empty() {
+        "/tmp".to_string()
+    } else {
+        format!("/home/{}", user)
+    }
+}
+
+fn expand_home_dir(path: &str, login_home: &str) -> String {
+    match path.trim() {
+        "~" => login_home.to_string(),
+        value if value.starts_with("~/") => format!("{}{}", login_home, &value[1..]),
+        value => value.to_string(),
+    }
 }
 
 fn task_status_for_step(step_type: &str) -> &'static str {

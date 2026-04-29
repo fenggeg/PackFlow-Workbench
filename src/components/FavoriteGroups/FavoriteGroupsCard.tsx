@@ -1,5 +1,6 @@
-import {Button, Card, Dropdown, Empty, Input, List, Modal, Space, Typography} from 'antd'
+import {Button, Card, Dropdown, Empty, Input, List, Modal, Space, Tooltip, Typography} from 'antd'
 import {
+    CheckOutlined,
     DeleteOutlined,
     EditOutlined,
     MoreOutlined,
@@ -68,9 +69,9 @@ export function FavoriteGroupsCard() {
             <List.Item
               style={{ padding: '6px 0' }}
               actions={[
-                <Button key="apply" size="small" type="primary" onClick={() => applyTemplate(template)}>
-                  应用
-                </Button>,
+                <Tooltip key="apply" title="应用常用组合">
+                  <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => applyTemplate(template)} />
+                </Tooltip>,
                 <Dropdown
                   key="more"
                   menu={{

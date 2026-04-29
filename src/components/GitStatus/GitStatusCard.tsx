@@ -1,4 +1,4 @@
-import {Alert, Button, Card, Empty, List, Select, Space, Tag, Typography} from 'antd'
+import {Alert, Button, Card, Empty, List, Select, Space, Tag, Tooltip, Typography} from 'antd'
 import {DownloadOutlined, ReloadOutlined} from '@ant-design/icons'
 import {useAppStore} from '../../store/useAppStore'
 
@@ -84,32 +84,32 @@ export function GitStatusCard() {
         </div>
 
         <Space wrap>
-          <Button
-            size="small"
-            icon={<ReloadOutlined />}
-            loading={gitChecking}
-            onClick={() => void fetchGitUpdates()}
-          >
-            检查远端
-          </Button>
-          <Button
-            size="small"
-            icon={<ReloadOutlined />}
-            loading={gitCommitsLoading}
-            onClick={() => void loadGitCommits()}
-          >
-            刷新提交
-          </Button>
-          <Button
-            size="small"
-            type="primary"
-            icon={<DownloadOutlined />}
-            loading={gitPulling}
-            disabled={!gitStatus.hasRemoteUpdates}
-            onClick={() => void pullGitUpdates()}
-          >
-            应用内拉取
-          </Button>
+          <Tooltip title="检查远端">
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              loading={gitChecking}
+              onClick={() => void fetchGitUpdates()}
+            />
+          </Tooltip>
+          <Tooltip title="刷新提交">
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              loading={gitCommitsLoading}
+              onClick={() => void loadGitCommits()}
+            />
+          </Tooltip>
+          <Tooltip title="应用内拉取">
+            <Button
+              size="small"
+              type="primary"
+              icon={<DownloadOutlined />}
+              loading={gitPulling}
+              disabled={!gitStatus.hasRemoteUpdates}
+              onClick={() => void pullGitUpdates()}
+            />
+          </Tooltip>
         </Space>
 
         {gitStatus.hasRemoteUpdates ? (

@@ -1,4 +1,18 @@
-import {Alert, Button, Card, Collapse, Input, Modal, Popconfirm, Segmented, Select, Space, Tag, Typography} from 'antd'
+import {
+    Alert,
+    Button,
+    Card,
+    Collapse,
+    Input,
+    Modal,
+    Popconfirm,
+    Segmented,
+    Select,
+    Space,
+    Tag,
+    Tooltip,
+    Typography
+} from 'antd'
 import {
     DeleteOutlined,
     EditOutlined,
@@ -98,13 +112,13 @@ export function EnvPanel() {
       className="panel-card env-card"
       size="small"
       extra={
-        <Button
-          size="small"
-          icon={<ReloadOutlined />}
-          onClick={() => void refreshEnvironment()}
-        >
-          刷新
-        </Button>
+        <Tooltip title="刷新环境">
+          <Button
+            size="small"
+            icon={<ReloadOutlined />}
+            onClick={() => void refreshEnvironment()}
+          />
+        </Tooltip>
       }
     >
       <Space direction="vertical" size={10} style={{ width: '100%' }}>
@@ -137,22 +151,22 @@ export function EnvPanel() {
             }}
           />
           <div className="env-profile-actions">
-            <Button
-              icon={<PlusOutlined />}
-              onClick={openCreateProfileModal}
-            >
-              新增方案
-            </Button>
-            <Button
-              icon={<EditOutlined />}
-              disabled={!activeProfile}
-              onClick={openEditProfileModal}
-            >
-              编辑方案
-            </Button>
-            <Button icon={<SettingOutlined />} onClick={() => setPathModalOpen(true)}>
-              手动覆盖
-            </Button>
+            <Tooltip title="新增方案">
+              <Button
+                icon={<PlusOutlined />}
+                onClick={openCreateProfileModal}
+              />
+            </Tooltip>
+            <Tooltip title="编辑方案">
+              <Button
+                icon={<EditOutlined />}
+                disabled={!activeProfile}
+                onClick={openEditProfileModal}
+              />
+            </Tooltip>
+            <Tooltip title="手动覆盖">
+              <Button icon={<SettingOutlined />} onClick={() => setPathModalOpen(true)} />
+            </Tooltip>
             <Popconfirm
               title="删除当前环境方案？"
               okText="删除"
@@ -166,7 +180,9 @@ export function EnvPanel() {
                 }
               }}
             >
-              <Button danger disabled={!activeProfile} icon={<DeleteOutlined />} />
+              <Tooltip title="删除当前环境方案">
+                <Button danger disabled={!activeProfile} icon={<DeleteOutlined />} />
+              </Tooltip>
             </Popconfirm>
           </div>
         </div>
@@ -232,9 +248,9 @@ export function EnvPanel() {
               key: 'manual',
               label: '手动覆盖路径',
               children: (
-                <Button icon={<SettingOutlined />} onClick={() => setPathModalOpen(true)}>
-                  打开路径覆盖弹窗
-                </Button>
+                <Tooltip title="打开路径覆盖弹窗">
+                  <Button icon={<SettingOutlined />} onClick={() => setPathModalOpen(true)} />
+                </Tooltip>
               ),
             },
           ]}

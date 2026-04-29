@@ -1,11 +1,11 @@
-import {Button, Input, List, Modal, Space, Tag, Typography} from 'antd'
+import {Button, Input, List, Modal, Space, Tag, Tooltip, Typography} from 'antd'
 import {
-  CopyOutlined,
-  FolderOpenOutlined,
-  PlayCircleOutlined,
-  ReloadOutlined,
-  SaveOutlined,
-  StopOutlined
+    CopyOutlined,
+    FolderOpenOutlined,
+    PlayCircleOutlined,
+    ReloadOutlined,
+    SaveOutlined,
+    StopOutlined
 } from '@ant-design/icons'
 import {useState} from 'react'
 import {api} from '../../services/tauri-api'
@@ -131,14 +131,13 @@ export function CommandPreview() {
               renderItem={(artifact) => (
                 <List.Item
                   actions={[
-                    <Button
-                      key="open"
-                      icon={<FolderOpenOutlined />}
-                      size="small"
-                      onClick={() => void api.openPathInExplorer(artifact.path)}
-                    >
-                      定位
-                    </Button>,
+                    <Tooltip key="open" title="定位产物">
+                      <Button
+                        icon={<FolderOpenOutlined />}
+                        size="small"
+                        onClick={() => void api.openPathInExplorer(artifact.path)}
+                      />
+                    </Tooltip>,
                   ]}
                 >
                   <Space direction="vertical" size={2} className="artifact-item">

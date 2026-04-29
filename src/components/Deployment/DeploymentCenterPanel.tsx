@@ -1,48 +1,53 @@
 import {
-    Alert,
-    Button,
-    Card,
-    Checkbox,
-    Empty,
-    Input,
-    InputNumber,
-    List,
-    Modal,
-    Popconfirm,
-    Progress,
-    Select,
-    Space,
-    Steps,
-    Table,
-    Tabs,
-    Tag,
-    Tooltip,
-    Typography,
+  Alert,
+  Button,
+  Card,
+  Checkbox,
+  Empty,
+  Input,
+  InputNumber,
+  List,
+  Modal,
+  Popconfirm,
+  Progress,
+  Select,
+  Space,
+  Steps,
+  Table,
+  Tabs,
+  Tag,
+  Tooltip,
+  Typography,
 } from 'antd'
 import {
-    ArrowDownOutlined,
-    ArrowUpOutlined,
-    CloudServerOutlined,
-    DeleteOutlined,
-    DeploymentUnitOutlined,
-    EditOutlined,
-    HistoryOutlined,
-    InboxOutlined,
-    PlayCircleOutlined,
-    PlusOutlined,
-    SaveOutlined,
-    SearchOutlined,
-    StopOutlined,
+  ArrowDownOutlined,
+  ArrowUpOutlined,
+  CheckOutlined,
+  CloudServerOutlined,
+  CopyOutlined,
+  DeleteOutlined,
+  DeploymentUnitOutlined,
+  EditOutlined,
+  HistoryOutlined,
+  InboxOutlined,
+  PlayCircleOutlined,
+  PlusOutlined,
+  QuestionCircleOutlined,
+  SaveOutlined,
+  SearchOutlined,
+  StopOutlined,
+  ToolOutlined,
 } from '@ant-design/icons'
+import type {ReactNode} from 'react'
 import {memo, useEffect, useMemo, useState} from 'react'
 import {DeploymentHistoryTable} from './DeploymentHistoryTable'
 import {
-    belongsToProject,
-    findDeployableArtifacts,
-    findProfileModule,
-    flattenModules,
-    normalizeProjectRoot,
-    profileModuleLabel,
+  belongsToProject,
+  findDeployableArtifacts,
+  findProfileModule,
+  flattenModules,
+  normalizeProjectRoot,
+  profileModuleLabel,
 } from '../../services/deploymentTopologyService'
 import {api, selectLocalFile} from '../../services/tauri-api'
 import {useAppStore} from '../../store/useAppStore'
@@ -50,21 +55,67 @@ import {useNavigationStore} from '../../store/navigationStore'
 import {useUploadProgressStore} from '../../store/useUploadProgressStore'
 import {useWorkflowStore} from '../../store/useWorkflowStore'
 import type {
-    BackupConfig,
-    BuildArtifact,
-    DeployFailureStrategy,
-    DeploymentProfile,
-    DeploymentStage,
-    DeployStep,
-    DeployStepType,
-    LogNamingMode,
-    ProbeStatus,
-    SaveServerProfilePayload,
-    ServerProfile,
-    StartupProbeConfig,
+  BackupConfig,
+  BuildArtifact,
+  DeployFailureStrategy,
+  DeploymentProfile,
+  DeploymentStage,
+  DeployStep,
+  DeployStepType,
+  LogNamingMode,
+  ProbeStatus,
+  SaveServerProfilePayload,
+  ServerPrivilegeMode,
+  ServerProfile,
+  StartupProbeConfig,
 } from '../../types/domain'
 
 const {Text} = Typography
+
+const privilegeModeOptions: {label: string; value: ServerPrivilegeMode}[] = [
+  {label: '不提权（普通账号直接执行）', value: 'none'},
+  {label: 'sudo（用指定用户执行）', value: 'sudo'},
+  {label: 'sudo -i（带登录环境执行）', value: 'sudo_i'},
+  {label: 'su（切换到指定用户）', value: 'su'},
+  {label: '自定义命令包装（高级）', value: 'custom'},
+]
+
+const privilegeModeLabel = (mode?: string) =>
+  privilegeModeOptions.find((option) => option.value === mode)?.label ?? mode ?? '不提权'
+
+const privilegeModeShortLabel = (mode?: string) => {
+  switch (mode) {
+    case 'sudo': return 'sudo'
+    case 'sudo_i': return 'sudo -i'
+    case 'su': return 'su'
+    case 'custom': return '自定义'
+    default: return '不提权'
+  }
+}
+
+const privilegePasswordOptions = [
+  {label: '不需要提权密码', value: 'none'},
+  {label: '使用登录密码提权', value: 'login_password'},
+  {label: '单独填写提权密码', value: 'separate'},
+]
+
+const HelpLabel = ({children, help}: {children: ReactNode; help: ReactNode}) => (
+  <Space size={4} align="center">
+    <Text type="secondary">{children}</Text>
+    <Tooltip title={help}>
+      <QuestionCircleOutlined />
+    </Tooltip>
+  </Space>
+)
+
+const AddonHelp = ({children, help}: {children: ReactNode; help: ReactNode}) => (
+  <Space size={4} align="center">
+    <span>{children}</span>
+    <Tooltip title={help}>
+      <QuestionCircleOutlined />
+    </Tooltip>
+  </Space>
+)
 
 interface DeploymentTemplate {
   id: string
@@ -83,7 +134,7 @@ const createDefaultPrivilege = () => ({
   mode: 'none' as const,
   runAsUser: 'root',
   passwordMode: 'none' as const,
-  uploadTempDir: '~/.packflow/deploy/${deploymentId}',
+  uploadTempDir: '${loginHome}/.packflow/deploy/${deploymentId}',
   shell: 'bash -lc',
   customWrapper: '',
   cleanupOnSuccess: true,
@@ -452,6 +503,46 @@ const deploymentTaskLabel = (status: string) => {
   }
 }
 
+const profileArtifactName = (profile: DeploymentProfile) =>
+  profile.remoteArtifactName?.trim() || profile.localArtifactPattern || '未配置产物'
+
+const profileArtifactBaseName = (profile: DeploymentProfile) =>
+  profileArtifactName(profile).replace(/\.[^.]+$/, '')
+
+const profileLogSummary = (profile: DeploymentProfile) => {
+  if (profile.enableDeployLog === false) {
+    return '未输出部署日志'
+  }
+  if (profile.logPath?.trim()) {
+    return profile.logPath
+  }
+  if (profile.logNamingMode === 'fixed' && profile.logName?.trim()) {
+    return `${profile.logName}.log`
+  }
+  return '自动生成'
+}
+
+const profilePidSummary = (profile: DeploymentProfile) =>
+  profile.startupProbe?.processProbe?.pidFile?.trim() || `${profileArtifactBaseName(profile)}.pid`
+
+const profileEnabledStepCount = (profile: DeploymentProfile) =>
+  profile.deploymentSteps?.filter((step) => step.enabled).length
+    ?? profile.customCommands?.filter((command) => command.enabled).length
+    ?? 0
+
+const enabledProbeCount = (profile: DeploymentProfile) => {
+  const probe = profile.startupProbe
+  if (!probe || probe.enabled === false) {
+    return 0
+  }
+  return [
+    probe.processProbe?.enabled !== false,
+    probe.portProbe?.enabled !== false,
+    Boolean(probe.httpProbe?.enabled),
+    probe.logProbe?.enabled !== false,
+  ].filter(Boolean).length
+}
+
 const deploymentTaskColor = (status: string) => {
   switch (status) {
     case 'success': return 'green'
@@ -638,6 +729,7 @@ export function DeploymentCenterPanel() {
   const deploymentStages = visibleDeploymentTask?.stages.length ? visibleDeploymentTask.stages : defaultDeploymentStages
   const deploymentRunning = Boolean(visibleDeploymentTask && !deploymentTaskFinished(visibleDeploymentTask.status))
   const buildRunning = buildStatus === 'RUNNING'
+  const privilegeEnabled = serverDraft.privilege.mode !== 'none'
   const packageBuildGoals = buildOptions.goals.some((goal) => ['package', 'install', 'verify', 'deploy'].includes(goal))
     ? buildOptions.goals
     : Array.from(new Set([...(buildOptions.goals.length > 0 ? buildOptions.goals : ['clean']), 'package']))
@@ -1337,9 +1429,9 @@ export function DeploymentCenterPanel() {
               children: (
                 <Space direction="vertical" size={16} style={{width: '100%'}}>
                   <div className="table-toolbar">
-                    <Button type="primary" icon={<PlusOutlined />} onClick={newServer}>
-                      新增服务器
-                    </Button>
+                    <Tooltip title="新增服务器">
+                      <Button type="primary" icon={<PlusOutlined />} onClick={newServer} />
+                    </Tooltip>
                   </div>
                   <Modal
                     title={serverFormMode === 'edit' ? `编辑服务器：${serverDraft.name || serverDraft.host || '未命名'}` : '新增服务器'}
@@ -1407,111 +1499,161 @@ export function DeploymentCenterPanel() {
                   <div className="step-card-body">
                     <Space direction="vertical" size={12} style={{width: '100%'}}>
                       <Space wrap>
-                        <Select
-                          value={serverDraft.privilege.mode}
-                          style={{width: 180}}
-                          options={[
-                            {label: '不提权', value: 'none'},
-                            {label: 'sudo 执行', value: 'sudo'},
-                            {label: 'sudo -i 执行', value: 'sudo_i'},
-                            {label: 'su 切换用户', value: 'su'},
-                            {label: '自定义包装命令', value: 'custom'},
-                          ]}
-                          onChange={(value) =>
-                            setServerDraft((state) => ({
-                              ...state,
-                              privilege: {...state.privilege, mode: value},
-                            }))}
-                        />
-                        <Input
-                          placeholder="执行用户"
-                          style={{width: 140}}
-                          value={serverDraft.privilege.runAsUser}
-                          onChange={(event) =>
-                            setServerDraft((state) => ({
-                              ...state,
-                              privilege: {...state.privilege, runAsUser: event.target.value},
-                            }))}
-                        />
-                        <Select
-                          value={serverDraft.privilege.passwordMode}
-                          style={{width: 180}}
-                          options={[
-                            {label: '无需提权密码', value: 'none'},
-                            {label: '复用登录密码', value: 'login_password'},
-                            {label: '独立提权密码', value: 'separate'},
-                          ]}
-                          onChange={(value) =>
-                            setServerDraft((state) => ({
-                              ...state,
-                              privilege: {...state.privilege, passwordMode: value},
-                              privilegePassword: value === 'separate' ? state.privilegePassword : '',
-                            }))}
-                        />
-                        {serverDraft.privilege.passwordMode === 'separate' ? (
-                          <Input.Password
-                            placeholder="提权密码（留空则保留原密码）"
+                        <Space direction="vertical" size={4}>
+                          <HelpLabel help="服务器登录账号本身有部署目录权限时选不提权；需要以 root 或应用账号执行移动文件、重启服务等命令时再选择 sudo、su 或自定义。">
+                            提权方式
+                          </HelpLabel>
+                          <Select
+                            value={serverDraft.privilege.mode}
                             style={{width: 240}}
-                            value={serverDraft.privilegePassword}
-                            onChange={(event) => setServerDraft((state) => ({...state, privilegePassword: event.target.value}))}
+                            options={privilegeModeOptions}
+                            onChange={(value) =>
+                              setServerDraft((state) => ({
+                                ...state,
+                                privilege: {
+                                  ...state.privilege,
+                                  mode: value,
+                                  passwordMode: value === 'none' ? 'none' : state.privilege.passwordMode,
+                                },
+                                privilegePassword: value === 'none' ? '' : state.privilegePassword,
+                              }))}
                           />
+                        </Space>
+                        {privilegeEnabled ? (
+                          <>
+                            <Space direction="vertical" size={4}>
+                              <HelpLabel help="提权后希望用哪个系统用户执行部署命令。常见值是 root，也可以填应用运行账号。">
+                                执行用户
+                              </HelpLabel>
+                              <Input
+                                placeholder="例如 root"
+                                style={{width: 140}}
+                                value={serverDraft.privilege.runAsUser}
+                                onChange={(event) =>
+                                  setServerDraft((state) => ({
+                                    ...state,
+                                    privilege: {...state.privilege, runAsUser: event.target.value},
+                                  }))}
+                              />
+                            </Space>
+                            <Space direction="vertical" size={4}>
+                              <HelpLabel help="如果服务器 sudo/su 不需要密码，选不需要；如果密码和登录密码相同，选使用登录密码；否则单独填写。">
+                                提权密码
+                              </HelpLabel>
+                              <Select
+                                value={serverDraft.privilege.passwordMode}
+                                style={{width: 190}}
+                                options={privilegePasswordOptions}
+                                onChange={(value) =>
+                                  setServerDraft((state) => ({
+                                    ...state,
+                                    privilege: {...state.privilege, passwordMode: value},
+                                    privilegePassword: value === 'separate' ? state.privilegePassword : '',
+                                  }))}
+                              />
+                            </Space>
+                            {serverDraft.privilege.passwordMode === 'separate' ? (
+                              <Space direction="vertical" size={4}>
+                                <HelpLabel help="只在提权命令需要独立密码时使用；编辑已有服务器时留空会保留原密码。">
+                                  独立密码
+                                </HelpLabel>
+                                <Input.Password
+                                  placeholder="留空则保留原密码"
+                                  style={{width: 240}}
+                                  value={serverDraft.privilegePassword}
+                                  onChange={(event) => setServerDraft((state) => ({...state, privilegePassword: event.target.value}))}
+                                />
+                              </Space>
+                            ) : null}
+                          </>
                         ) : null}
                       </Space>
-                      <Space wrap>
-                        <Input
-                          placeholder="上传暂存目录"
-                          style={{minWidth: 360}}
-                          value={serverDraft.privilege.uploadTempDir}
-                          onChange={(event) =>
-                            setServerDraft((state) => ({
-                              ...state,
-                              privilege: {...state.privilege, uploadTempDir: event.target.value},
-                            }))}
+                      {!privilegeEnabled ? (
+                        <Alert
+                          type="info"
+                          showIcon
+                          message="当前不提权：上传暂存目录和执行 Shell 不参与默认部署流程。"
                         />
-                        <Input
-                          placeholder="执行 Shell"
-                          style={{width: 160}}
-                          value={serverDraft.privilege.shell}
-                          onChange={(event) =>
-                            setServerDraft((state) => ({
-                              ...state,
-                              privilege: {...state.privilege, shell: event.target.value},
-                            }))}
-                        />
-                      </Space>
+                      ) : (
+                        <>
+                          <Space wrap>
+                            <Space direction="vertical" size={4}>
+                              <HelpLabel help="提权部署时，产物会先上传到这个远端临时目录，再由提权命令移动到正式部署目录。${loginHome} 会按登录用户解析为 /home/用户名，root 会解析为 /root。也可用 ${deploymentId}、${loginUser}、${runAsUser}、${remoteArtifactName}。">
+                                上传暂存目录
+                              </HelpLabel>
+                              <Input
+                                placeholder="${loginHome}/.packflow/deploy/${deploymentId}"
+                                style={{minWidth: 360}}
+                                value={serverDraft.privilege.uploadTempDir}
+                                onChange={(event) =>
+                                  setServerDraft((state) => ({
+                                    ...state,
+                                    privilege: {...state.privilege, uploadTempDir: event.target.value},
+                                  }))}
+                              />
+                            </Space>
+                            <Space direction="vertical" size={4}>
+                              <HelpLabel help="提权后执行远程命令时使用的 Shell 包装器。Linux 服务器通常保持 bash -lc；没有 bash 时可改成 sh -lc。">
+                                执行 Shell
+                              </HelpLabel>
+                              <Input
+                                placeholder="bash -lc"
+                                style={{width: 160}}
+                                value={serverDraft.privilege.shell}
+                                onChange={(event) =>
+                                  setServerDraft((state) => ({
+                                    ...state,
+                                    privilege: {...state.privilege, shell: event.target.value},
+                                  }))}
+                              />
+                            </Space>
+                          </Space>
+                          <Space wrap>
+                            <Checkbox
+                              checked={serverDraft.privilege.cleanupOnSuccess}
+                              onChange={(event) =>
+                                setServerDraft((state) => ({
+                                  ...state,
+                                  privilege: {...state.privilege, cleanupOnSuccess: event.target.checked},
+                                }))}
+                            >
+                              成功后清理暂存目录
+                            </Checkbox>
+                            <Tooltip title="部署成功后删除上传暂存目录，减少服务器残留文件。">
+                              <QuestionCircleOutlined />
+                            </Tooltip>
+                            <Checkbox
+                              checked={serverDraft.privilege.keepTempOnFailure}
+                              onChange={(event) =>
+                                setServerDraft((state) => ({
+                                  ...state,
+                                  privilege: {...state.privilege, keepTempOnFailure: event.target.checked},
+                                }))}
+                            >
+                              失败时保留暂存目录
+                            </Checkbox>
+                            <Tooltip title="部署失败时保留上传暂存目录，便于排查文件是否上传成功。">
+                              <QuestionCircleOutlined />
+                            </Tooltip>
+                          </Space>
+                        </>
+                      )}
                       {serverDraft.privilege.mode === 'custom' ? (
-                        <Input
-                          placeholder="自定义包装命令，使用 ${command} 放置原命令"
-                          value={serverDraft.privilege.customWrapper}
-                          onChange={(event) =>
-                            setServerDraft((state) => ({
-                              ...state,
-                              privilege: {...state.privilege, customWrapper: event.target.value},
-                            }))}
-                        />
+                        <Space direction="vertical" size={4} style={{width: '100%'}}>
+                          <HelpLabel help="用于高级场景，例如公司封装的提权脚本。填写 ${command} 表示原始部署命令放置的位置。">
+                            自定义包装命令
+                          </HelpLabel>
+                          <Input
+                            placeholder="例如 my-sudo ${command}"
+                            value={serverDraft.privilege.customWrapper}
+                            onChange={(event) =>
+                              setServerDraft((state) => ({
+                                ...state,
+                                privilege: {...state.privilege, customWrapper: event.target.value},
+                              }))}
+                          />
+                        </Space>
                       ) : null}
-                      <Space wrap>
-                        <Checkbox
-                          checked={serverDraft.privilege.cleanupOnSuccess}
-                          onChange={(event) =>
-                            setServerDraft((state) => ({
-                              ...state,
-                              privilege: {...state.privilege, cleanupOnSuccess: event.target.checked},
-                            }))}
-                        >
-                          成功后清理暂存目录
-                        </Checkbox>
-                        <Checkbox
-                          checked={serverDraft.privilege.keepTempOnFailure}
-                          onChange={(event) =>
-                            setServerDraft((state) => ({
-                              ...state,
-                              privilege: {...state.privilege, keepTempOnFailure: event.target.checked},
-                            }))}
-                        >
-                          失败时保留暂存目录
-                        </Checkbox>
-                      </Space>
                     </Space>
                   </div>
                   <Space wrap>
@@ -1552,13 +1694,15 @@ export function DeploymentCenterPanel() {
                         size="small"
                         placeholder="搜索服务器名称、地址、分组"
                         prefix={<SearchOutlined />}
-                        style={{width: 280, marginBottom: 8}}
+                        className="server-list-search"
                         value={serverListKeyword}
                         onChange={(event) => setServerListKeyword(event.target.value)}
                       />
                       <Table
                         size="small"
                         rowKey="id"
+                        tableLayout="fixed"
+                        className="server-profile-table"
                         dataSource={serverProfiles.filter((profile) => {
                           const keyword = serverListKeyword.trim().toLowerCase()
                           if (!keyword) return true
@@ -1569,68 +1713,72 @@ export function DeploymentCenterPanel() {
                         pagination={{pageSize: 10, size: 'small', showSizeChanger: false, showTotal: (total) => `共 ${total} 台`}}
                         columns={[
                           {
-                            title: '名称',
-                            dataIndex: 'name',
-                            width: 140,
-                          },
-                          {
-                            title: '地址',
-                            width: 220,
-                            ellipsis: true,
-                            render: (_, profile) => `${profile.username}@${profile.host}:${profile.port}`,
-                          },
-                          {
-                            title: '认证',
-                            dataIndex: 'authType',
-                            width: 100,
-                            render: (value: string) => <Tag>{value}</Tag>,
-                          },
-                          {
-                            title: '标签',
-                            width: 200,
+                            title: '服务器',
+                            width: 260,
                             render: (_, profile) => (
-                              <Space size={4} wrap>
-                                {profile.passwordConfigured ? <Tag color="gold">已保存密码</Tag> : null}
+                              <div className="server-profile-cell">
+                                <div className="server-profile-title">
+                                  <Text strong ellipsis={{tooltip: profile.name}}>{profile.name}</Text>
+                                  {profile.group ? <Tag>{profile.group}</Tag> : null}
+                                </div>
+                                <Text type="secondary" ellipsis={{tooltip: `${profile.username}@${profile.host}:${profile.port}`}}>
+                                  {profile.username}@{profile.host}:{profile.port}
+                                </Text>
+                              </div>
+                            ),
+                          },
+                          {
+                            title: '连接与权限',
+                            render: (_, profile) => (
+                              <div className="server-profile-tags">
+                                <Tag color={profile.authType === 'private_key' ? 'blue' : 'default'}>
+                                  {profile.authType === 'private_key' ? '私钥认证' : '密码认证'}
+                                </Tag>
+                                {profile.passwordConfigured ? <Tag color="gold">已保存登录密码</Tag> : null}
                                 {profile.privilege?.mode && profile.privilege.mode !== 'none' ? (
-                                  <Tag color="purple">
-                                    {profile.privilege.mode === 'sudo_i' ? 'sudo -i' : profile.privilege.mode} {profile.privilege.runAsUser}
-                                  </Tag>
-                                ) : null}
-                                {profile.privilegePasswordConfigured ? <Tag color="gold">已保存提权密码</Tag> : null}
-                                {profile.group ? <Tag>{profile.group}</Tag> : null}
+                                  <Tooltip title={privilegeModeLabel(profile.privilege.mode)}>
+                                    <Tag color="purple">{privilegeModeShortLabel(profile.privilege.mode)}：{profile.privilege.runAsUser}</Tag>
+                                  </Tooltip>
+                                ) : (
+                                  <Tag>不提权</Tag>
+                                )}
+                                {profile.privilege?.mode !== 'none' && profile.privilegePasswordConfigured ? <Tag color="gold">已保存提权密码</Tag> : null}
                                 {testResult?.serverId === profile.id && (
                                   <Tag color={testResult.success ? 'green' : 'red'}>
                                     {testResult.success ? '连接成功' : '连接失败'}
                                   </Tag>
                                 )}
-                              </Space>
+                              </div>
                             ),
                           },
                           {
                             title: '操作',
-                            width: 200,
+                            width: 116,
+                            align: 'right',
                             render: (_, profile) => (
-                              <Space size={4}>
-                                <Button size="small" icon={<CloudServerOutlined />} loading={testingServerId === profile.id} onClick={() => {
-                                  setTestingServerId(profile.id)
-                                  setTestResult(undefined)
-                                  void testServerConnection(profile.id)
-                                    .then((msg) => setTestResult({serverId: profile.id, success: true, message: msg}))
-                                    .catch((err) => setTestResult({serverId: profile.id, success: false, message: err instanceof Error ? err.message : String(err)}))
-                                    .finally(() => setTestingServerId(undefined))
-                                }}>
-                                  测试
-                                </Button>
-                                <Button size="small" onClick={() => openServer(profile)}>
-                                  编辑
-                                </Button>
+                              <Space size={2} className="server-row-actions">
+                                <Tooltip title="测试连接">
+                                  <Button size="small" type="text" icon={<CloudServerOutlined />} loading={testingServerId === profile.id} onClick={() => {
+                                    setTestingServerId(profile.id)
+                                    setTestResult(undefined)
+                                    void testServerConnection(profile.id)
+                                      .then((msg) => setTestResult({serverId: profile.id, success: true, message: msg}))
+                                      .catch((err) => setTestResult({serverId: profile.id, success: false, message: err instanceof Error ? err.message : String(err)}))
+                                      .finally(() => setTestingServerId(undefined))
+                                  }} />
+                                </Tooltip>
+                                <Tooltip title="编辑服务器">
+                                  <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openServer(profile)} />
+                                </Tooltip>
                                 <Popconfirm
                                   title="删除服务器配置？"
                                   okText="删除"
                                   cancelText="取消"
                                   onConfirm={() => void deleteServerProfile(profile.id)}
                                 >
-                                  <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+                                  <Tooltip title="删除服务器">
+                                    <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+                                  </Tooltip>
                                 </Popconfirm>
                               </Space>
                             ),
@@ -1648,9 +1796,9 @@ export function DeploymentCenterPanel() {
               children: (
                 <Space direction="vertical" size={16} style={{width: '100%'}}>
                   <div className="table-toolbar">
-                    <Button type="primary" icon={<PlusOutlined />} onClick={newDeployment}>
-                      新增映射
-                    </Button>
+                    <Tooltip title="新增服务映射">
+                      <Button type="primary" icon={<PlusOutlined />} onClick={newDeployment} />
+                    </Tooltip>
                   </div>
                   <Modal
                     title={deploymentFormMode === 'edit' ? `编辑服务映射：${deploymentDraft.name || '未命名'}` : '新增服务映射'}
@@ -1707,16 +1855,24 @@ export function DeploymentCenterPanel() {
                     onChange={(event) => setDeploymentDraft((state) => ({...state, remoteDeployPath: event.target.value}))}
                   />
                   <Input
-                    addonBefore="远端 jar 名称"
-                    placeholder="留空则使用原始产物名称"
+                    addonBefore={(
+                      <AddonHelp help="部署到服务器后的产物文件名；留空时保持本地构建出来的原始文件名。">
+                        远端 jar 名称
+                      </AddonHelp>
+                    )}
+                    placeholder="留空使用原名"
                     value={deploymentDraft.remoteArtifactName ?? ''}
                     onChange={(event) => setDeploymentDraft((state) => ({...state, remoteArtifactName: event.target.value || undefined}))}
                   />
                   <Card title="Java 运行配置" size="small" className="panel-card">
                     <Space direction="vertical" size={8} style={{width: '100%'}}>
                       <Input
-                        addonBefore="Java 路径"
-                        placeholder="如 /home/data/java/jdk1.8.0_144/jre/bin/java，留空使用 java"
+                        addonBefore={(
+                          <AddonHelp help="远端服务器上的 java 可执行文件路径；留空时直接使用 java，依赖服务器 PATH。">
+                            Java 路径
+                          </AddonHelp>
+                        )}
+                        placeholder="/path/to/java 或留空"
                         value={deploymentDraft.javaBinPath ?? ''}
                         onChange={(event) => setDeploymentDraft((state) => ({...state, javaBinPath: event.target.value || undefined}))}
                       />
@@ -1743,8 +1899,12 @@ export function DeploymentCenterPanel() {
                         />
                       </Space>
                       <Input
-                        addonBefore="工作目录"
-                        placeholder="留空使用远端目录"
+                        addonBefore={(
+                          <AddonHelp help="服务启动前切换到的目录；留空时使用远端部署目录。">
+                            工作目录
+                          </AddonHelp>
+                        )}
+                        placeholder="留空自动"
                         value={deploymentDraft.workingDir ?? ''}
                         onChange={(event) => setDeploymentDraft((state) => ({...state, workingDir: event.target.value || undefined}))}
                       />
@@ -1783,8 +1943,12 @@ export function DeploymentCenterPanel() {
                       </Space>
                       <Space wrap>
                         <Input
-                          addonBefore="备份目录"
-                          placeholder="留空使用远端目录"
+                          addonBefore={(
+                            <AddonHelp help="旧版本文件会备份到这里；留空时使用服务的远端部署目录。">
+                              备份目录
+                            </AddonHelp>
+                          )}
+                          placeholder="留空自动"
                           style={{minWidth: 300}}
                           value={deploymentDraft.backupConfig?.backupDir ?? ''}
                           onChange={(event) => setDeploymentDraft((state) => ({
@@ -1793,7 +1957,11 @@ export function DeploymentCenterPanel() {
                           }))}
                         />
                         <InputNumber
-                          addonBefore="保留数量"
+                          addonBefore={(
+                            <AddonHelp help="同一服务最多保留多少份历史备份，超过后会清理更早的备份。">
+                              保留数量
+                            </AddonHelp>
+                          )}
                           min={1}
                           max={50}
                           value={deploymentDraft.backupConfig?.retentionCount ?? 5}
@@ -1807,8 +1975,12 @@ export function DeploymentCenterPanel() {
                   </Card>
                   <Space wrap>
                     <Input
-                      addonBefore="日志目录/文件"
-                      placeholder="填目录则自动生成日志名；填 .log 则作为完整文件"
+                      addonBefore={(
+                        <AddonHelp help="可填日志目录，也可填完整 .log 文件路径。填目录时系统会按日志命名方式自动生成文件名；留空时使用远端部署目录下的 logs。">
+                          日志目录/文件
+                        </AddonHelp>
+                      )}
+                      placeholder="留空自动；.log 为文件"
                       style={{minWidth: 360}}
                       value={deploymentDraft.logPath ?? ''}
                       onChange={(event) => setDeploymentDraft((state) => ({...state, logPath: event.target.value || undefined}))}
@@ -1824,8 +1996,12 @@ export function DeploymentCenterPanel() {
                     />
                     {deploymentDraft.logNamingMode === 'fixed' && (
                       <Input
-                        addonBefore="日志名称"
-                        placeholder="固定日志文件名（不含路径和扩展名）"
+                        addonBefore={(
+                          <AddonHelp help="固定日志模式下使用的文件名，不需要填写路径，也不需要填写 .log 扩展名。">
+                            日志名称
+                          </AddonHelp>
+                        )}
+                        placeholder="不含路径和 .log"
                         style={{minWidth: 280}}
                         value={deploymentDraft.logName ?? ''}
                         onChange={(event) => setDeploymentDraft((state) => ({...state, logName: event.target.value || undefined}))}
@@ -1868,9 +2044,9 @@ export function DeploymentCenterPanel() {
                             }
                           }}
                         />
-                        <Button size="small" type="primary" onClick={() => { setPipelineEditorTarget('deployment'); setPipelineEditorOpen(true) }}>
-                          配置流程
-                        </Button>
+                        <Tooltip title="配置流程">
+                          <Button size="small" type="primary" icon={<ToolOutlined />} onClick={() => { setPipelineEditorTarget('deployment'); setPipelineEditorOpen(true) }} />
+                        </Tooltip>
                       </Space>
                     )}
                   >
@@ -1962,9 +2138,11 @@ export function DeploymentCenterPanel() {
                         }>
                           {deploymentDraft.startupProbe?.processProbe?.enabled !== false ? (
                             <div className="step-field">
-                              <Text type="secondary">PID 文件路径（留空使用默认）</Text>
+                              <HelpLabel help="用于判断服务进程是否存在；留空时默认使用远端部署目录下的 <远端包名去扩展名>.pid。">
+                                PID 文件路径
+                              </HelpLabel>
                               <Input
-                                placeholder="${remoteDeployPath}/<远端包名去扩展名>.pid"
+                                placeholder="留空自动"
                                 value={deploymentDraft.startupProbe?.processProbe?.pidFile ?? ''}
                                 onChange={(event) => setDeploymentDraft((state) => ({
                                   ...state,
@@ -2052,9 +2230,11 @@ export function DeploymentCenterPanel() {
                           {deploymentDraft.startupProbe?.httpProbe?.enabled ? (
                             <Space direction="vertical" size={8} style={{width: '100%'}}>
                               <div className="step-field step-field-full">
-                                <Text type="secondary">请求地址</Text>
+                                <HelpLabel help="服务启动后要检测的 HTTP 地址，建议使用健康检查接口。">
+                                  请求地址
+                                </HelpLabel>
                                 <Input
-                                  placeholder="http://127.0.0.1:8080/actuator/health"
+                                  placeholder="http://127.0.0.1:8080/health"
                                   value={deploymentDraft.startupProbe?.httpProbe?.url ?? ''}
                                   onChange={(event) => setDeploymentDraft((state) => ({
                                     ...state,
@@ -2127,9 +2307,11 @@ export function DeploymentCenterPanel() {
                           {deploymentDraft.startupProbe?.logProbe?.enabled !== false ? (
                             <Space direction="vertical" size={8} style={{width: '100%'}}>
                               <div className="step-field step-field-full">
-                                <Text type="secondary">日志路径（留空使用本次部署独立日志）</Text>
+                                <HelpLabel help="要检测的启动日志文件；留空时使用本次部署自动生成的独立日志。">
+                                  日志路径
+                                </HelpLabel>
                                 <Input
-                                  placeholder="${remoteDeployPath}/logs/<远端包名去扩展名>-YYYYMMDDHHMMSS.log"
+                                  placeholder="留空使用本次部署日志"
                                   value={deploymentDraft.startupProbe?.logProbe?.logPath ?? ''}
                                   onChange={(event) => setDeploymentDraft((state) => ({
                                     ...state,
@@ -2228,89 +2410,108 @@ export function DeploymentCenterPanel() {
                   ) : (
                     <Table
                       rowKey="id"
-                      size="small"
+                      size="middle"
                       className="service-dictionary-table"
                       dataSource={currentProjectDeploymentProfiles}
                       pagination={false}
                       columns={[
                         {
                           title: '服务',
-                          width: 220,
+                          width: 300,
                           render: (_: unknown, record: DeploymentProfile) => (
-                            <Space direction="vertical" size={2} className="service-dictionary-cell">
-                              <Space size={6} wrap>
+                            <div className="service-profile-cell">
+                              <div className="service-profile-title">
+                                <Text strong ellipsis={{tooltip: record.name || '未命名服务'}}>
+                                  {record.name || '未命名服务'}
+                                </Text>
                                 {record.serviceAlias ? <Tag color="blue">{record.serviceAlias}</Tag> : null}
-                                <Text strong>{record.name || '未命名服务'}</Text>
-                              </Space>
-                              {record.serviceDescription ? (
-                                <Text type="secondary">{record.serviceDescription}</Text>
-                              ) : (
-                                <Text type="secondary">未填写服务描述</Text>
-                              )}
-                            </Space>
+                              </div>
+                              <Text type="secondary" className="service-profile-desc" ellipsis={{tooltip: record.serviceDescription || '未填写服务描述'}}>
+                                {record.serviceDescription || '未填写服务描述'}
+                              </Text>
+                              <div className="service-profile-meta">
+                                <Tag color={record.backupConfig?.enabled === false ? 'default' : 'green'}>
+                                  {record.backupConfig?.enabled === false ? '未备份' : `备份 ${record.backupConfig?.retentionCount ?? 5} 份`}
+                                </Tag>
+                                <Tag color={record.enableDeployLog === false ? 'default' : 'cyan'}>
+                                  {record.enableDeployLog === false ? '无部署日志' : '部署日志'}
+                                </Tag>
+                              </div>
+                            </div>
                           ),
                         },
                         {
-                          title: '模块',
-                          dataIndex: 'moduleId',
-                          width: 160,
-                          render: (value: string, record: DeploymentProfile) => {
-                            const mod = findProfileModule(modules, record)
-                            return mod ? (
-                              <Space direction="vertical" size={2} className="service-dictionary-cell">
-                                <Text>{mod.artifactId}</Text>
-                                {mod.relativePath ? <Text type="secondary">{mod.relativePath}</Text> : null}
-                              </Space>
-                            ) : <Text type="secondary">{record.moduleArtifactId || value || '未绑定'}</Text>
-                          },
-                        },
-                        {
-                          title: '产物与路径',
-                          width: 300,
+                          title: '部署目标',
+                          width: 420,
                           render: (_: unknown, record: DeploymentProfile) => {
-                            const artifactName = record.remoteArtifactName || record.localArtifactPattern
-                            const baseName = artifactName.replace(/\.[^.]+$/, '')
+                            const mod = findProfileModule(modules, record)
+                            const moduleName = mod?.artifactId || record.moduleArtifactId || record.moduleId || '未绑定模块'
+                            const modulePath = mod?.relativePath || record.modulePath
                             return (
-                              <Space direction="vertical" size={2} className="service-dictionary-cell">
-                                <Text code>{artifactName}</Text>
-                                <Text type="secondary">{record.remoteDeployPath || '未配置远端目录'}</Text>
-                                <Text type="secondary">日志：{record.logPath || '自动'}</Text>
-                                <Text type="secondary">PID：{baseName}.pid</Text>
-                              </Space>
+                              <div className="service-target-cell">
+                                <div className="service-target-heading">
+                                  <Tag>{moduleName}</Tag>
+                                  {modulePath ? (
+                                    <Text type="secondary" ellipsis={{tooltip: modulePath}}>{modulePath}</Text>
+                                  ) : null}
+                                </div>
+                                <div className="service-target-row">
+                                  <span>产物</span>
+                                  <Text code ellipsis={{tooltip: profileArtifactName(record)}}>{profileArtifactName(record)}</Text>
+                                </div>
+                                <div className="service-target-row">
+                                  <span>目录</span>
+                                  <Text ellipsis={{tooltip: record.remoteDeployPath || '未配置远端目录'}}>
+                                    {record.remoteDeployPath || '未配置远端目录'}
+                                  </Text>
+                                </div>
+                              </div>
                             )
                           },
                         },
                         {
-                          title: '探针',
-                          width: 180,
+                          title: '运行保障',
+                          width: 360,
                           render: (_: unknown, record: DeploymentProfile) => {
                             const port = record.startupProbe?.portProbe?.enabled ? record.startupProbe.portProbe.port : undefined
                             const url = record.startupProbe?.httpProbe?.enabled ? record.startupProbe.httpProbe.url : undefined
+                            const steps = profileEnabledStepCount(record)
+                            const probes = enabledProbeCount(record)
                             return (
-                              <Space direction="vertical" size={4} className="service-dictionary-cell">
-                                <Space size={6} wrap>
-                                  {record.startupProbe?.processProbe?.enabled ? <Tag>进程</Tag> : null}
-                                  {port ? <Tag>{port}</Tag> : null}
-                                  {record.startupProbe?.logProbe?.enabled ? <Tag>日志</Tag> : null}
-                                </Space>
-                                {url ? <Text code>{url}</Text> : <Text type="secondary">未配置 HTTP 健康检查</Text>}
-                              </Space>
+                              <div className="service-runtime-cell">
+                                <div className="service-runtime-tags">
+                                  <Tag color={steps > 0 ? 'blue' : 'default'}>{steps > 0 ? `${steps} 步流程` : '未配置流程'}</Tag>
+                                  <Tag color={probes > 0 ? 'green' : 'default'}>{probes > 0 ? `${probes} 个探针` : '未启用探针'}</Tag>
+                                  {port ? <Tag color="purple">端口 {port}</Tag> : null}
+                                </div>
+                                <div className="service-target-row">
+                                  <span>PID</span>
+                                  <Text ellipsis={{tooltip: profilePidSummary(record)}}>{profilePidSummary(record)}</Text>
+                                </div>
+                                <div className="service-target-row">
+                                  <span>日志</span>
+                                  <Text ellipsis={{tooltip: profileLogSummary(record)}}>{profileLogSummary(record)}</Text>
+                                </div>
+                                {url ? (
+                                  <Text code className="service-runtime-url" ellipsis={{tooltip: url}}>{url}</Text>
+                                ) : null}
+                              </div>
                             )
                           },
                         },
                         {
                           title: '操作',
-                          width: 160,
+                          width: 96,
+                          align: 'right',
                           render: (_: unknown, record: DeploymentProfile) => (
-                            <Space size={4}>
+                            <Space size={2} className="service-row-actions">
                               <Tooltip title="编辑此映射">
                                 <Button
                                   size="small"
+                                  type="text"
                                   icon={<EditOutlined />}
                                   onClick={() => openDeployment(record)}
-                                >
-                                  编辑
-                                </Button>
+                                />
                               </Tooltip>
                               <Popconfirm
                                 title="删除服务映射？"
@@ -2318,7 +2519,9 @@ export function DeploymentCenterPanel() {
                                 cancelText="取消"
                                 onConfirm={() => void deleteDeploymentProfile(record.id)}
                               >
-                                <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+                                <Tooltip title="删除服务映射">
+                                  <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+                                </Tooltip>
                               </Popconfirm>
                             </Space>
                           ),
@@ -2335,18 +2538,18 @@ export function DeploymentCenterPanel() {
               children: (
                 <Space direction="vertical" size={16} style={{width: '100%'}}>
                   <div className="table-toolbar">
-                    <Button
-                      type="primary"
-                      icon={<PlusOutlined />}
-                      onClick={() => {
-                        setTemplateDraft(createTemplateDraft())
-                        setTemplateFormMode('create')
-                        setSelectedTemplateStepId(undefined)
-                        setTemplateEditorOpen(true)
-                      }}
-                    >
-                      新增模板
-                    </Button>
+                    <Tooltip title="新增部署模板">
+                      <Button
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        onClick={() => {
+                          setTemplateDraft(createTemplateDraft())
+                          setTemplateFormMode('create')
+                          setSelectedTemplateStepId(undefined)
+                          setTemplateEditorOpen(true)
+                        }}
+                      />
+                    </Tooltip>
                   </div>
                   <Modal
                     title={templateFormMode === 'edit' ? `编辑模板：${templateDraft.name || '未命名'}` : '新增部署模板'}
@@ -2374,12 +2577,12 @@ export function DeploymentCenterPanel() {
                     className="panel-card"
                     extra={(
                       <Space wrap>
-                        <Button size="small" onClick={() => { setPipelineEditorTarget('template'); setPipelineEditorOpen(true) }}>
-                          编辑模板流程
-                        </Button>
-                        <Button type="primary" size="small" icon={<SaveOutlined />} onClick={saveDeploymentTemplate}>
-                          {templateFormMode === 'edit' ? '保存模板修改' : '保存新增模板'}
-                        </Button>
+                        <Tooltip title="编辑模板流程">
+                          <Button size="small" icon={<ToolOutlined />} onClick={() => { setPipelineEditorTarget('template'); setPipelineEditorOpen(true) }} />
+                        </Tooltip>
+                        <Tooltip title={templateFormMode === 'edit' ? '保存模板修改' : '保存新增模板'}>
+                          <Button type="primary" size="small" icon={<SaveOutlined />} onClick={saveDeploymentTemplate} />
+                        </Tooltip>
                       </Space>
                     )}
                   >
@@ -2410,12 +2613,12 @@ export function DeploymentCenterPanel() {
                     renderItem={(template) => (
                       <List.Item
                         actions={[
-                          <Button key="apply" size="small" type="primary" onClick={() => applyDeploymentTemplate(template)}>
-                            应用到当前映射
-                          </Button>,
-                          <Button key="edit" size="small" onClick={() => editDeploymentTemplate(template)}>
-                            {template.builtin ? '基于此模板新建' : '编辑模板'}
-                          </Button>,
+                          <Tooltip key="apply" title="应用到当前映射">
+                            <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => applyDeploymentTemplate(template)} />
+                          </Tooltip>,
+                          <Tooltip key="edit" title={template.builtin ? '基于此模板新建' : '编辑模板'}>
+                            <Button size="small" icon={template.builtin ? <CopyOutlined /> : <EditOutlined />} onClick={() => editDeploymentTemplate(template)} />
+                          </Tooltip>,
                           template.builtin ? null : (
                             <Popconfirm
                               key="delete"
@@ -2424,7 +2627,9 @@ export function DeploymentCenterPanel() {
                               cancelText="取消"
                               onConfirm={() => deleteDeploymentTemplate(template.id)}
                             >
-                              <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+                              <Tooltip title="删除模板">
+                                <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+                              </Tooltip>
                             </Popconfirm>
                           ),
                         ].filter(Boolean)}
@@ -2682,17 +2887,17 @@ export function DeploymentCenterPanel() {
                 <List.Item
                   className={server.id === selectedServerId ? 'deployment-server-item active' : 'deployment-server-item'}
                   actions={[
-                    <Button
-                      key="select"
-                      type={server.id === selectedServerId ? 'primary' : 'default'}
-                      size="small"
-                      onClick={() => {
-                        setSelectedServerId(server.id)
-                        setServerPickerOpen(false)
-                      }}
-                    >
-                      {server.id === selectedServerId ? '已选择' : '选择'}
-                    </Button>,
+                    <Tooltip key="select" title={server.id === selectedServerId ? '已选择' : '选择服务器'}>
+                      <Button
+                        type={server.id === selectedServerId ? 'primary' : 'default'}
+                        size="small"
+                        icon={<CheckOutlined />}
+                        onClick={() => {
+                          setSelectedServerId(server.id)
+                          setServerPickerOpen(false)
+                        }}
+                      />
+                    </Tooltip>,
                   ]}
                 >
                   <Space direction="vertical" size={2} className="artifact-item">

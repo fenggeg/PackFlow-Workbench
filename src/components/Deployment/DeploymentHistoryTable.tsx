@@ -430,39 +430,39 @@ export function DeploymentHistoryTable() {
                 value={logKeyword}
                 onChange={(event) => setLogKeyword(event.target.value)}
               />
-              <Button
-                size="small"
-                disabled={openTaskLogs.length === 0}
-                icon={<CopyOutlined />}
-                onClick={() => void navigator.clipboard?.writeText(openTaskLogs.join('\n'))}
-              >
-                复制日志
-              </Button>
-              <Button
-                size="small"
-                disabled={openTaskLogs.length === 0}
-                icon={<DownloadOutlined />}
-                onClick={() => {
-                  const text = openTaskLogs.join('\n')
-                  if (!text) return
-                  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
-                  const url = URL.createObjectURL(blob)
-                  const a = document.createElement('a')
-                  a.href = url
-                  a.download = `deployment-${openTask?.id ?? 'log'}.txt`
-                  a.click()
-                  URL.revokeObjectURL(url)
-                }}
-              >
-                下载日志
-              </Button>
-              <Button
-                size="small"
-                icon={<FullscreenOutlined />}
-                onClick={() => setLogExpanded(true)}
-              >
-                放大查看
-              </Button>
+              <Tooltip title="复制日志">
+                <Button
+                  size="small"
+                  disabled={openTaskLogs.length === 0}
+                  icon={<CopyOutlined />}
+                  onClick={() => void navigator.clipboard?.writeText(openTaskLogs.join('\n'))}
+                />
+              </Tooltip>
+              <Tooltip title="下载日志">
+                <Button
+                  size="small"
+                  disabled={openTaskLogs.length === 0}
+                  icon={<DownloadOutlined />}
+                  onClick={() => {
+                    const text = openTaskLogs.join('\n')
+                    if (!text) return
+                    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `deployment-${openTask?.id ?? 'log'}.txt`
+                    a.click()
+                    URL.revokeObjectURL(url)
+                  }}
+                />
+              </Tooltip>
+              <Tooltip title="放大查看">
+                <Button
+                  size="small"
+                  icon={<FullscreenOutlined />}
+                  onClick={() => setLogExpanded(true)}
+                />
+              </Tooltip>
             </Space>
             <div className="workflow-log-panel">
               {renderLogContent()}
