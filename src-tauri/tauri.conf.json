@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "打包部署工作台",
+  "productName": "PackFlow Workbench",
   "version": "2.0.1",
   "identifier": "com.local.mavenpackager",
   "build": {

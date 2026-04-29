@@ -125,7 +125,7 @@ jobs:
           CI: true
         with:
           tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'windows-auto-build' }}
-          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && format('Maven Packager {0}', github.ref_name) || 'Maven Packager Auto Build' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && format('PackFlow Workbench {0}', github.ref_name) || 'PackFlow Workbench Auto Build' }}
           releaseBody: ${{ steps.release_notes.outputs.body }}
           generateReleaseNotes: false
           releaseDraft: ${{ !startsWith(github.ref, 'refs/tags/') }}
