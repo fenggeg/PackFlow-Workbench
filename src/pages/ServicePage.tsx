@@ -1,4 +1,4 @@
-import {CloudServerOutlined, DatabaseOutlined, RocketOutlined} from '@ant-design/icons'
+import {CloudServerOutlined, DatabaseOutlined, RocketOutlined, SearchOutlined} from '@ant-design/icons'
 import {Button, Card, Descriptions, Empty, Input, Modal, Space, Table, Tag, Typography} from 'antd'
 import {useMemo, useState} from 'react'
 import {flattenModules, moduleLabel} from '../services/deploymentTopologyService'
@@ -100,6 +100,7 @@ export function ServicePage() {
   const [openTask, setOpenTask] = useState<DeploymentTask>()
   const [logKeyword, setLogKeyword] = useState('')
   const [logExpanded, setLogExpanded] = useState(false)
+  const [serverKeyword, setServerKeyword] = useState('')
 
   const latestTaskMap = useMemo(() => {
     const map = new Map<string, DeploymentTask>()
@@ -196,80 +197,99 @@ export function ServicePage() {
                   {serverProfiles.length === 0 ? (
                     <Text type="secondary">暂无服务器配置</Text>
                   ) : (
-                    <Table
-                      rowKey="serverId"
-                      size="small"
-                      pagination={false}
-                      dataSource={serverProfiles.map((server) => {
-                        const task = getLatestTask(profile.id, server.id)
-                        return {
-                          serverId: server.id,
-                          serverName: server.name,
-                          serverHost: `${server.username}@${server.host}:${server.port}`,
-                          task,
-                        }
-                      })}
-                      columns={[
-                        {
-                          title: '服务器',
-                          dataIndex: 'serverName',
-                          width: 140,
-                        },
-                        {
-                          title: '地址',
-                          dataIndex: 'serverHost',
-                          width: 200,
-                          ellipsis: true,
-                        },
-                        {
-                          title: '状态',
-                          width: 110,
-                          render: (_, record) => {
-                            const task = record.task
-                            if (!task) {
-                              return <Tag>未部署</Tag>
+                    <>
+                      <Input
+                        allowClear
+                        size="small"
+                        placeholder="搜索服务器名称、地址"
+                        prefix={<SearchOutlined />}
+                        style={{width: 260, marginBottom: 8}}
+                        value={serverKeyword}
+                        onChange={(event) => setServerKeyword(event.target.value)}
+                      />
+                      <Table
+                        rowKey="serverId"
+                        size="small"
+                        pagination={{pageSize: 5, size: 'small', showSizeChanger: false}}
+                        dataSource={serverProfiles
+                          .filter((server) => {
+                            const keyword = serverKeyword.trim().toLowerCase()
+                            if (!keyword) return true
+                            return [server.name, server.host, server.username, String(server.port)]
+                              .filter(Boolean)
+                              .some((value) => String(value).toLowerCase().includes(keyword))
+                          })
+                          .map((server) => {
+                            const task = getLatestTask(profile.id, server.id)
+                            return {
+                              serverId: server.id,
+                              serverName: server.name,
+                              serverHost: `${server.username}@${server.host}:${server.port}`,
+                              task,
                             }
-                            return <Tag color={statusColor[task.status]}>{statusLabel(task.status)}</Tag>
+                          })}
+                        columns={[
+                          {
+                            title: '服务器',
+                            dataIndex: 'serverName',
+                            width: 140,
                           },
-                        },
-                        {
-                          title: '最近部署',
-                          width: 170,
-                          render: (_, record) => {
-                            const task = record.task
-                            if (!task) {
-                              return <Text type="secondary">-</Text>
-                            }
-                            return new Date(task.createdAt).toLocaleString()
+                          {
+                            title: '地址',
+                            dataIndex: 'serverHost',
+                            width: 200,
+                            ellipsis: true,
                           },
-                        },
-                        {
-                          title: '产物',
-                          width: 160,
-                          ellipsis: true,
-                          render: (_, record) => record.task?.artifactName ?? '-',
-                        },
-                        {
-                          title: '操作',
-                          width: 100,
-                          render: (_, record) => (
-                            <Button
-                              size="small"
-                              disabled={!record.task}
-                              onClick={() => {
-                                if (record.task) {
-                                  setOpenTask(record.task)
-                                  setLogKeyword('')
-                                }
-                              }}
-                            >
-                              日志
-                            </Button>
-                          ),
-                        },
-                      ]}
-                      scroll={{x: 780}}
-                    />
+                          {
+                            title: '状态',
+                            width: 110,
+                            render: (_, record) => {
+                              const task = record.task
+                              if (!task) {
+                                return <Tag>未部署</Tag>
+                              }
+                              return <Tag color={statusColor[task.status]}>{statusLabel(task.status)}</Tag>
+                            },
+                          },
+                          {
+                            title: '最近部署',
+                            width: 170,
+                            render: (_, record) => {
+                              const task = record.task
+                              if (!task) {
+                                return <Text type="secondary">-</Text>
+                              }
+                              return new Date(task.createdAt).toLocaleString()
+                            },
+                          },
+                          {
+                            title: '产物',
+                            width: 160,
+                            ellipsis: true,
+                            render: (_, record) => record.task?.artifactName ?? '-',
+                          },
+                          {
+                            title: '操作',
+                            width: 100,
+                            render: (_, record) => (
+                              <Button
+                                size="small"
+                                disabled={!record.task}
+                                onClick={() => {
+                                  if (record.task) {
+                                    setOpenTask(record.task)
+                                    setLogKeyword('')
+                                  }
+                                }}
+                              >
+                                日志
+                              </Button>
+                            ),
+                          },
+                        ]}
+                        scroll={{x: 780}}
+                      />
+                    </>
                   )}
                 </Space>
               </Card>

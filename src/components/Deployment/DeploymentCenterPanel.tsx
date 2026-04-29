@@ -1,37 +1,38 @@
 import {
-  Alert,
-  Button,
-  Card,
-  Checkbox,
-  Empty,
-  Input,
-  InputNumber,
-  List,
-  Modal,
-  Popconfirm,
-  Progress,
-  Select,
-  Space,
-  Steps,
-  Table,
-  Tabs,
-  Tag,
-  Tooltip,
-  Typography,
+    Alert,
+    Button,
+    Card,
+    Checkbox,
+    Empty,
+    Input,
+    InputNumber,
+    List,
+    Modal,
+    Popconfirm,
+    Progress,
+    Select,
+    Space,
+    Steps,
+    Table,
+    Tabs,
+    Tag,
+    Tooltip,
+    Typography,
 } from 'antd'
 import {
-  ArrowDownOutlined,
-  ArrowUpOutlined,
-  CloudServerOutlined,
-  DeleteOutlined,
-  DeploymentUnitOutlined,
-  EditOutlined,
-  HistoryOutlined,
-  InboxOutlined,
-  PlayCircleOutlined,
-  PlusOutlined,
-  SaveOutlined,
-  StopOutlined,
+    ArrowDownOutlined,
+    ArrowUpOutlined,
+    CloudServerOutlined,
+    DeleteOutlined,
+    DeploymentUnitOutlined,
+    EditOutlined,
+    HistoryOutlined,
+    InboxOutlined,
+    PlayCircleOutlined,
+    PlusOutlined,
+    SaveOutlined,
+    SearchOutlined,
+    StopOutlined,
 } from '@ant-design/icons'
 import {memo, useEffect, useMemo, useState} from 'react'
 import {DeploymentHistoryTable} from './DeploymentHistoryTable'
@@ -42,18 +43,18 @@ import {useNavigationStore} from '../../store/navigationStore'
 import {useUploadProgressStore} from '../../store/useUploadProgressStore'
 import {useWorkflowStore} from '../../store/useWorkflowStore'
 import type {
-  BackupConfig,
-  BuildArtifact,
-  DeployFailureStrategy,
-  DeploymentProfile,
-  DeploymentStage,
-  DeployStep,
-  DeployStepType,
-  LogNamingMode,
-  ProbeStatus,
-  SaveServerProfilePayload,
-  ServerProfile,
-  StartupProbeConfig,
+    BackupConfig,
+    BuildArtifact,
+    DeployFailureStrategy,
+    DeploymentProfile,
+    DeploymentStage,
+    DeployStep,
+    DeployStepType,
+    LogNamingMode,
+    ProbeStatus,
+    SaveServerProfilePayload,
+    ServerProfile,
+    StartupProbeConfig,
 } from '../../types/domain'
 
 const {Text} = Typography
@@ -559,6 +560,7 @@ export function DeploymentCenterPanel() {
   const [templateFormMode, setTemplateFormMode] = useState<FormMode>('create')
   const [selectedTemplateStepId, setSelectedTemplateStepId] = useState<string>()
   const [activeDeploymentTab, setActiveDeploymentTab] = useState('overview')
+  const [serverListKeyword, setServerListKeyword] = useState('')
   const deploymentPreselectProfileId = useNavigationStore((state) => state.deploymentPreselectProfileId)
   const clearDeploymentPreselect = useNavigationStore((state) => state.clearDeploymentPreselect)
 
@@ -1190,23 +1192,37 @@ export function DeploymentCenterPanel() {
                     {serverProfiles.length === 0 ? (
                       <Empty description="暂无环境服务器" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                     ) : (
-                      <List
+                      <Table
                         size="small"
+                        rowKey="id"
                         dataSource={serverProfiles}
-                        renderItem={(server) => {
-                          const status = serverStatus(server.id)
-                          return (
-                            <List.Item>
-                              <Space size={8} wrap>
-                                <Tag color={status.color}>{status.label}</Tag>
-                                <Text strong>{server.name}</Text>
-                                <Text type="secondary">
-                                  {server.group || '默认环境'} · {server.username}@{server.host}:{server.port}
-                                </Text>
-                              </Space>
-                            </List.Item>
-                          )
-                        }}
+                        pagination={{pageSize: 5, size: 'small', showSizeChanger: false}}
+                        columns={[
+                          {
+                            title: '状态',
+                            width: 100,
+                            render: (_, server) => {
+                              const status = serverStatus(server.id)
+                              return <Tag color={status.color}>{status.label}</Tag>
+                            },
+                          },
+                          {
+                            title: '名称',
+                            dataIndex: 'name',
+                            width: 140,
+                          },
+                          {
+                            title: '分组',
+                            width: 120,
+                            render: (_, server) => server.group || '默认环境',
+                          },
+                          {
+                            title: '地址',
+                            width: 220,
+                            ellipsis: true,
+                            render: (_, server) => `${server.username}@${server.host}:${server.port}`,
+                          },
+                        ]}
                       />
                     )}
                   </div>
@@ -1344,55 +1360,92 @@ export function DeploymentCenterPanel() {
                   {serverProfiles.length === 0 ? (
                     <Empty description="暂无服务器配置" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                   ) : (
-                    <List
-                      bordered
-                      dataSource={serverProfiles}
-                      renderItem={(profile) => (
-                        <List.Item
-                          actions={[
-                            <Button key="test" size="small" icon={<CloudServerOutlined />} loading={testingServerId === profile.id} onClick={() => {
-                              setTestingServerId(profile.id)
-                              setTestResult(undefined)
-                              void testServerConnection(profile.id)
-                                .then((msg) => setTestResult({serverId: profile.id, success: true, message: msg}))
-                                .catch((err) => setTestResult({serverId: profile.id, success: false, message: err instanceof Error ? err.message : String(err)}))
-                                .finally(() => setTestingServerId(undefined))
-                            }}>
-                              测试
-                            </Button>,
-                            <Button key="edit" size="small" onClick={() => openServer(profile)}>
-                              编辑此服务器
-                            </Button>,
-                            <Popconfirm
-                              key="delete"
-                              title="删除服务器配置？"
-                              okText="删除"
-                              cancelText="取消"
-                              onConfirm={() => void deleteServerProfile(profile.id)}
-                            >
-                              <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
-                            </Popconfirm>,
-                          ]}
-                        >
-                          <Space direction="vertical" size={2}>
-                            <Text strong>{profile.name}</Text>
-                            <Text type="secondary">
-                              {profile.username}@{profile.host}:{profile.port}
-                            </Text>
-                            <Space size={8} wrap>
-                              <Tag>{profile.authType}</Tag>
-                              {profile.passwordConfigured ? <Tag color="gold">已保存密码</Tag> : null}
-                              {profile.group ? <Tag>{profile.group}</Tag> : null}
-                              {testResult?.serverId === profile.id && (
-                                <Tag color={testResult.success ? 'green' : 'red'}>
-                                  {testResult.success ? '连接成功' : '连接失败'}
-                                </Tag>
-                              )}
-                            </Space>
-                          </Space>
-                        </List.Item>
-                      )}
-                    />
+                    <>
+                      <Input
+                        allowClear
+                        size="small"
+                        placeholder="搜索服务器名称、地址、分组"
+                        prefix={<SearchOutlined />}
+                        style={{width: 280, marginBottom: 8}}
+                        value={serverListKeyword}
+                        onChange={(event) => setServerListKeyword(event.target.value)}
+                      />
+                      <Table
+                        size="small"
+                        rowKey="id"
+                        dataSource={serverProfiles.filter((profile) => {
+                          const keyword = serverListKeyword.trim().toLowerCase()
+                          if (!keyword) return true
+                          return [profile.name, profile.group, profile.host, profile.username, String(profile.port)]
+                            .filter(Boolean)
+                            .some((value) => String(value).toLowerCase().includes(keyword))
+                        })}
+                        pagination={{pageSize: 10, size: 'small', showSizeChanger: false, showTotal: (total) => `共 ${total} 台`}}
+                        columns={[
+                          {
+                            title: '名称',
+                            dataIndex: 'name',
+                            width: 140,
+                          },
+                          {
+                            title: '地址',
+                            width: 220,
+                            ellipsis: true,
+                            render: (_, profile) => `${profile.username}@${profile.host}:${profile.port}`,
+                          },
+                          {
+                            title: '认证',
+                            dataIndex: 'authType',
+                            width: 100,
+                            render: (value: string) => <Tag>{value}</Tag>,
+                          },
+                          {
+                            title: '标签',
+                            width: 200,
+                            render: (_, profile) => (
+                              <Space size={4} wrap>
+                                {profile.passwordConfigured ? <Tag color="gold">已保存密码</Tag> : null}
+                                {profile.group ? <Tag>{profile.group}</Tag> : null}
+                                {testResult?.serverId === profile.id && (
+                                  <Tag color={testResult.success ? 'green' : 'red'}>
+                                    {testResult.success ? '连接成功' : '连接失败'}
+                                  </Tag>
+                                )}
+                              </Space>
+                            ),
+                          },
+                          {
+                            title: '操作',
+                            width: 200,
+                            render: (_, profile) => (
+                              <Space size={4}>
+                                <Button size="small" icon={<CloudServerOutlined />} loading={testingServerId === profile.id} onClick={() => {
+                                  setTestingServerId(profile.id)
+                                  setTestResult(undefined)
+                                  void testServerConnection(profile.id)
+                                    .then((msg) => setTestResult({serverId: profile.id, success: true, message: msg}))
+                                    .catch((err) => setTestResult({serverId: profile.id, success: false, message: err instanceof Error ? err.message : String(err)}))
+                                    .finally(() => setTestingServerId(undefined))
+                                }}>
+                                  测试
+                                </Button>
+                                <Button size="small" onClick={() => openServer(profile)}>
+                                  编辑
+                                </Button>
+                                <Popconfirm
+                                  title="删除服务器配置？"
+                                  okText="删除"
+                                  cancelText="取消"
+                                  onConfirm={() => void deleteServerProfile(profile.id)}
+                                >
+                                  <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+                                </Popconfirm>
+                              </Space>
+                            ),
+                          },
+                        ]}
+                      />
+                    </>
                   )}
                 </Space>
               ),

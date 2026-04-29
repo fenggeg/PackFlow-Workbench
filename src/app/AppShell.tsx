@@ -1,5 +1,6 @@
 import {BranchesOutlined, FolderOutlined} from '@ant-design/icons'
 import {Space, Tag, Typography} from 'antd'
+import {useMemo} from 'react'
 import {UpdateChecker} from '../components/UpdateChecker/UpdateChecker'
 import {useAppStore} from '../store/useAppStore'
 import {useNavigationStore} from '../store/navigationStore'
@@ -10,6 +11,8 @@ import {MainWorkspace} from './MainWorkspace'
 import {SidebarPanel} from './SidebarPanel'
 
 const {Title, Text} = Typography
+
+const noSidebarPages = new Set(['deployment', 'artifacts', 'services'])
 
 const branchStatusColor = (hasLocalChanges?: boolean, hasRemoteUpdates?: boolean) => {
   if (hasRemoteUpdates) {
@@ -25,6 +28,12 @@ export function AppShell() {
   const activePage = useNavigationStore((state) => state.activePage)
   const project = useAppStore((state) => state.project)
   const gitStatus = useAppStore((state) => state.gitStatus)
+
+  const sidebarHidden = noSidebarPages.has(activePage)
+  const bodyStyle = useMemo(
+    () => ({gridTemplateColumns: sidebarHidden ? '56px minmax(0, 1fr) auto' : undefined}),
+    [sidebarHidden],
+  )
 
   return (
     <div className="v3-shell">
@@ -48,7 +57,7 @@ export function AppShell() {
         </div>
         <UpdateChecker />
       </header>
-      <div className="v3-body">
+      <div className="v3-body" style={bodyStyle}>
         <ActivityBar />
         <SidebarPanel activePage={activePage} />
         <MainWorkspace activePage={activePage} />
