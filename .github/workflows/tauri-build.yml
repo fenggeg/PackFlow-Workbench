@@ -1,4 +1,4 @@
-name: Build Windows App (NSIS + MSI + Portable)
+name: Build Windows x64 Setup
 
 on:
   push:
@@ -113,185 +113,60 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Install WiX Toolset (for MSI)
-        run: choco install wixtoolset -y
-
-      - name: Build Tauri App (NSIS + MSI)
-        uses: tauri-apps/tauri-action@v0
+      - name: Build Tauri App (NSIS x64 Setup Only)
+        shell: powershell
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           CI: true
-        with:
-          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'windows-auto-build' }}
-          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && format('PackFlow Workbench {0}', github.ref_name) || 'PackFlow Workbench Auto Build' }}
-          releaseBody: ${{ steps.release_notes.outputs.body }}
-          generateReleaseNotes: false
-          releaseDraft: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          args: --ci --bundles nsis,msi
-          uploadUpdaterJson: true
-          uploadUpdaterSignatures: true
-          updaterJsonPreferNsis: true
-          uploadPlainBinary: true
-          retryAttempts: 2
+        run: npm run tauri:build -- --ci --bundles nsis
 
-      - name: Prepare Portable EXE
+      - name: Prepare x64 Setup EXE
         shell: powershell
         run: |
-          $releaseDir = "src-tauri\target\release"
-      
-          if (-not (Test-Path $releaseDir)) {
-            Write-Error -Message "Release directory not found: $releaseDir"
-            exit 1
-          }
-      
-          $exeFiles = Get-ChildItem -Path $releaseDir -Filter *.exe -File |
-            Where-Object {
-              $_.Name -notmatch "^(uninstall|update|setup)$" -and
-              $_.Name -notlike "*nsis*" -and
-              $_.Name -notlike "*msi*"
-            }
-      
-          if (-not $exeFiles -or $exeFiles.Count -eq 0) {
-            Write-Error -Message "No candidate EXE found in $releaseDir"
-            Get-ChildItem -Path $releaseDir | Select-Object FullName
-            exit 1
-          }
-      
-          if ($exeFiles.Count -gt 1) {
-            Write-Host "Multiple EXEs found, selecting the largest one."
-            $sourceExe = ($exeFiles | Sort-Object Length -Descending | Select-Object -First 1).FullName
-          } else {
-            $sourceExe = $exeFiles[0].FullName
-          }
-      
-          New-Item -ItemType Directory -Force -Path "portable-dist" | Out-Null
-      
-          $baseName = [System.IO.Path]::GetFileNameWithoutExtension($sourceExe)
-          $portableName = "${baseName}_portable_x64.exe"
-      
-          Copy-Item $sourceExe "portable-dist\$portableName" -Force
-      
-          Write-Host "Portable EXE prepared: portable-dist\$portableName"
+          $bundleDir = "src-tauri\target\release\bundle\nsis"
 
-      - name: Upload Portable EXE Artifact
+          if (-not (Test-Path $bundleDir)) {
+            Write-Error -Message "NSIS bundle directory not found: $bundleDir"
+            exit 1
+          }
+
+          $setupFiles = Get-ChildItem -Path $bundleDir -Filter "*setup*.exe" -File
+
+          if (-not $setupFiles -or $setupFiles.Count -eq 0) {
+            Write-Error -Message "No NSIS setup EXE found in $bundleDir"
+            Get-ChildItem -Path $bundleDir | Select-Object FullName
+            exit 1
+          }
+
+          $sourceExe = ($setupFiles | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
+          New-Item -ItemType Directory -Force -Path "release-dist" | Out-Null
+
+          $setupName = "PackFlow Workbench_x64-setup.exe"
+          Copy-Item $sourceExe "release-dist\$setupName" -Force
+
+          Write-Host "Setup EXE prepared: release-dist\$setupName"
+
+      - name: Upload x64 Setup Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-portable-exe
-          path: portable-dist/*.exe
+          name: PackFlow-Workbench-x64-setup
+          path: release-dist/*.exe
 
-      - name: Upload Portable EXE to GitHub Release
+      - name: Upload x64 Setup to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'windows-auto-build' }}
+          name: ${{ startsWith(github.ref, 'refs/tags/') && format('PackFlow Workbench {0}', github.ref_name) || 'PackFlow Workbench Auto Build' }}
           body: ${{ steps.release_notes.outputs.body }}
           draft: ${{ !startsWith(github.ref, 'refs/tags/') }}
           prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          files: portable-dist/*.exe
+          files: release-dist/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Verify Updater Metadata
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
-        shell: powershell
-        run: |
-          function Read-JsonFromUrl {
-            param([string] $Url)
-
-            $response = Invoke-WebRequest -Uri $Url -UseBasicParsing
-            $content = if ($response.Content -is [byte[]]) {
-              [System.Text.Encoding]::UTF8.GetString($response.Content)
-            } else {
-              [string] $response.Content
-            }
-
-            return $content | ConvertFrom-Json
-          }
-
-          $latestJsonUrl = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/latest.json"
-          Write-Host "Checking updater metadata: $latestJsonUrl"
-
-          $metadata = Read-JsonFromUrl -Url $latestJsonUrl
-
-          if (-not $metadata.version) {
-            Write-Error "latest.json is missing version."
-            exit 1
-          }
-
-          if (-not $metadata.notes) {
-            Write-Error "latest.json is missing release notes."
-            exit 1
-          }
-
-          $platform = $metadata.platforms.'windows-x86_64'
-          if (-not $platform) {
-            $platform = $metadata.platforms.'windows-x86_64-nsis'
-          }
-
-          if (-not $platform) {
-            Write-Error "latest.json is missing windows-x86_64 updater metadata."
-            exit 1
-          }
-
-          if (-not $platform.url -or -not $platform.signature) {
-            Write-Error "latest.json updater metadata is missing url or signature."
-            exit 1
-          }
-
-          Invoke-WebRequest -Uri $platform.url -Method Head -UseBasicParsing | Out-Null
-          Write-Host "Updater metadata verified for version $($metadata.version)."
-
-      - name: Verify Configured Updater Endpoint
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
-        shell: powershell
-        run: |
-          function Read-JsonFromUrl {
-            param([string] $Url)
-
-            $response = Invoke-WebRequest -Uri $Url -UseBasicParsing
-            $content = if ($response.Content -is [byte[]]) {
-              [System.Text.Encoding]::UTF8.GetString($response.Content)
-            } else {
-              [string] $response.Content
-            }
-
-            return $content | ConvertFrom-Json
-          }
-
-          $configuredUrl = "https://github.com/${{ github.repository }}/releases/latest/download/latest.json"
-          Write-Host "Checking configured updater endpoint: $configuredUrl"
-
-          $metadata = $null
-          for ($attempt = 1; $attempt -le 6; $attempt++) {
-            try {
-              $metadata = Read-JsonFromUrl -Url $configuredUrl
-              break
-            } catch {
-              Write-Host "Attempt $attempt failed, waiting for GitHub Releases metadata..."
-              Start-Sleep -Seconds 10
-            }
-          }
-
-          if (-not $metadata) {
-            Write-Error "Unable to fetch latest.json from the configured updater endpoint."
-            exit 1
-          }
-
-          if (-not $metadata.notes) {
-            Write-Error "Configured updater endpoint returned latest.json without release notes."
-            exit 1
-          }
-
-          $platform = $metadata.platforms.'windows-x86_64'
-          if (-not $platform) {
-            $platform = $metadata.platforms.'windows-x86_64-nsis'
-          }
-
-          if (-not $platform -or -not $platform.url -or -not $platform.signature) {
-            Write-Error "Configured updater endpoint returned incomplete Windows updater metadata."
-            exit 1
-          }
-
-          Write-Host "Configured updater endpoint verified for version $($metadata.version)."
+      # Temporarily disabled to keep CI fast and publish only x64 setup EXE:
+      # - MSI build
+      # - Portable EXE packaging
+      # - Updater latest.json upload and verification
+      # - Updater signature verification

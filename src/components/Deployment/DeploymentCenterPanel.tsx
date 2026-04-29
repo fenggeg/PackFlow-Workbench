@@ -77,7 +77,7 @@ interface DeploymentTemplate {
 
 type FormMode = 'create' | 'edit'
 
-const DEPLOYMENT_TEMPLATE_STORAGE_KEY = 'maven-packager.deploymentTemplates.v1'
+const DEPLOYMENT_TEMPLATE_STORAGE_KEY = 'packflow-workbench.deploymentTemplates.v1'
 
 const createServerDraft = (): SaveServerProfilePayload => ({
   name: '',
