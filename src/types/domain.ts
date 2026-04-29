@@ -294,8 +294,24 @@ export interface ServerProfile {
   privateKeyPath?: string
   group?: string
   passwordConfigured: boolean
+  privilege: ServerPrivilegeConfig
+  privilegePasswordConfigured: boolean
   createdAt?: string
   updatedAt?: string
+}
+
+export type ServerPrivilegeMode = 'none' | 'sudo' | 'sudo_i' | 'su' | 'custom'
+export type ServerPrivilegePasswordMode = 'none' | 'login_password' | 'separate'
+
+export interface ServerPrivilegeConfig {
+  mode: ServerPrivilegeMode
+  runAsUser: string
+  passwordMode: ServerPrivilegePasswordMode
+  uploadTempDir: string
+  shell: string
+  customWrapper?: string
+  cleanupOnSuccess: boolean
+  keepTempOnFailure: boolean
 }
 
 export interface SaveServerProfilePayload {
@@ -308,6 +324,8 @@ export interface SaveServerProfilePayload {
   password?: string
   privateKeyPath?: string
   group?: string
+  privilege: ServerPrivilegeConfig
+  privilegePassword?: string
 }
 
 export type DeploymentCustomCommandStage =

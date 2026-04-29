@@ -1,7 +1,7 @@
 use crate::error::{to_user_error, AppResult};
 use crate::models::deployment::{
     BackupConfig, DeployStep, DeploymentProfile, DeploymentStage, DeploymentTask, ProbeStatus,
-    ProbeStatusEvent, RollbackResult, StartDeploymentPayload, StartupProbeConfig,
+    ProbeStatusEvent, RollbackResult, ServerPrivilegeConfig, StartDeploymentPayload, StartupProbeConfig,
     UploadProgressEvent,
 };
 use crate::repositories::deployment_repo;
@@ -59,10 +59,16 @@ impl DeploymentControlState {
 
 #[derive(Debug, Clone)]
 struct DeploymentContext {
+    deployment_id: String,
     artifact_path: String,
     artifact_name: String,
     remote_artifact_name: String,
     remote_deploy_path: String,
+    remote_upload_dir: String,
+    remote_upload_path: String,
+    login_user: String,
+    privilege: ServerPrivilegeConfig,
+    privilege_password: Option<String>,
     _service_description: Option<String>,
     _service_alias: Option<String>,
     java_bin_path: Option<String>,
@@ -304,11 +310,30 @@ fn execute_deployment(
         .as_deref()
         .filter(|value| !value.trim().is_empty())
         .map(|value| value.to_string());
+    let privilege = server.privilege.clone();
+    let remote_upload_dir = resolve_upload_temp_dir(
+        &privilege.upload_temp_dir,
+        task_id,
+        &server.username,
+        &privilege.run_as_user,
+        &remote_artifact_name,
+    );
+    let remote_upload_path = format!(
+        "{}/{}",
+        normalize_remote_dir(&remote_upload_dir),
+        remote_artifact_name
+    );
     let context = DeploymentContext {
+        deployment_id: task_id.to_string(),
         artifact_path: payload.local_artifact_path.clone(),
         artifact_name: artifact_name.clone(),
         remote_artifact_name,
         remote_deploy_path: normalize_remote_dir(&profile.remote_deploy_path),
+        remote_upload_dir: normalize_remote_dir(&remote_upload_dir),
+        remote_upload_path,
+        login_user: server.username.clone(),
+        privilege,
+        privilege_password: server.privilege_password.clone(),
         _service_description: profile.service_description.clone(),
         _service_alias: profile.service_alias.clone(),
         java_bin_path: non_empty_option(profile.java_bin_path.clone()),
@@ -368,6 +393,7 @@ fn execute_deployment(
             return Ok(task);
         }
     };
+    conn.configure_privilege(&context.privilege, context.privilege_password.clone());
 
     for step in steps.iter().filter(|step| step.enabled) {
         if finish_if_cancelled(app, &mut task, &step.id) {
@@ -393,7 +419,9 @@ fn execute_deployment(
                         backup_dir = shell_quote(backup_dir),
                         base = shell_quote(base_name),
                     );
-                    if let Ok(output) = conn.execute_with_cancel(&find_latest, || false) {
+                    if let Ok(output) =
+                        execute_remote_command(&mut conn, &context, &find_latest, &[0], || false)
+                    {
                         let path = output.output.trim().to_string();
                         if !path.is_empty() {
                             task.backup_path = Some(path);
@@ -469,6 +497,10 @@ fn execute_deployment(
             "未配置启动探针，无法确认服务是否真正启动成功。建议在服务映射中配置启动探针。"
                 .to_string(),
         );
+    }
+
+    if task.status == "success" && context.privilege.cleanup_on_success {
+        cleanup_remote_upload_dir(app, &mut conn, &mut task, &context);
     }
 
     task.finished_at = Some(Utc::now().to_rfc3339());
@@ -562,6 +594,29 @@ fn execute_step_with_retry(
     );
     emit_task_update(app, task);
     Err(to_user_error(error))
+}
+
+fn cleanup_remote_upload_dir(
+    app: &AppHandle,
+    conn: &mut SshConnection,
+    task: &mut DeploymentTask,
+    context: &DeploymentContext,
+) {
+    let dir = context.remote_upload_dir.trim();
+    if dir.is_empty() || dir == "/" || dir == "." {
+        return;
+    }
+    let command = format!("rm -rf {}", shell_quote(dir));
+    match execute_remote_command(conn, context, &command, &[0], || false) {
+        Ok(_) => append_log(app, task, None, format!("已清理部署暂存目录：{}", dir)),
+        Err(error) if context.privilege.keep_temp_on_failure => append_log(
+            app,
+            task,
+            None,
+            format!("暂存目录清理失败，已保留用于排查：{}", error),
+        ),
+        Err(error) => append_log(app, task, None, format!("暂存目录清理失败：{}", error)),
+    }
 }
 
 fn execute_startup_probe(
@@ -766,7 +821,9 @@ fn execute_ssh_step(
     if let Some(timeout) = step.timeout_seconds.filter(|value| *value > 0) {
         command = format!("timeout {} sh -lc {}", timeout, shell_quote(&command));
     }
-    let result = conn.execute_allowing_status(
+    let result = execute_remote_command(
+        conn,
+        context,
         &command,
         config.success_exit_codes.as_deref().unwrap_or(&[0]),
         || is_cancel_requested(app, task_id),
@@ -776,7 +833,9 @@ fn execute_ssh_step(
     if run_post_stop_cleanup {
         let cleanup_template = stop_port_owner_fragment("${portProbePort}");
         let cleanup_command = expand_tokens(&cleanup_template, context);
-        match conn.execute_with_cancel(&cleanup_command, || is_cancel_requested(app, task_id)) {
+        match execute_remote_command(conn, context, &cleanup_command, &[0], || {
+            is_cancel_requested(app, task_id)
+        }) {
             Ok(cleanup_result) => {
                 if !cleanup_result.output.trim().is_empty() {
                     if !output.is_empty() {
@@ -1071,7 +1130,9 @@ fn execute_log_check_step(
         );
         emit_task_update(app, task);
         let command = format!("tail -n 500 {} 2>/dev/null || true", shell_quote(&log_path));
-        let result = conn.execute_with_cancel(&command, || is_cancel_requested(app, task_id))?;
+        let result = execute_remote_command(conn, context, &command, &[0], || {
+            is_cancel_requested(app, task_id)
+        })?;
         let content = result.output;
         if let Some(keyword) = config.failure_keywords.as_ref().and_then(|items| {
             items
@@ -1104,7 +1165,12 @@ fn execute_upload_step(
 ) -> AppResult<String> {
     let config: UploadFileConfig = parse_config(step)?;
     let local_path = expand_tokens(&config.local_path, context);
-    let remote_path = expand_tokens(&config.remote_path, context);
+    let configured_remote_path = expand_tokens(&config.remote_path, context);
+    let remote_path = if uses_privilege(context) {
+        context.remote_upload_path.clone()
+    } else {
+        configured_remote_path
+    };
     let local = Path::new(&local_path);
     if !local.exists() {
         return Err(to_user_error(format!("上传文件不存在：{}", local_path)));
@@ -1234,10 +1300,7 @@ fn legacy_steps_from_custom_commands(
     profile: &DeploymentProfile,
     context: &DeploymentContext,
 ) -> Vec<DeployStep> {
-    let temp_path = format!(
-        "{}/.{}.uploading",
-        context.remote_deploy_path, context.artifact_name
-    );
+    let temp_path = context.remote_upload_path.clone();
     let target_path = format!(
         "{}/{}",
         context.remote_deploy_path, context.remote_artifact_name
@@ -1633,7 +1696,7 @@ fn execute_rollback(
         &shell_quote(&target_path),
         &stop_port_check_fragment(context.port_probe_port),
     );
-    match conn.execute_with_cancel(&stop_cmd, || false) {
+    match execute_remote_command(conn, context, &stop_cmd, &[0], || false) {
         Ok(_) => append_log(app, task, None, "回滚：已停止新版本服务".to_string()),
         Err(e) => append_log(app, task, None, format!("回滚：停止新版本服务失败：{}", e)),
     }
@@ -1648,7 +1711,8 @@ fn execute_rollback(
         backup_dir = shell_quote(backup_dir),
         base = shell_quote(base_name),
     );
-    let backup_file = match conn.execute_with_cancel(&find_backup_cmd, || false) {
+    let backup_file = match execute_remote_command(conn, context, &find_backup_cmd, &[0], || false)
+    {
         Ok(result) => result.output.trim().to_string(),
         Err(_) => String::new(),
     };
@@ -1659,7 +1723,7 @@ fn execute_rollback(
             backup = shell_quote(&backup_file),
             target = shell_quote(&target_path),
         );
-        match conn.execute_with_cancel(&restore_cmd, || false) {
+        match execute_remote_command(conn, context, &restore_cmd, &[0], || false) {
             Ok(_) => {
                 append_log(
                     app,
@@ -1720,7 +1784,7 @@ fn execute_rollback(
             log_file_var = shell_quote(&log_file),
             log_path_file = shell_quote(&log_path_file),
         );
-        match conn.execute_with_cancel(&restart_cmd, || false) {
+        match execute_remote_command(conn, context, &restart_cmd, &[0], || false) {
             Ok(_) => {
                 append_log(app, task, None, "回滚：已重新启动旧版本服务".to_string());
                 rollback.restarted_old_version = Some(true);
@@ -1805,6 +1869,93 @@ where
         .map_err(|error| to_user_error(format!("步骤「{}」配置格式错误：{}", step.name, error)))
 }
 
+fn execute_remote_command<C>(
+    conn: &mut SshConnection,
+    context: &DeploymentContext,
+    command: &str,
+    success_exit_codes: &[i32],
+    is_cancelled: C,
+) -> AppResult<crate::services::ssh_transport_service::CommandResult>
+where
+    C: FnMut() -> bool,
+{
+    if !uses_privilege(context) {
+        return conn.execute_allowing_status(command, success_exit_codes, is_cancelled);
+    }
+
+    let (wrapped, stdin) = wrap_context_privileged_command(context, command)?;
+    conn.execute_allowing_status_with_input(
+        &wrapped,
+        stdin.as_deref(),
+        success_exit_codes,
+        is_cancelled,
+    )
+}
+
+fn uses_privilege(context: &DeploymentContext) -> bool {
+    context.privilege.mode.trim() != "none"
+}
+
+fn wrap_context_privileged_command(
+    context: &DeploymentContext,
+    command: &str,
+) -> AppResult<(String, Option<String>)> {
+    let shell = context.privilege.shell.trim();
+    let run_as_user = context.privilege.run_as_user.trim();
+    let command_with_shell = format!("{} {}", shell, shell_quote(command));
+    let stdin = privilege_stdin(context)?;
+    let wrapped = match context.privilege.mode.as_str() {
+        "sudo" | "sudo_i" => {
+            let identity_arg = if context.privilege.mode == "sudo_i" {
+                "-i "
+            } else {
+                ""
+            };
+            let password_arg = if stdin.is_some() { "-S -p ''" } else { "-n" };
+            format!(
+                "sudo {password_arg} {identity_arg}-u {user} {command}",
+                password_arg = password_arg,
+                identity_arg = identity_arg,
+                user = shell_quote(run_as_user),
+                command = command_with_shell,
+            )
+        }
+        "su" => format!(
+            "su - {user} -c {command}",
+            user = shell_quote(run_as_user),
+            command = shell_quote(&command_with_shell),
+        ),
+        "custom" => {
+            let wrapper = context
+                .privilege
+                .custom_wrapper
+                .as_deref()
+                .ok_or_else(|| to_user_error("自定义提权模式需要填写包装命令。"))?;
+            if wrapper.contains("${command}") {
+                wrapper.replace("${command}", &shell_quote(command))
+            } else {
+                format!("{} {}", wrapper, shell_quote(command))
+            }
+        }
+        _ => command.to_string(),
+    };
+    Ok((wrapped, stdin))
+}
+
+fn privilege_stdin(context: &DeploymentContext) -> AppResult<Option<String>> {
+    match context.privilege.password_mode.as_str() {
+        "login_password" | "separate" => {
+            let password = context
+                .privilege_password
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| to_user_error("当前服务器未配置提权密码。"))?;
+            Ok(Some(format!("{}\n", password)))
+        }
+        _ => Ok(None),
+    }
+}
+
 fn expand_tokens(value: &str, context: &DeploymentContext) -> String {
     let now = chrono::Local::now();
     let today = now.format("%Y%m%d").to_string();
@@ -1839,6 +1990,18 @@ fn expand_tokens(value: &str, context: &DeploymentContext) -> String {
         .map(|port| port.to_string())
         .unwrap_or_default();
     value
+        .replace(
+            "${remoteDeployPath}/.${artifactName}.uploading",
+            &context.remote_upload_path,
+        )
+        .replace(
+            "${remoteDeployPath}/.${remoteArtifactName}.uploading",
+            &context.remote_upload_path,
+        )
+        .replace(
+            "${remoteDeployPath}/.${remoteArtifactBaseName}.uploading",
+            &context.remote_upload_path,
+        )
         .replace("${remoteArtifactName%.*}", base_name)
         .replace("${artifactName%.*}", artifact_base_name(context))
         .replace("${artifactPath}", &context.artifact_path)
@@ -1846,6 +2009,11 @@ fn expand_tokens(value: &str, context: &DeploymentContext) -> String {
         .replace("${remoteArtifactName}", &context.remote_artifact_name)
         .replace("${remoteArtifactBaseName}", base_name)
         .replace("${remoteDeployPath}", &context.remote_deploy_path)
+        .replace("${remoteUploadDir}", &context.remote_upload_dir)
+        .replace("${remoteUploadPath}", &context.remote_upload_path)
+        .replace("${deploymentId}", &context.deployment_id)
+        .replace("${loginUser}", &context.login_user)
+        .replace("${runAsUser}", &context.privilege.run_as_user)
         .replace("${date}", &today)
         .replace("${timestamp}", &timestamp)
         .replace("${logName}", &log_name_resolved)
@@ -1931,7 +2099,32 @@ fn is_explicit_log_file(path: &str) -> bool {
 }
 
 fn normalize_remote_dir(value: &str) -> String {
-    value.trim_end_matches('/').to_string()
+    let trimmed = value.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        ".".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn resolve_upload_temp_dir(
+    template: &str,
+    deployment_id: &str,
+    login_user: &str,
+    run_as_user: &str,
+    remote_artifact_name: &str,
+) -> String {
+    let artifact_base = remote_artifact_name
+        .rsplit_once('.')
+        .map(|(name, _)| name)
+        .unwrap_or(remote_artifact_name);
+    let resolved = template
+        .replace("${deploymentId}", deployment_id)
+        .replace("${loginUser}", login_user)
+        .replace("${runAsUser}", run_as_user)
+        .replace("${remoteArtifactName}", remote_artifact_name)
+        .replace("${remoteArtifactBaseName}", artifact_base);
+    normalize_remote_dir(&resolved)
 }
 
 fn task_status_for_step(step_type: &str) -> &'static str {

@@ -1,48 +1,48 @@
 import {
-  Alert,
-  Button,
-  Card,
-  Checkbox,
-  Empty,
-  Input,
-  InputNumber,
-  List,
-  Modal,
-  Popconfirm,
-  Progress,
-  Select,
-  Space,
-  Steps,
-  Table,
-  Tabs,
-  Tag,
-  Tooltip,
-  Typography,
+    Alert,
+    Button,
+    Card,
+    Checkbox,
+    Empty,
+    Input,
+    InputNumber,
+    List,
+    Modal,
+    Popconfirm,
+    Progress,
+    Select,
+    Space,
+    Steps,
+    Table,
+    Tabs,
+    Tag,
+    Tooltip,
+    Typography,
 } from 'antd'
 import {
-  ArrowDownOutlined,
-  ArrowUpOutlined,
-  CloudServerOutlined,
-  DeleteOutlined,
-  DeploymentUnitOutlined,
-  EditOutlined,
-  HistoryOutlined,
-  InboxOutlined,
-  PlayCircleOutlined,
-  PlusOutlined,
-  SaveOutlined,
-  SearchOutlined,
-  StopOutlined,
+    ArrowDownOutlined,
+    ArrowUpOutlined,
+    CloudServerOutlined,
+    DeleteOutlined,
+    DeploymentUnitOutlined,
+    EditOutlined,
+    HistoryOutlined,
+    InboxOutlined,
+    PlayCircleOutlined,
+    PlusOutlined,
+    SaveOutlined,
+    SearchOutlined,
+    StopOutlined,
 } from '@ant-design/icons'
 import {memo, useEffect, useMemo, useState} from 'react'
 import {DeploymentHistoryTable} from './DeploymentHistoryTable'
 import {
-  belongsToProject,
-  findDeployableArtifacts,
-  findProfileModule,
-  flattenModules,
-  normalizeProjectRoot,
-  profileModuleLabel,
+    belongsToProject,
+    findDeployableArtifacts,
+    findProfileModule,
+    flattenModules,
+    normalizeProjectRoot,
+    profileModuleLabel,
 } from '../../services/deploymentTopologyService'
 import {api, selectLocalFile} from '../../services/tauri-api'
 import {useAppStore} from '../../store/useAppStore'
@@ -50,18 +50,18 @@ import {useNavigationStore} from '../../store/navigationStore'
 import {useUploadProgressStore} from '../../store/useUploadProgressStore'
 import {useWorkflowStore} from '../../store/useWorkflowStore'
 import type {
-  BackupConfig,
-  BuildArtifact,
-  DeployFailureStrategy,
-  DeploymentProfile,
-  DeploymentStage,
-  DeployStep,
-  DeployStepType,
-  LogNamingMode,
-  ProbeStatus,
-  SaveServerProfilePayload,
-  ServerProfile,
-  StartupProbeConfig,
+    BackupConfig,
+    BuildArtifact,
+    DeployFailureStrategy,
+    DeploymentProfile,
+    DeploymentStage,
+    DeployStep,
+    DeployStepType,
+    LogNamingMode,
+    ProbeStatus,
+    SaveServerProfilePayload,
+    ServerProfile,
+    StartupProbeConfig,
 } from '../../types/domain'
 
 const {Text} = Typography
@@ -79,6 +79,17 @@ type FormMode = 'create' | 'edit'
 
 const DEPLOYMENT_TEMPLATE_STORAGE_KEY = 'packflow-workbench.deploymentTemplates.v1'
 
+const createDefaultPrivilege = () => ({
+  mode: 'none' as const,
+  runAsUser: 'root',
+  passwordMode: 'none' as const,
+  uploadTempDir: '~/.packflow/deploy/${deploymentId}',
+  shell: 'bash -lc',
+  customWrapper: '',
+  cleanupOnSuccess: true,
+  keepTempOnFailure: true,
+})
+
 const createServerDraft = (): SaveServerProfilePayload => ({
   name: '',
   host: '',
@@ -88,6 +99,8 @@ const createServerDraft = (): SaveServerProfilePayload => ({
   password: '',
   privateKeyPath: '',
   group: '',
+  privilege: createDefaultPrivilege(),
+  privilegePassword: '',
 })
 
 const createDefaultStartupProbe = (): StartupProbeConfig => ({
@@ -881,6 +894,8 @@ export function DeploymentCenterPanel() {
       password: '',
       privateKeyPath: profile.privateKeyPath,
       group: profile.group,
+      privilege: profile.privilege ?? createDefaultPrivilege(),
+      privilegePassword: '',
     })
     setServerEditorOpen(true)
   }
@@ -934,7 +949,7 @@ export function DeploymentCenterPanel() {
       const created = await api.saveServerProfile({...serverDraft, id: undefined})
       await refreshDeploymentData()
       setServerFormMode('edit')
-      setServerDraft({...serverDraft, id: created.id, password: ''})
+      setServerDraft({...serverDraft, id: created.id, password: '', privilegePassword: ''})
       if (closeEditor) {
         setServerEditorOpen(false)
       }
@@ -942,7 +957,7 @@ export function DeploymentCenterPanel() {
     }
     const saved = await api.saveServerProfile(serverDraft)
     await refreshDeploymentData()
-    setServerDraft({...serverDraft, id: saved.id, password: ''})
+    setServerDraft({...serverDraft, id: saved.id, password: '', privilegePassword: ''})
     if (closeEditor) {
       setServerEditorOpen(false)
     }
@@ -1388,6 +1403,118 @@ export function DeploymentCenterPanel() {
                       value={serverDraft.group}
                       onChange={(event) => setServerDraft((state) => ({...state, group: event.target.value}))}
                     />
+                  </Space>
+                  <div className="step-card-body">
+                    <Space direction="vertical" size={12} style={{width: '100%'}}>
+                      <Space wrap>
+                        <Select
+                          value={serverDraft.privilege.mode}
+                          style={{width: 180}}
+                          options={[
+                            {label: '不提权', value: 'none'},
+                            {label: 'sudo 执行', value: 'sudo'},
+                            {label: 'sudo -i 执行', value: 'sudo_i'},
+                            {label: 'su 切换用户', value: 'su'},
+                            {label: '自定义包装命令', value: 'custom'},
+                          ]}
+                          onChange={(value) =>
+                            setServerDraft((state) => ({
+                              ...state,
+                              privilege: {...state.privilege, mode: value},
+                            }))}
+                        />
+                        <Input
+                          placeholder="执行用户"
+                          style={{width: 140}}
+                          value={serverDraft.privilege.runAsUser}
+                          onChange={(event) =>
+                            setServerDraft((state) => ({
+                              ...state,
+                              privilege: {...state.privilege, runAsUser: event.target.value},
+                            }))}
+                        />
+                        <Select
+                          value={serverDraft.privilege.passwordMode}
+                          style={{width: 180}}
+                          options={[
+                            {label: '无需提权密码', value: 'none'},
+                            {label: '复用登录密码', value: 'login_password'},
+                            {label: '独立提权密码', value: 'separate'},
+                          ]}
+                          onChange={(value) =>
+                            setServerDraft((state) => ({
+                              ...state,
+                              privilege: {...state.privilege, passwordMode: value},
+                              privilegePassword: value === 'separate' ? state.privilegePassword : '',
+                            }))}
+                        />
+                        {serverDraft.privilege.passwordMode === 'separate' ? (
+                          <Input.Password
+                            placeholder="提权密码（留空则保留原密码）"
+                            style={{width: 240}}
+                            value={serverDraft.privilegePassword}
+                            onChange={(event) => setServerDraft((state) => ({...state, privilegePassword: event.target.value}))}
+                          />
+                        ) : null}
+                      </Space>
+                      <Space wrap>
+                        <Input
+                          placeholder="上传暂存目录"
+                          style={{minWidth: 360}}
+                          value={serverDraft.privilege.uploadTempDir}
+                          onChange={(event) =>
+                            setServerDraft((state) => ({
+                              ...state,
+                              privilege: {...state.privilege, uploadTempDir: event.target.value},
+                            }))}
+                        />
+                        <Input
+                          placeholder="执行 Shell"
+                          style={{width: 160}}
+                          value={serverDraft.privilege.shell}
+                          onChange={(event) =>
+                            setServerDraft((state) => ({
+                              ...state,
+                              privilege: {...state.privilege, shell: event.target.value},
+                            }))}
+                        />
+                      </Space>
+                      {serverDraft.privilege.mode === 'custom' ? (
+                        <Input
+                          placeholder="自定义包装命令，使用 ${command} 放置原命令"
+                          value={serverDraft.privilege.customWrapper}
+                          onChange={(event) =>
+                            setServerDraft((state) => ({
+                              ...state,
+                              privilege: {...state.privilege, customWrapper: event.target.value},
+                            }))}
+                        />
+                      ) : null}
+                      <Space wrap>
+                        <Checkbox
+                          checked={serverDraft.privilege.cleanupOnSuccess}
+                          onChange={(event) =>
+                            setServerDraft((state) => ({
+                              ...state,
+                              privilege: {...state.privilege, cleanupOnSuccess: event.target.checked},
+                            }))}
+                        >
+                          成功后清理暂存目录
+                        </Checkbox>
+                        <Checkbox
+                          checked={serverDraft.privilege.keepTempOnFailure}
+                          onChange={(event) =>
+                            setServerDraft((state) => ({
+                              ...state,
+                              privilege: {...state.privilege, keepTempOnFailure: event.target.checked},
+                            }))}
+                        >
+                          失败时保留暂存目录
+                        </Checkbox>
+                      </Space>
+                    </Space>
+                  </div>
+                  <Space wrap>
                     <Button
                       type="primary"
                       icon={<SaveOutlined />}
@@ -1464,6 +1591,12 @@ export function DeploymentCenterPanel() {
                             render: (_, profile) => (
                               <Space size={4} wrap>
                                 {profile.passwordConfigured ? <Tag color="gold">已保存密码</Tag> : null}
+                                {profile.privilege?.mode && profile.privilege.mode !== 'none' ? (
+                                  <Tag color="purple">
+                                    {profile.privilege.mode === 'sudo_i' ? 'sudo -i' : profile.privilege.mode} {profile.privilege.runAsUser}
+                                  </Tag>
+                                ) : null}
+                                {profile.privilegePasswordConfigured ? <Tag color="gold">已保存提权密码</Tag> : null}
                                 {profile.group ? <Tag>{profile.group}</Tag> : null}
                                 {testResult?.serverId === profile.id && (
                                   <Tag color={testResult.success ? 'green' : 'red'}>
@@ -2567,6 +2700,7 @@ export function DeploymentCenterPanel() {
                       <Text strong>{server.name}</Text>
                       <Tag>{server.group || '默认环境'}</Tag>
                       <Tag>{server.authType === 'password' ? '密码' : '私钥'}</Tag>
+                      {server.privilege?.mode && server.privilege.mode !== 'none' ? <Tag color="purple">提权</Tag> : null}
                     </Space>
                     <Text type="secondary">
                       {server.username}@{server.host}:{server.port}

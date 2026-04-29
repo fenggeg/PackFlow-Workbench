@@ -12,8 +12,48 @@ pub struct ServerProfile {
     pub private_key_path: Option<String>,
     pub group: Option<String>,
     pub password_configured: bool,
+    #[serde(default)]
+    pub privilege: ServerPrivilegeConfig,
+    #[serde(default)]
+    pub privilege_password_configured: bool,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerPrivilegeConfig {
+    #[serde(default = "default_privilege_mode")]
+    pub mode: String,
+    #[serde(default = "default_privilege_run_as_user")]
+    pub run_as_user: String,
+    #[serde(default = "default_privilege_password_mode")]
+    pub password_mode: String,
+    #[serde(default = "default_privilege_upload_temp_dir")]
+    pub upload_temp_dir: String,
+    #[serde(default = "default_privilege_shell")]
+    pub shell: String,
+    #[serde(default)]
+    pub custom_wrapper: Option<String>,
+    #[serde(default = "default_true")]
+    pub cleanup_on_success: bool,
+    #[serde(default = "default_true")]
+    pub keep_temp_on_failure: bool,
+}
+
+impl Default for ServerPrivilegeConfig {
+    fn default() -> Self {
+        Self {
+            mode: default_privilege_mode(),
+            run_as_user: default_privilege_run_as_user(),
+            password_mode: default_privilege_password_mode(),
+            upload_temp_dir: default_privilege_upload_temp_dir(),
+            shell: default_privilege_shell(),
+            custom_wrapper: None,
+            cleanup_on_success: true,
+            keep_temp_on_failure: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,6 +68,10 @@ pub struct SaveServerProfilePayload {
     pub password: Option<String>,
     pub private_key_path: Option<String>,
     pub group: Option<String>,
+    #[serde(default)]
+    pub privilege: ServerPrivilegeConfig,
+    #[serde(default)]
+    pub privilege_password: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -319,6 +363,26 @@ pub struct UploadProgressEvent {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_privilege_mode() -> String {
+    "none".to_string()
+}
+
+fn default_privilege_run_as_user() -> String {
+    "root".to_string()
+}
+
+fn default_privilege_password_mode() -> String {
+    "none".to_string()
+}
+
+fn default_privilege_upload_temp_dir() -> String {
+    "~/.packflow/deploy/${deploymentId}".to_string()
+}
+
+fn default_privilege_shell() -> String {
+    "bash -lc".to_string()
 }
 
 fn default_log_naming_mode() -> String {

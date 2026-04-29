@@ -1,4 +1,5 @@
 use crate::error::{to_user_error, AppResult};
+use crate::models::deployment::ServerPrivilegeConfig;
 use crate::repositories::deployment_repo::ExecutionServerProfile;
 use encoding_rs::GBK;
 use ssh::algorithm::{Enc, Kex, PubKey};
@@ -18,6 +19,17 @@ pub struct CommandResult {
 pub struct SshConnection {
     session: ssh::LocalSession<TcpStream>,
     sftp_session: Option<Arc<Mutex<SftpSession>>>,
+    command_session: Option<Arc<Mutex<Session>>>,
+    privilege: Option<PrivilegeCommandConfig>,
+}
+
+#[derive(Clone)]
+struct PrivilegeCommandConfig {
+    mode: String,
+    run_as_user: String,
+    shell: String,
+    custom_wrapper: Option<String>,
+    password: Option<String>,
 }
 
 struct SftpSession {
@@ -59,11 +71,32 @@ impl SshConnection {
         };
 
         let sftp_session = open_sftp_session(profile).ok();
+        let command_session = open_ssh2_session(profile).ok();
 
         Ok(Self {
             session,
             sftp_session,
+            command_session,
+            privilege: None,
         })
+    }
+
+    pub fn configure_privilege(
+        &mut self,
+        config: &ServerPrivilegeConfig,
+        password: Option<String>,
+    ) {
+        self.privilege = if config.mode.trim() == "none" {
+            None
+        } else {
+            Some(PrivilegeCommandConfig {
+                mode: config.mode.clone(),
+                run_as_user: config.run_as_user.clone(),
+                shell: config.shell.clone(),
+                custom_wrapper: config.custom_wrapper.clone(),
+                password,
+            })
+        };
     }
 
     pub fn execute_with_cancel<C>(
@@ -117,6 +150,44 @@ impl SshConnection {
         )
     }
 
+    pub fn execute_allowing_status_with_input<C>(
+        &mut self,
+        command: &str,
+        stdin: Option<&str>,
+        success_exit_codes: &[i32],
+        mut is_cancelled: C,
+    ) -> AppResult<CommandResult>
+    where
+        C: FnMut() -> bool,
+    {
+        if stdin.is_none() {
+            return self.execute_allowing_status(command, success_exit_codes, is_cancelled);
+        }
+        if is_cancelled() {
+            return Err(to_user_error("部署已停止。"));
+        }
+        let session = self
+            .command_session
+            .as_ref()
+            .ok_or_else(|| to_user_error("当前 SSH 连接不支持带输入的提权命令。"))?;
+        execute_via_ssh2(session, command, stdin.unwrap_or_default(), success_exit_codes)
+    }
+
+    pub fn execute_privileged_with_cancel<C>(
+        &mut self,
+        command: &str,
+        is_cancelled: C,
+    ) -> AppResult<CommandResult>
+    where
+        C: FnMut() -> bool,
+    {
+        let Some(privilege) = self.privilege.clone() else {
+            return self.execute_with_cancel(command, is_cancelled);
+        };
+        let (wrapped, stdin) = wrap_privileged_command(&privilege, command)?;
+        self.execute_allowing_status_with_input(&wrapped, stdin.as_deref(), &[0], is_cancelled)
+    }
+
     pub fn upload_file_with_progress<C, P>(
         &mut self,
         local_path: &Path,
@@ -144,7 +215,7 @@ impl SshConnection {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| "/tmp".to_string());
 
-        let mkdir_cmd = format!("mkdir -p {}", remote_dir);
+        let mkdir_cmd = format!("mkdir -p {}", shell_quote(&remote_dir));
         let mut mkdir_channel = self
             .session
             .open_exec()
@@ -178,19 +249,39 @@ impl SshConnection {
 }
 
 fn open_sftp_session(profile: &ExecutionServerProfile) -> AppResult<Arc<Mutex<SftpSession>>> {
+    let session = open_ssh2_session(profile)?;
+
+    let sftp = {
+        let guard = session
+            .lock()
+            .map_err(|_| to_user_error("无法获取 SFTP 会话锁。"))?;
+        guard
+            .sftp()
+            .map_err(|error| to_user_error(format!("创建 SFTP 通道失败：{}", error)))?
+    };
+
+    let session = Arc::try_unwrap(session)
+        .map_err(|_| to_user_error("无法初始化 SFTP 会话。"))?
+        .into_inner()
+        .map_err(|_| to_user_error("无法获取 SFTP 会话。"))?;
+
+    Ok(Arc::new(Mutex::new(SftpSession { session, sftp })))
+}
+
+fn open_ssh2_session(profile: &ExecutionServerProfile) -> AppResult<Arc<Mutex<Session>>> {
     let tcp = TcpStream::connect((&profile.host as &str, profile.port))
-        .map_err(|error| to_user_error(format!("SFTP TCP 连接失败：{}", error)))?;
+        .map_err(|error| to_user_error(format!("SSH2 TCP 连接失败：{}", error)))?;
     tcp.set_read_timeout(Some(Duration::from_secs(30)))
-        .map_err(|error| to_user_error(format!("设置 SFTP 超时失败：{}", error)))?;
+        .map_err(|error| to_user_error(format!("设置 SSH2 超时失败：{}", error)))?;
     tcp.set_write_timeout(Some(Duration::from_secs(30)))
-        .map_err(|error| to_user_error(format!("设置 SFTP 超时失败：{}", error)))?;
+        .map_err(|error| to_user_error(format!("设置 SSH2 超时失败：{}", error)))?;
 
     let mut session =
-        Session::new().map_err(|error| to_user_error(format!("创建 SFTP 会话失败：{}", error)))?;
+        Session::new().map_err(|error| to_user_error(format!("创建 SSH2 会话失败：{}", error)))?;
     session.set_tcp_stream(tcp);
     session
         .handshake()
-        .map_err(|error| to_user_error(format!("SFTP 握手失败：{}", error)))?;
+        .map_err(|error| to_user_error(format!("SSH2 握手失败：{}", error)))?;
 
     match profile.auth_type.as_str() {
         "password" => {
@@ -200,7 +291,7 @@ fn open_sftp_session(profile: &ExecutionServerProfile) -> AppResult<Arc<Mutex<Sf
                 .ok_or_else(|| to_user_error("服务器密码不存在。"))?;
             session
                 .userauth_password(&profile.username, password)
-                .map_err(|error| to_user_error(format!("SFTP 密码认证失败：{}", error)))?;
+                .map_err(|error| to_user_error(format!("SSH2 密码认证失败：{}", error)))?;
         }
         "private_key" => {
             let key_path = profile
@@ -209,20 +300,16 @@ fn open_sftp_session(profile: &ExecutionServerProfile) -> AppResult<Arc<Mutex<Sf
                 .ok_or_else(|| to_user_error("私钥认证需要提供私钥路径。"))?;
             session
                 .userauth_pubkey_file(&profile.username, None, Path::new(key_path), None)
-                .map_err(|error| to_user_error(format!("SFTP 私钥认证失败：{}", error)))?;
+                .map_err(|error| to_user_error(format!("SSH2 私钥认证失败：{}", error)))?;
         }
         _ => return Err(to_user_error("暂不支持的认证方式。")),
     }
 
     if !session.authenticated() {
-        return Err(to_user_error("SFTP 认证未通过。"));
+        return Err(to_user_error("SSH2 认证未通过。"));
     }
 
-    let sftp = session
-        .sftp()
-        .map_err(|error| to_user_error(format!("创建 SFTP 通道失败：{}", error)))?;
-
-    Ok(Arc::new(Mutex::new(SftpSession { session, sftp })))
+    Ok(Arc::new(Mutex::new(session)))
 }
 
 fn upload_via_sftp<C, P>(
@@ -415,6 +502,98 @@ where
     Ok(())
 }
 
+fn execute_via_ssh2(
+    session_arc: &Arc<Mutex<Session>>,
+    command: &str,
+    stdin: &str,
+    success_exit_codes: &[i32],
+) -> AppResult<CommandResult> {
+    let session = session_arc
+        .lock()
+        .map_err(|_| to_user_error("无法获取 SSH2 命令会话锁。"))?;
+    let mut channel = session
+        .channel_session()
+        .map_err(|error| to_user_error(format!("无法打开 SSH2 命令通道：{}", error)))?;
+    channel
+        .exec(command)
+        .map_err(|error| to_user_error(format!("远端命令执行失败：{}", error)))?;
+    channel
+        .write_all(stdin.as_bytes())
+        .map_err(|error| to_user_error(format!("写入提权命令输入失败：{}", error)))?;
+    channel
+        .send_eof()
+        .map_err(|error| to_user_error(format!("关闭提权命令输入失败：{}", error)))?;
+
+    let mut stdout = Vec::new();
+    channel
+        .read_to_end(&mut stdout)
+        .map_err(|error| to_user_error(format!("读取命令输出失败：{}", error)))?;
+    let mut stderr = Vec::new();
+    channel
+        .stderr()
+        .read_to_end(&mut stderr)
+        .map_err(|error| to_user_error(format!("读取命令错误输出失败：{}", error)))?;
+    channel
+        .wait_close()
+        .map_err(|error| to_user_error(format!("等待远端命令结束失败：{}", error)))?;
+    let exit_status = channel
+        .exit_status()
+        .map_err(|error| to_user_error(format!("读取远端命令退出码失败：{}", error)))?;
+    drop(channel);
+    drop(session);
+
+    parse_command_bytes(
+        stdout,
+        stderr,
+        exit_status,
+        success_exit_codes,
+        "远端命令执行失败",
+    )
+}
+
+fn wrap_privileged_command(
+    privilege: &PrivilegeCommandConfig,
+    command: &str,
+) -> AppResult<(String, Option<String>)> {
+    let command_with_shell = format!("{} {}", privilege.shell.trim(), shell_quote(command));
+    let stdin = privilege.password.as_ref().map(|password| format!("{}\n", password));
+    let wrapped = match privilege.mode.as_str() {
+        "sudo" | "sudo_i" => {
+            let identity_arg = if privilege.mode == "sudo_i" { "-i " } else { "" };
+            let password_arg = if stdin.is_some() { "-S -p ''" } else { "-n" };
+            format!(
+                "sudo {password_arg} {identity_arg}-u {user} {command}",
+                password_arg = password_arg,
+                identity_arg = identity_arg,
+                user = shell_quote(privilege.run_as_user.trim()),
+                command = command_with_shell,
+            )
+        }
+        "su" => format!(
+            "su - {user} -c {command}",
+            user = shell_quote(privilege.run_as_user.trim()),
+            command = shell_quote(&command_with_shell),
+        ),
+        "custom" => {
+            let wrapper = privilege
+                .custom_wrapper
+                .as_deref()
+                .ok_or_else(|| to_user_error("自定义提权模式需要填写包装命令。"))?;
+            if wrapper.contains("${command}") {
+                wrapper.replace("${command}", &shell_quote(command))
+            } else {
+                format!("{} {}", wrapper, shell_quote(command))
+            }
+        }
+        _ => command.to_string(),
+    };
+    Ok((wrapped, stdin))
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
 const CONNECT_TIMEOUT_SECONDS: u64 = 10;
 
 fn open_password_session<C>(
@@ -498,10 +677,19 @@ where
 pub fn test_server_connection(profile: &ExecutionServerProfile) -> AppResult<String> {
     let mut connection = SshConnection::connect(profile, || false)?;
     connection.execute_with_cancel("printf OK", || false)?;
+    let privilege_enabled = profile.privilege.mode.trim() != "none";
+    if privilege_enabled {
+        connection.configure_privilege(&profile.privilege, profile.privilege_password.clone());
+        connection.execute_privileged_with_cancel("printf PRIVILEGE_OK", || false)?;
+    }
 
     Ok(format!(
-        "连接成功：{}@{}:{}（{} 认证）",
-        profile.username, profile.host, profile.port, profile.auth_type
+        "连接成功：{}@{}:{}（{} 认证{}）",
+        profile.username,
+        profile.host,
+        profile.port,
+        profile.auth_type,
+        if privilege_enabled { "，提权可用" } else { "" }
     ))
 }
 

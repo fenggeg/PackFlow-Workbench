@@ -1,6 +1,7 @@
 use crate::error::AppResult;
 use crate::models::deployment::{
-    DeploymentProfile, DeploymentTask, SaveServerProfilePayload, ServerProfile,
+    DeploymentProfile, DeploymentTask, SaveServerProfilePayload, ServerPrivilegeConfig,
+    ServerProfile,
 };
 use crate::repositories::storage::open_database;
 use crate::services::secure_storage;
@@ -22,6 +23,9 @@ struct StoredServerProfile {
     encrypted_password: Option<String>,
     private_key_path: Option<String>,
     group: Option<String>,
+    #[serde(default)]
+    privilege: ServerPrivilegeConfig,
+    encrypted_privilege_password: Option<String>,
     created_at: Option<String>,
     updated_at: Option<String>,
 }
@@ -73,6 +77,27 @@ pub fn save_server_profile(
         return Err("密码认证需要填写密码。".to_string());
     }
 
+    let privilege = normalize_privilege_config(payload.privilege);
+    let encrypted_privilege_password = match privilege.password_mode.as_str() {
+        "separate" => match payload.privilege_password.as_deref() {
+            Some(password) if !password.trim().is_empty() => {
+                Some(secure_storage::encrypt_string(password.trim())?)
+            }
+            _ => existing
+                .as_ref()
+                .and_then(|item| item.encrypted_privilege_password.clone())
+                .filter(|value| !value.trim().is_empty()),
+        },
+        _ => None,
+    };
+
+    if privilege.mode != "none"
+        && privilege.password_mode == "separate"
+        && encrypted_privilege_password.is_none()
+    {
+        return Err("独立提权密码模式需要填写提权密码。".to_string());
+    }
+
     let stored = StoredServerProfile {
         id: id.clone(),
         name: payload.name.trim().to_string(),
@@ -89,6 +114,8 @@ pub fn save_server_profile(
             .group
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty()),
+        privilege,
+        encrypted_privilege_password,
         created_at: existing
             .as_ref()
             .and_then(|item| item.created_at.clone())
@@ -297,6 +324,15 @@ pub fn get_server_profile_for_execution(
         .as_deref()
         .map(secure_storage::decrypt_string)
         .transpose()?;
+    let privilege_password = match stored.privilege.password_mode.as_str() {
+        "login_password" => password.clone(),
+        "separate" => stored
+            .encrypted_privilege_password
+            .as_deref()
+            .map(secure_storage::decrypt_string)
+            .transpose()?,
+        _ => None,
+    };
     Ok(ExecutionServerProfile {
         id: stored.id,
         name: stored.name,
@@ -306,6 +342,8 @@ pub fn get_server_profile_for_execution(
         auth_type: stored.auth_type,
         password,
         private_key_path: stored.private_key_path,
+        privilege: stored.privilege,
+        privilege_password,
     })
 }
 
@@ -319,6 +357,8 @@ pub struct ExecutionServerProfile {
     pub auth_type: String,
     pub password: Option<String>,
     pub private_key_path: Option<String>,
+    pub privilege: ServerPrivilegeConfig,
+    pub privilege_password: Option<String>,
 }
 
 fn load_stored_server_profile(app: &AppHandle, server_id: &str) -> AppResult<StoredServerProfile> {
@@ -347,7 +387,40 @@ fn to_public_server_profile(stored: StoredServerProfile) -> ServerProfile {
             .encrypted_password
             .as_deref()
             .is_some_and(|value| !value.trim().is_empty()),
+        privilege: stored.privilege.clone(),
+        privilege_password_configured: stored
+            .encrypted_privilege_password
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty()),
         created_at: stored.created_at,
         updated_at: stored.updated_at,
+    }
+}
+
+fn normalize_privilege_config(mut config: ServerPrivilegeConfig) -> ServerPrivilegeConfig {
+    config.mode = match config.mode.trim() {
+        "sudo" | "sudo_i" | "su" | "custom" => config.mode.trim().to_string(),
+        _ => "none".to_string(),
+    };
+    config.run_as_user = non_empty_or(config.run_as_user, "root");
+    config.password_mode = match config.password_mode.trim() {
+        "login_password" | "separate" => config.password_mode.trim().to_string(),
+        _ => "none".to_string(),
+    };
+    config.upload_temp_dir = non_empty_or(config.upload_temp_dir, "~/.packflow/deploy/${deploymentId}");
+    config.shell = non_empty_or(config.shell, "bash -lc");
+    config.custom_wrapper = config
+        .custom_wrapper
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    config
+}
+
+fn non_empty_or(value: String, fallback: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        fallback.to_string()
+    } else {
+        trimmed.to_string()
     }
 }

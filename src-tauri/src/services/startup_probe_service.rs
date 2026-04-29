@@ -73,7 +73,7 @@ pub fn run_startup_probe(
         if let Some(log_path) = &detected_log_path {
             // Incremental read: only emit lines that haven't been sent yet
             let total_cmd = format!("wc -l {} 2>/dev/null || echo 0", shell_quote(log_path));
-            if let Ok(wc_result) = conn.execute_with_cancel(&total_cmd, || is_cancelled()) {
+            if let Ok(wc_result) = conn.execute_privileged_with_cancel(&total_cmd, || is_cancelled()) {
                 if let Ok(total_lines) = wc_result
                     .output
                     .trim()
@@ -89,7 +89,7 @@ pub fn run_startup_probe(
                             skip + 1,
                             shell_quote(log_path)
                         );
-                        if let Ok(result) = conn.execute_with_cancel(&tail_cmd, || is_cancelled())
+                        if let Ok(result) = conn.execute_privileged_with_cancel(&tail_cmd, || is_cancelled())
                         {
                             for line in result.output.lines() {
                                 on_log(line);
@@ -272,7 +272,7 @@ fn read_pid_from_candidates(
 ) -> Option<String> {
     for pid_file in pid_file_candidates(process_probe, context) {
         let cmd = format!("cat {} 2>/dev/null", shell_quote(&pid_file));
-        if let Ok(result) = conn.execute_with_cancel(&cmd, || is_cancelled()) {
+        if let Ok(result) = conn.execute_privileged_with_cancel(&cmd, || is_cancelled()) {
             let pid = result.output.trim().to_string();
             if !pid.is_empty() && pid.chars().all(|c| c.is_ascii_digit()) {
                 return Some(pid);
@@ -347,7 +347,7 @@ fn check_process_probe(
     }
 
     let cmd = format!("kill -0 {} 2>/dev/null", shell_quote(&pid));
-    let alive = conn.execute_with_cancel(&cmd, || false).is_ok();
+    let alive = conn.execute_privileged_with_cancel(&cmd, || false).is_ok();
 
     statuses.push(ProbeStatus {
         probe_type: "process".to_string(),
@@ -395,7 +395,7 @@ fn check_port_probe(
         target = shell_quote(&format!("cat < /dev/null > /dev/tcp/{}/{}", host, port_probe.port)),
     );
 
-    let open = conn.execute_with_cancel(&cmd, || false).is_ok();
+    let open = conn.execute_privileged_with_cancel(&cmd, || false).is_ok();
 
     statuses.push(ProbeStatus {
         probe_type: "port".to_string(),
@@ -446,7 +446,7 @@ fn check_http_probe(
         .unwrap_or(&[200]);
     let expected_body = http_probe.expected_body_contains.as_deref();
 
-    match conn.execute_with_cancel(&cmd, || false) {
+    match conn.execute_privileged_with_cancel(&cmd, || false) {
         Ok(result) => {
             let marker = "__HTTP_STATUS__:";
             if let Some(marker_index) = result.output.rfind(marker) {
@@ -569,7 +569,7 @@ fn check_log_probe(
     };
 
     let cmd = format!("tail -n 500 {} 2>/dev/null || true", shell_quote(&log_path));
-    let content = match conn.execute_with_cancel(&cmd, || false) {
+    let content = match conn.execute_privileged_with_cancel(&cmd, || false) {
         Ok(result) => result.output,
         Err(_) => {
             statuses.push(ProbeStatus {
@@ -673,7 +673,7 @@ fn resolve_runtime_log_path(
     current_log_path: Option<&str>,
 ) -> Option<String> {
     let pointer_cmd = format!("cat {} 2>/dev/null", shell_quote(&context.log_path_file));
-    if let Ok(result) = conn.execute_with_cancel(&pointer_cmd, || false) {
+    if let Ok(result) = conn.execute_privileged_with_cancel(&pointer_cmd, || false) {
         let path = result.output.trim();
         if !path.is_empty() {
             return Some(path.to_string());
@@ -709,7 +709,7 @@ fn latest_log_from_globs(conn: &mut SshConnection, context: &ProbeContext) -> Op
     ];
 
     for command in commands {
-        if let Ok(result) = conn.execute_with_cancel(&command, || false) {
+        if let Ok(result) = conn.execute_privileged_with_cancel(&command, || false) {
             let path = result.output.lines().next().unwrap_or("").trim();
             if !path.is_empty() {
                 return Some(path.to_string());
@@ -721,7 +721,7 @@ fn latest_log_from_globs(conn: &mut SshConnection, context: &ProbeContext) -> Op
 
 fn remote_file_exists(conn: &mut SshConnection, path: &str) -> bool {
     let command = format!("test -f {}", shell_quote(path));
-    conn.execute_with_cancel(&command, || false).is_ok()
+    conn.execute_privileged_with_cancel(&command, || false).is_ok()
 }
 
 fn evaluate_success(
