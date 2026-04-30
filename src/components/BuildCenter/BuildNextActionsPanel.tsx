@@ -1,6 +1,9 @@
-import {Alert, Button, Card, Empty, Input, List, Modal, Select, Space, Tag, Tooltip, Typography} from 'antd'
-import {CheckOutlined, FolderOpenOutlined, RocketOutlined, SettingOutlined} from '@ant-design/icons'
+import {Alert, App, Button, Card, Empty, Input, List, Modal, Select, Space, Tag, Tooltip, Typography} from 'antd'
+import {CheckOutlined, FileTextOutlined, FolderOpenOutlined, RocketOutlined, SettingOutlined} from '@ant-design/icons'
 import {useMemo, useState} from 'react'
+import {deriveRuntimeConfig} from '../../features/service-ops/services/serviceRuntimeConfigService'
+import {useRemoteLogSessionStore} from '../../features/service-ops/stores/remoteLogSessionStore'
+import {useServiceOperationStore} from '../../features/service-ops/stores/serviceOperationStore'
 import {api} from '../../services/tauri-api'
 import {
     belongsToProject,
@@ -10,6 +13,7 @@ import {
     pickDefaultTestServer,
 } from '../../services/deploymentTopologyService'
 import {useAppStore} from '../../store/useAppStore'
+import {useNavigationStore} from '../../store/navigationStore'
 import {useWorkflowStore} from '../../store/useWorkflowStore'
 
 const {Text} = Typography
@@ -18,6 +22,7 @@ const deploymentFinished = (status?: string) =>
   Boolean(status && ['success', 'failed', 'cancelled'].includes(status))
 
 export function BuildNextActionsPanel() {
+  const {message} = App.useApp()
   const project = useAppStore((state) => state.project)
   const buildStatus = useAppStore((state) => state.buildStatus)
   const artifacts = useAppStore((state) => state.artifacts)
@@ -26,6 +31,11 @@ export function BuildNextActionsPanel() {
   const serverProfiles = useWorkflowStore((state) => state.serverProfiles)
   const currentDeploymentTask = useWorkflowStore((state) => state.currentDeploymentTask)
   const startDeployment = useWorkflowStore((state) => state.startDeployment)
+  const saveRuntimeConfig = useServiceOperationStore((state) => state.saveRuntimeConfig)
+  const openLogSession = useRemoteLogSessionStore((state) => state.openSession)
+  const setInspectorOpen = useNavigationStore((state) => state.setInspectorOpen)
+  const setInspectorTab = useNavigationStore((state) => state.setInspectorTab)
+  const setInspectorLogSource = useNavigationStore((state) => state.setInspectorLogSource)
   const [selectedDeploymentProfileId, setSelectedDeploymentProfileId] = useState<string>()
   const [selectedServerId, setSelectedServerId] = useState<string>()
   const [selectedArtifactPath, setSelectedArtifactPath] = useState<string>()
@@ -76,6 +86,23 @@ export function BuildNextActionsPanel() {
   const effectiveArtifactPath = artifactOptions.some((artifact) => artifact.value === selectedArtifactPath)
     ? selectedArtifactPath
     : artifactOptions[0]?.value
+
+  const handleViewServiceLog = async () => {
+    if (!selectedProfile || !effectiveServer) {
+      return
+    }
+    try {
+      const config = deriveRuntimeConfig(selectedProfile, effectiveServer)
+      const saved = await saveRuntimeConfig(config)
+      await openLogSession(saved)
+      setInspectorLogSource('remoteLog')
+      setInspectorTab('logs')
+      setInspectorOpen(true)
+      message.success('已打开服务日志会话')
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error))
+    }
+  }
 
   if (buildStatus !== 'SUCCESS') {
     return null
@@ -143,6 +170,16 @@ export function BuildNextActionsPanel() {
                 >
                   部署到测试
                 </Button>
+                <Tooltip title="查看关联服务日志">
+                  <Button
+                    size="small"
+                    type="text"
+                    aria-label="查看关联服务日志"
+                    icon={<FileTextOutlined />}
+                    disabled={!selectedProfile || !effectiveServer}
+                    onClick={() => void handleViewServiceLog()}
+                  />
+                </Tooltip>
               </Space>
             </Space>
           </div>

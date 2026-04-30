@@ -41,6 +41,8 @@ import {
 import type {ReactNode} from 'react'
 import {memo, useEffect, useMemo, useState} from 'react'
 import {DeploymentHistoryTable} from './DeploymentHistoryTable'
+import {ServiceOperationButtons} from '../../features/service-ops/components/ServiceOperationButtons'
+import {deriveRuntimeConfig} from '../../features/service-ops/services/serviceRuntimeConfigService'
 import {
   belongsToProject,
   findDeployableArtifacts,
@@ -721,6 +723,15 @@ export function DeploymentCenterPanel() {
   const selectedServer = serverProfiles.find((item) => item.id === selectedServerId)
   const deploymentStages = visibleDeploymentTask?.stages.length ? visibleDeploymentTask.stages : defaultDeploymentStages
   const deploymentRunning = Boolean(visibleDeploymentTask && !deploymentTaskFinished(visibleDeploymentTask.status))
+  const visibleTaskProfile = visibleDeploymentTask
+    ? currentProjectDeploymentProfiles.find((item) => item.id === visibleDeploymentTask.deploymentProfileId)
+    : undefined
+  const visibleTaskServer = visibleDeploymentTask
+    ? serverProfiles.find((item) => item.id === visibleDeploymentTask.serverId)
+    : undefined
+  const visibleTaskRuntimeConfig = visibleTaskProfile && visibleTaskServer
+    ? deriveRuntimeConfig(visibleTaskProfile, visibleTaskServer)
+    : undefined
   const buildRunning = buildStatus === 'RUNNING'
   const privilegeEnabled = serverDraft.privilege.mode !== 'none'
   const packageBuildGoals = buildOptions.goals.some((goal) => ['package', 'install', 'verify', 'deploy'].includes(goal))
@@ -1282,6 +1293,32 @@ export function DeploymentCenterPanel() {
                       </div>
                     </div>
                   </div>
+
+                  {visibleDeploymentTask && deploymentTaskFinished(visibleDeploymentTask.status) && visibleTaskProfile && visibleTaskServer && visibleTaskRuntimeConfig ? (
+                    <Alert
+                      type={visibleDeploymentTask.status === 'success' ? 'success' : 'error'}
+                      showIcon
+                      message={visibleDeploymentTask.status === 'success' ? '部署成功' : '部署失败'}
+                      description={(
+                        <Space direction="vertical" size={8}>
+                          <Text>
+                            服务：{visibleTaskProfile.serviceAlias || visibleTaskProfile.name} · 环境：{visibleTaskServer.group || '默认环境'}
+                          </Text>
+                          <ServiceOperationButtons
+                            profile={visibleTaskProfile}
+                            server={visibleTaskServer}
+                            config={visibleTaskRuntimeConfig}
+                            onDeploy={() => void startDeployment(
+                              visibleDeploymentTask.deploymentProfileId,
+                              visibleDeploymentTask.serverId,
+                              visibleDeploymentTask.artifactPath,
+                              visibleDeploymentTask.buildTaskId,
+                            )}
+                          />
+                        </Space>
+                      )}
+                    />
+                  ) : null}
 
                   <div className="deployment-overview-grid">
                     <div className="deployment-overview-block">

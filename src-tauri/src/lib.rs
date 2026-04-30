@@ -6,6 +6,7 @@ mod services;
 
 use services::deployment_executor::DeploymentControlState;
 use services::process_runner::BuildProcessState;
+use services::remote_log_session_service::RemoteLogSessionState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -26,6 +27,7 @@ pub fn run() {
         })
         .manage(BuildProcessState::default())
         .manage(DeploymentControlState::default())
+        .manage(RemoteLogSessionState::default())
         .invoke_handler(tauri::generate_handler![
             commands::project::parse_maven_project,
             commands::project::analyze_project_dependencies,
@@ -61,6 +63,14 @@ pub fn run() {
             commands::deployment::cancel_deployment,
             commands::deployment::delete_deployment_task,
             commands::deployment::test_server_connection,
+            commands::service_ops::list_service_runtime_configs,
+            commands::service_ops::save_service_runtime_config,
+            commands::service_ops::delete_service_runtime_config,
+            commands::service_ops::list_service_operation_histories,
+            commands::service_ops::start_service_restart,
+            commands::service_ops::start_service_health_check,
+            commands::service_ops::start_remote_log_session,
+            commands::service_ops::stop_remote_log_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

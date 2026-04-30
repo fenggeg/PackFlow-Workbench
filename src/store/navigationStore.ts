@@ -5,7 +5,7 @@ export type BuildSidebarTab = 'project' | 'git' | 'modules' | 'favorites'
 
 export type InspectorTab = 'logs' | 'diagnosis' | 'details'
 
-export type InspectorLogSource = 'build' | 'deployment'
+export type InspectorLogSource = 'build' | 'deployment' | 'serviceOps' | 'remoteLog'
 
 interface NavigationState {
   activePage: AppPage

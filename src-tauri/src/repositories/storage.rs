@@ -76,6 +76,31 @@ fn initialize_database(connection: &Connection) -> AppResult<()> {
 
             CREATE INDEX IF NOT EXISTS idx_deployment_tasks_created_at
                 ON deployment_tasks(created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS service_runtime_configs (
+                id TEXT PRIMARY KEY NOT NULL,
+                service_mapping_id TEXT NOT NULL,
+                environment_id TEXT NOT NULL,
+                server_id TEXT NOT NULL,
+                service_name TEXT NOT NULL,
+                created_at TEXT,
+                updated_at TEXT,
+                payload TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_service_runtime_configs_mapping_server
+                ON service_runtime_configs(service_mapping_id, environment_id, server_id);
+
+            CREATE TABLE IF NOT EXISTS service_operation_histories (
+                id TEXT PRIMARY KEY NOT NULL,
+                operation_type TEXT NOT NULL,
+                service_name TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                payload TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_service_operation_histories_started_at
+                ON service_operation_histories(started_at DESC);
             "#,
         )
         .map_err(|error| to_user_error(format!("无法初始化本地数据库：{}", error)))

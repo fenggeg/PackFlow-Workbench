@@ -6,6 +6,8 @@ pub mod deployment_executor;
 pub mod env_detector;
 pub mod pom_parser;
 pub mod process_runner;
+pub mod remote_log_session_service;
 pub mod secure_storage;
+pub mod service_operation_executor;
 pub mod ssh_transport_service;
 pub mod startup_probe_service;

@@ -2029,3 +2029,35 @@
     justify-content: flex-end;
   }
 }
+
+.service-operation-buttons .ant-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+
+.service-operation-buttons .ant-btn .ant-btn-icon {
+  margin-inline-end: 0;
+}
+
+.service-command-details {
+  border: 1px solid var(--ant-color-border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--ant-color-bg-container);
+}
+
+.service-command-details summary {
+  cursor: pointer;
+  color: var(--ant-color-text-secondary);
+  user-select: none;
+}
+
+.service-command-code {
+  display: block;
+  max-height: 180px;
+  overflow: auto;
+  margin-top: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

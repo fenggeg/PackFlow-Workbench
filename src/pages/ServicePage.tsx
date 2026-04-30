@@ -1,15 +1,23 @@
 import {
-  CloudServerOutlined,
-  CopyOutlined,
-  DatabaseOutlined,
-  FileTextOutlined,
-  FullscreenOutlined,
-  RocketOutlined,
-  SearchOutlined
+    CloudServerOutlined,
+    CopyOutlined,
+    DatabaseOutlined,
+    FileTextOutlined,
+    FullscreenOutlined,
+    RocketOutlined,
+    SearchOutlined
 } from '@ant-design/icons'
 import {Button, Card, Descriptions, Empty, Input, Modal, Space, Table, Tag, Tooltip, Typography} from 'antd'
 import {useMemo, useState} from 'react'
 import {LogConsole} from '../components/common/LogConsole'
+import {ServiceOperationButtons} from '../features/service-ops/components/ServiceOperationButtons'
+import {ServiceOperationHistoryList} from '../features/service-ops/components/ServiceOperationHistoryList'
+import {
+    deriveRuntimeConfig,
+    getEnvironmentId,
+    runtimeConfigKey
+} from '../features/service-ops/services/serviceRuntimeConfigService'
+import {useServiceOperationStore} from '../features/service-ops/stores/serviceOperationStore'
 import {belongsToProject, flattenModules, profileModuleLabel} from '../services/deploymentTopologyService'
 import {useAppStore} from '../store/useAppStore'
 import {useDeploymentLogStore} from '../store/useDeploymentLogStore'
@@ -103,6 +111,8 @@ export function ServicePage() {
   const deploymentProfiles = useWorkflowStore((state) => state.deploymentProfiles)
   const serverProfiles = useWorkflowStore((state) => state.serverProfiles)
   const deploymentTasks = useWorkflowStore((state) => state.deploymentTasks)
+  const runtimeConfigs = useServiceOperationStore((state) => state.runtimeConfigs)
+  const histories = useServiceOperationStore((state) => state.histories)
   const navigateToDeployment = useNavigationStore((state) => state.navigateToDeployment)
   const currentProjectDeploymentProfiles = useMemo(
     () => deploymentProfiles.filter((profile) => belongsToProject(profile, project?.rootPath)),
@@ -132,6 +142,11 @@ export function ServicePage() {
   const getLatestTask = (profileId: string, serverId: string) =>
     latestTaskMap.get(`${profileId}:${serverId}`)
 
+  const getRuntimeConfig = (profileId: string, serverId: string, environmentId: string) =>
+    runtimeConfigs.find((config) =>
+      runtimeConfigKey(config.serviceMappingId, config.serverId, config.environmentId)
+      === runtimeConfigKey(profileId, serverId, environmentId))
+
   const runningCount = deploymentTasks.filter(
     (t) => !['success', 'failed', 'cancelled'].includes(t.status)
   ).length
@@ -155,8 +170,8 @@ export function ServicePage() {
     <main className="workspace-page">
       <div className="workspace-heading">
         <div>
-          <Title level={3}>服务部署总览</Title>
-          <Text type="secondary">一览所有服务在各服务器上的部署状态，快速查看日志或进入部署中心。</Text>
+          <Title level={3}>服务运维</Title>
+          <Text type="secondary">围绕服务映射、部署配置和服务器配置执行重启、日志查看与健康检查。</Text>
         </div>
       </div>
 
@@ -277,29 +292,44 @@ export function ServicePage() {
                             title: '产物',
                             width: 160,
                             ellipsis: true,
-                            render: (_, record) => record.task?.artifactName ?? '-',
+                        render: (_, record) => record.task?.artifactName ?? '-',
                           },
                           {
                             title: '操作',
-                            width: 100,
-                            render: (_, record) => (
-                              <Tooltip title="查看日志">
-                                <Button
-                                  size="small"
-                                  icon={<FileTextOutlined />}
-                                  disabled={!record.task}
-                                  onClick={() => {
-                                    if (record.task) {
-                                      setOpenTask(record.task)
-                                      setLogKeyword('')
-                                    }
-                                  }}
-                                />
-                              </Tooltip>
-                            ),
+                            width: 210,
+                            render: (_, record) => {
+                              const server = serverProfiles.find((item) => item.id === record.serverId)
+                              if (!server) return null
+                              const environmentId = getEnvironmentId(server)
+                              const existingConfig = getRuntimeConfig(profile.id, server.id, environmentId)
+                              const runtimeConfig = deriveRuntimeConfig(profile, server, existingConfig)
+                              return (
+                                <Space size={6} wrap>
+                                  <ServiceOperationButtons
+                                    profile={profile}
+                                    server={server}
+                                    config={runtimeConfig}
+                                    onDeploy={() => navigateToDeployment(profile.id)}
+                                  />
+                                  <Tooltip title="查看最近部署日志">
+                                    <Button
+                                      size="small"
+                                      icon={<FileTextOutlined />}
+                                      disabled={!record.task}
+                                      onClick={() => {
+                                        if (record.task) {
+                                          setOpenTask(record.task)
+                                          setLogKeyword('')
+                                        }
+                                      }}
+                                    />
+                                  </Tooltip>
+                                </Space>
+                              )
+                            },
                           },
                         ]}
-                        scroll={{x: 780}}
+                        scroll={{x: 1080}}
                       />
                     </>
                   )}
@@ -408,6 +438,9 @@ export function ServicePage() {
           </Space>
         ) : null}
       </Modal>
+      <Card title="服务操作历史" className="panel-card" size="small" style={{marginTop: 16}}>
+        <ServiceOperationHistoryList items={histories} />
+      </Card>
     </main>
   )
 }

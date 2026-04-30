@@ -195,6 +195,100 @@ export interface DeploymentConfiguration {
   updatedAt?: string
 }
 
+export type LogSourceType = 'file' | 'systemd' | 'docker' | 'custom'
+
+export interface ServiceLogConfig {
+  type: LogSourceType
+  logPath?: string
+  systemdUnit?: string
+  dockerContainerName?: string
+  customCommand?: string
+  tailLines: number
+}
+
+export interface ServiceRuntimeConfig {
+  id: string
+  serviceMappingId: string
+  deploymentProfileId?: string
+  environmentId: string
+  serverId: string
+  serviceName: string
+  restartCommand?: string
+  stopCommand?: string
+  startCommand?: string
+  logSource?: ServiceLogConfig
+  statusCommand?: string
+  healthCheckUrl?: string
+  workDir?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export type ServiceOperationType =
+  | 'restart'
+  | 'stop'
+  | 'start'
+  | 'view_log'
+  | 'health_check'
+  | 'status_check'
+
+export type ServiceOperationStatus =
+  | 'pending'
+  | 'running'
+  | 'success'
+  | 'failed'
+  | 'cancelled'
+
+export interface ServiceOperationTask {
+  id: string
+  serviceRuntimeConfigId: string
+  type: ServiceOperationType
+  status: ServiceOperationStatus
+  startedAt?: string
+  finishedAt?: string
+  command?: string
+  outputLines: string[]
+  errorMessage?: string
+}
+
+export type RemoteLogSessionStatus = 'connecting' | 'streaming' | 'stopped' | 'failed'
+
+export interface RemoteLogSession {
+  id: string
+  serviceRuntimeConfigId: string
+  serverId: string
+  command: string
+  status: RemoteLogSessionStatus
+  startedAt: string
+  stoppedAt?: string
+  keyword?: string
+  autoScroll: boolean
+}
+
+export interface ServiceOperationHistory {
+  id: string
+  operationType: ServiceOperationType
+  serviceName: string
+  environmentName: string
+  serverHost: string
+  command?: string
+  result: 'success' | 'failed' | 'cancelled'
+  startedAt: string
+  finishedAt?: string
+  operator?: string
+  errorMessage?: string
+}
+
+export interface ServiceOperationLogEvent {
+  taskId: string
+  line: string
+}
+
+export interface RemoteLogLineEvent {
+  sessionId: string
+  line: string
+}
+
 export interface ModuleArtifactServiceLink {
   moduleId: string
   artifactPath?: string

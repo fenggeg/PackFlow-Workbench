@@ -5,30 +5,36 @@ import {open} from '@tauri-apps/plugin-dialog'
 import {relaunch} from '@tauri-apps/plugin-process'
 import {check, type DownloadEvent, type Update} from '@tauri-apps/plugin-updater'
 import type {
-  BuildArtifact,
-  BuildCommandPayload,
-  BuildEnvironment,
-  BuildFinishedEvent,
-  BuildHistoryRecord,
-  BuildLogEvent,
-  BuildOptions,
-  BuildTemplate,
-  DeploymentLogEvent,
-  DeploymentProfile,
-  DeploymentTask,
-  EnvironmentSettings,
-  GitCommit,
-  GitPullResult,
-  GitRepositoryStatus,
-  GitSwitchBranchResult,
-  MavenProject,
-  ModuleDependencyGraph,
-  ProbeStatusEvent,
-  SaveServerProfilePayload,
-  ServerProfile,
-  StartBuildPayload,
-  StartDeploymentPayload,
-  UploadProgressEvent,
+    BuildArtifact,
+    BuildCommandPayload,
+    BuildEnvironment,
+    BuildFinishedEvent,
+    BuildHistoryRecord,
+    BuildLogEvent,
+    BuildOptions,
+    BuildTemplate,
+    DeploymentLogEvent,
+    DeploymentProfile,
+    DeploymentTask,
+    EnvironmentSettings,
+    GitCommit,
+    GitPullResult,
+    GitRepositoryStatus,
+    GitSwitchBranchResult,
+    MavenProject,
+    ModuleDependencyGraph,
+    ProbeStatusEvent,
+    RemoteLogLineEvent,
+    RemoteLogSession,
+    SaveServerProfilePayload,
+    ServerProfile,
+    ServiceOperationHistory,
+    ServiceOperationLogEvent,
+    ServiceOperationTask,
+    ServiceRuntimeConfig,
+    StartBuildPayload,
+    StartDeploymentPayload,
+    UploadProgressEvent,
 } from '../types/domain'
 
 type TauriWindow = Window & { __TAURI_INTERNALS__?: unknown }
@@ -198,6 +204,30 @@ export const api = {
   deleteDeploymentTask: (taskId: string) =>
     invoke<void>('delete_deployment_task', { taskId }),
 
+  listServiceRuntimeConfigs: () =>
+    invoke<ServiceRuntimeConfig[]>('list_service_runtime_configs'),
+
+  saveServiceRuntimeConfig: (config: ServiceRuntimeConfig) =>
+    invoke<ServiceRuntimeConfig>('save_service_runtime_config', { config }),
+
+  deleteServiceRuntimeConfig: (configId: string) =>
+    invoke<void>('delete_service_runtime_config', { configId }),
+
+  listServiceOperationHistories: () =>
+    invoke<ServiceOperationHistory[]>('list_service_operation_histories'),
+
+  startServiceRestart: (serviceRuntimeConfigId: string) =>
+    invoke<string>('start_service_restart', { payload: { serviceRuntimeConfigId } }),
+
+  startServiceHealthCheck: (serviceRuntimeConfigId: string) =>
+    invoke<string>('start_service_health_check', { payload: { serviceRuntimeConfigId } }),
+
+  startRemoteLogSession: (serviceRuntimeConfigId: string, tailLines?: number, keyword?: string) =>
+    invoke<RemoteLogSession>('start_remote_log_session', { payload: { serviceRuntimeConfigId, tailLines, keyword } }),
+
+  stopRemoteLogSession: (sessionId: string) =>
+    invoke<void>('stop_remote_log_session', { sessionId }),
+
   openPathInExplorer: (path: string) =>
     invoke<void>('open_path_in_explorer', { path }),
 
@@ -284,6 +314,42 @@ export async function registerDeploymentEvents(
     unlistenFinished()
     unlistenProbeStatus?.()
     unlistenUploadProgress?.()
+  }
+}
+
+export async function registerServiceOpsEvents(
+  onOperationLog: (event: ServiceOperationLogEvent) => void,
+  onOperationUpdated: (event: ServiceOperationTask) => void,
+  onOperationFinished: (event: ServiceOperationTask) => void,
+  onRemoteLogLine: (event: RemoteLogLineEvent) => void,
+  onRemoteLogSessionUpdated: (event: RemoteLogSession) => void,
+) {
+  if (!isTauriRuntime()) {
+    return () => undefined
+  }
+
+  const unlistenOperationLog = await listen<ServiceOperationLogEvent>('service-operation-log', (event) => {
+    onOperationLog(event.payload)
+  })
+  const unlistenOperationUpdated = await listen<ServiceOperationTask>('service-operation-updated', (event) => {
+    onOperationUpdated(event.payload)
+  })
+  const unlistenOperationFinished = await listen<ServiceOperationTask>('service-operation-finished', (event) => {
+    onOperationFinished(event.payload)
+  })
+  const unlistenRemoteLogLine = await listen<RemoteLogLineEvent>('remote-log-line', (event) => {
+    onRemoteLogLine(event.payload)
+  })
+  const unlistenRemoteLogSession = await listen<RemoteLogSession>('remote-log-session-updated', (event) => {
+    onRemoteLogSessionUpdated(event.payload)
+  })
+
+  return () => {
+    unlistenOperationLog()
+    unlistenOperationUpdated()
+    unlistenOperationFinished()
+    unlistenRemoteLogLine()
+    unlistenRemoteLogSession()
   }
 }
 

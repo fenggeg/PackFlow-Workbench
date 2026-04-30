@@ -1,7 +1,9 @@
 import {useEffect} from 'react'
 import {App as AntApp, ConfigProvider, theme} from 'antd'
 import {AppShell} from './app/AppShell'
-import {registerBuildEvents, registerDeploymentEvents} from './services/tauri-api'
+import {registerBuildEvents, registerDeploymentEvents, registerServiceOpsEvents} from './services/tauri-api'
+import {useRemoteLogSessionStore} from './features/service-ops/stores/remoteLogSessionStore'
+import {useServiceOperationStore} from './features/service-ops/stores/serviceOperationStore'
 import {useAppStore} from './store/useAppStore'
 import {useWorkflowStore} from './store/useWorkflowStore'
 import {useUploadProgressStore} from './store/useUploadProgressStore'
@@ -15,6 +17,7 @@ function App() {
   const finishBuild = useAppStore((state) => state.finishBuild)
   const project = useAppStore((state) => state.project)
   const initializeWorkflow = useWorkflowStore((state) => state.initialize)
+  const initializeServiceOps = useServiceOperationStore((state) => state.initialize)
   const loadDependencyGraph = useWorkflowStore((state) => state.loadDependencyGraph)
   const clearDependencyGraph = useWorkflowStore((state) => state.clearDependencyGraph)
   const updateDeploymentTask = useWorkflowStore((state) => state.updateDeploymentTask)
@@ -25,14 +28,21 @@ function App() {
   const appendDeploymentLog = useDeploymentLogStore((state) => state.appendLog)
   const startLogFlushTimer = useDeploymentLogStore((state) => state.startFlushTimer)
   const stopLogFlushTimer = useDeploymentLogStore((state) => state.stopFlushTimer)
+  const appendServiceOperationLog = useServiceOperationStore((state) => state.appendOperationLog)
+  const updateServiceOperationTask = useServiceOperationStore((state) => state.updateOperationTask)
+  const finishServiceOperationTask = useServiceOperationStore((state) => state.finishOperationTask)
+  const appendRemoteLogLine = useRemoteLogSessionStore((state) => state.appendLine)
+  const updateRemoteLogSession = useRemoteLogSessionStore((state) => state.updateSession)
 
   useEffect(() => {
     initialize()
     void initializeWorkflow()
+    void initializeServiceOps()
     startLogFlushTimer()
 
     let cleanupBuild: (() => void) | undefined
     let cleanupDeployment: (() => void) | undefined
+    let cleanupServiceOps: (() => void) | undefined
     let disposed = false
 
     void registerBuildEvents(appendBuildLog, finishBuild).then((unlisten) => {
@@ -68,26 +78,46 @@ function App() {
       }
       cleanupDeployment = unlisten
     })
+    void registerServiceOpsEvents(
+      appendServiceOperationLog,
+      updateServiceOperationTask,
+      finishServiceOperationTask,
+      appendRemoteLogLine,
+      updateRemoteLogSession,
+    ).then((unlisten) => {
+      if (disposed) {
+        unlisten()
+        return
+      }
+      cleanupServiceOps = unlisten
+    })
 
     return () => {
       disposed = true
       cleanupBuild?.()
       cleanupDeployment?.()
+      cleanupServiceOps?.()
       stopLogFlushTimer()
     }
   }, [
     appendBuildLog,
     appendDeploymentLog,
+    appendRemoteLogLine,
+    appendServiceOperationLog,
+    clearUploadProgress,
     finishBuild,
     finishDeploymentTask,
+    finishServiceOperationTask,
     initialize,
+    initializeServiceOps,
     initializeWorkflow,
     startLogFlushTimer,
     stopLogFlushTimer,
     updateDeploymentTask,
     updateProbeStatuses,
+    updateRemoteLogSession,
+    updateServiceOperationTask,
     updateUploadProgress,
-    clearUploadProgress,
   ])
 
   useEffect(() => {

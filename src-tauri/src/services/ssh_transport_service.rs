@@ -5,7 +5,7 @@ use encoding_rs::GBK;
 use ssh::algorithm::{Enc, Kex, PubKey};
 use ssh2::Session;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::TcpStream;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -191,6 +191,131 @@ impl SshConnection {
         };
         let (wrapped, stdin) = wrap_privileged_command(&privilege, command)?;
         self.execute_allowing_status_with_input(&wrapped, stdin.as_deref(), &[0], is_cancelled)
+    }
+
+    pub fn stream_privileged_with_cancel<C, L>(
+        &mut self,
+        command: &str,
+        is_cancelled: C,
+        on_line: L,
+    ) -> AppResult<i32>
+    where
+        C: FnMut() -> bool,
+        L: FnMut(String),
+    {
+        let Some(privilege) = self.privilege.clone() else {
+            return self.stream_with_cancel(command, is_cancelled, on_line);
+        };
+        let (wrapped, stdin) = wrap_privileged_command(&privilege, command)?;
+        self.stream_command_with_input(&wrapped, stdin.as_deref(), is_cancelled, on_line)
+    }
+
+    pub fn stream_with_cancel<C, L>(
+        &mut self,
+        command: &str,
+        is_cancelled: C,
+        on_line: L,
+    ) -> AppResult<i32>
+    where
+        C: FnMut() -> bool,
+        L: FnMut(String),
+    {
+        self.stream_command_with_input(command, None, is_cancelled, on_line)
+    }
+
+    fn stream_command_with_input<C, L>(
+        &mut self,
+        command: &str,
+        stdin: Option<&str>,
+        mut is_cancelled: C,
+        mut on_line: L,
+    ) -> AppResult<i32>
+    where
+        C: FnMut() -> bool,
+        L: FnMut(String),
+    {
+        if is_cancelled() {
+            return Err(to_user_error("远程会话已停止。"));
+        }
+        let session_arc = self
+            .command_session
+            .as_ref()
+            .ok_or_else(|| to_user_error("当前 SSH 连接不支持实时日志会话。"))?;
+        let session = session_arc
+            .lock()
+            .map_err(|_| to_user_error("无法获取 SSH2 命令会话锁。"))?;
+        let mut channel = session
+            .channel_session()
+            .map_err(|error| to_user_error(format!("无法打开 SSH2 命令通道：{}", error)))?;
+        channel
+            .exec(command)
+            .map_err(|error| to_user_error(format!("远端命令执行失败：{}", error)))?;
+        if let Some(input) = stdin {
+            channel
+                .write_all(input.as_bytes())
+                .map_err(|error| to_user_error(format!("写入提权命令输入失败：{}", error)))?;
+            channel
+                .send_eof()
+                .map_err(|error| to_user_error(format!("关闭提权命令输入失败：{}", error)))?;
+        }
+        session.set_blocking(false);
+
+        let mut pending = Vec::<u8>::new();
+        let mut buffer = [0u8; 4096];
+
+        loop {
+            if is_cancelled() {
+                let _ = channel.close();
+                break;
+            }
+
+            match channel.read(&mut buffer) {
+                Ok(0) => {
+                    if channel.eof() {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(120));
+                }
+                Ok(size) => {
+                    pending.extend_from_slice(&buffer[..size]);
+                    emit_complete_lines(&mut pending, &mut on_line);
+                }
+                Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(120));
+                }
+                Err(error) => {
+                    return Err(to_user_error(format!("读取远程实时输出失败：{}", error)));
+                }
+            }
+
+            let mut stderr = channel.stderr();
+            loop {
+                match stderr.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(size) => {
+                        pending.extend_from_slice(&buffer[..size]);
+                        emit_complete_lines(&mut pending, &mut on_line);
+                    }
+                    Err(error) if error.kind() == ErrorKind::WouldBlock => break,
+                    Err(error) => {
+                        return Err(to_user_error(format!("读取远程错误输出失败：{}", error)));
+                    }
+                }
+            }
+
+            if channel.eof() {
+                break;
+            }
+        }
+
+        if !pending.is_empty() {
+            on_line(decode_output(&pending));
+        }
+
+        let _ = channel.wait_close();
+        let exit_status = channel.exit_status().unwrap_or(0);
+        session.set_blocking(true);
+        Ok(exit_status)
     }
 
     pub fn upload_file_with_progress<C, P>(
@@ -747,6 +872,22 @@ fn parse_command_bytes(
         output: combined,
         exit_status,
     })
+}
+
+fn emit_complete_lines<L>(pending: &mut Vec<u8>, on_line: &mut L)
+where
+    L: FnMut(String),
+{
+    while let Some(index) = pending.iter().position(|byte| *byte == b'\n') {
+        let mut line = pending.drain(..=index).collect::<Vec<u8>>();
+        if line.ends_with(&[b'\n']) {
+            line.pop();
+        }
+        if line.ends_with(&[b'\r']) {
+            line.pop();
+        }
+        on_line(decode_output(&line));
+    }
 }
 
 fn decode_output(bytes: &[u8]) -> String {
