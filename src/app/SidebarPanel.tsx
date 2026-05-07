@@ -15,7 +15,6 @@ interface SidebarPanelProps {
 
 export function SidebarPanel({activePage}: SidebarPanelProps) {
   const history = useAppStore((state) => state.history)
-  const environment = useAppStore((state) => state.environment)
   const deploymentTasks = useWorkflowStore((state) => state.deploymentTasks)
   const buildSidebarTab = useNavigationStore((state) => state.buildSidebarTab)
   const setBuildSidebarTab = useNavigationStore((state) => state.setBuildSidebarTab)
@@ -54,29 +53,8 @@ export function SidebarPanel({activePage}: SidebarPanelProps) {
     )
   }
 
-  if (activePage === 'deployment' || activePage === 'artifacts' || activePage === 'services') {
+  if (activePage === 'deployment' || activePage === 'artifacts' || activePage === 'services' || activePage === 'servers') {
     return null
-  }
-
-  if (activePage === 'environment') {
-    return (
-      <aside className="sidebar-panel">
-        <Card title="环境摘要" className="panel-card" size="small">
-          <Space direction="vertical" size={8} style={{width: '100%'}}>
-            <Tag color={environment?.javaVersion ? 'green' : 'orange'}>JDK</Tag>
-            <Text type="secondary">{environment?.javaVersion ?? '未识别'}</Text>
-            <Tag color={environment?.mavenVersion ? 'green' : 'orange'}>Maven</Tag>
-            <Text type="secondary">{environment?.mavenVersion ?? '未识别'}</Text>
-            <Tag color={environment?.hasMavenWrapper ? 'blue' : 'default'}>Wrapper</Tag>
-            <Text type="secondary">{environment?.hasMavenWrapper ? '可用' : '未发现'}</Text>
-            <Tag color={environment?.settingsXmlPath ? 'green' : 'default'}>settings.xml</Tag>
-            <Text type="secondary" className="path-text">{environment?.settingsXmlPath ?? '使用默认配置'}</Text>
-            <Tag color={environment?.gitPath ? 'green' : 'default'}>Git</Tag>
-            <Text type="secondary">{environment?.gitVersion ?? '未识别'}</Text>
-          </Space>
-        </Card>
-      </aside>
-    )
   }
 
   if (activePage === 'history') {

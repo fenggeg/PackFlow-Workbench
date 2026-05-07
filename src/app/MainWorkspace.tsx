@@ -10,7 +10,7 @@ const pageComponents = {
   artifacts: lazy(() => import('../pages/ArtifactPage').then((module) => ({default: module.ArtifactPage}))),
   deployment: lazy(() => import('../pages/DeploymentPage').then((module) => ({default: module.DeploymentPage}))),
   services: lazy(() => import('../pages/ServicePage').then((module) => ({default: module.ServicePage}))),
-  environment: lazy(() => import('../pages/EnvironmentPage').then((module) => ({default: module.EnvironmentPage}))),
+  servers: lazy(() => import('../pages/ServersPage').then((module) => ({default: module.ServersPage}))),
   history: lazy(() => import('../pages/HistoryPage').then((module) => ({default: module.HistoryPage}))),
 } satisfies Record<AppPage, ReturnType<typeof lazy>>
 

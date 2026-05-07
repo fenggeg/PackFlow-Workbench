@@ -390,6 +390,11 @@ export interface ServerProfile {
   passwordConfigured: boolean
   privilege: ServerPrivilegeConfig
   privilegePasswordConfigured: boolean
+  envType?: string
+  tags: string[]
+  remark?: string
+  favorite: boolean
+  lastConnectedAt?: string
   createdAt?: string
   updatedAt?: string
 }
@@ -420,6 +425,10 @@ export interface SaveServerProfilePayload {
   group?: string
   privilege: ServerPrivilegeConfig
   privilegePassword?: string
+  envType?: string
+  tags: string[]
+  remark?: string
+  favorite: boolean
 }
 
 export type DeploymentCustomCommandStage =
@@ -663,4 +672,82 @@ export interface UploadProgressEvent {
   totalBytes: number
   speedBytesPerSecond?: number
   message: string
+}
+
+export interface ServerGroup {
+  id: string
+  name: string
+  parentId?: string
+  sort: number
+}
+
+export interface FavoritePath {
+  id: string
+  serverId: string
+  name: string
+  path: string
+  pathType: 'app' | 'deploy' | 'log' | 'backup' | 'config' | 'custom'
+  isDefault: boolean
+}
+
+export interface CommonCommand {
+  id: string
+  name: string
+  command: string
+  category: string
+  scope: 'global' | 'server' | 'app'
+  serverId?: string
+  riskLevel: 'safe' | 'warning' | 'danger'
+  description?: string
+}
+
+export interface LogSource {
+  id: string
+  serverId: string
+  appId?: string
+  name: string
+  path: string
+  encoding: 'UTF-8' | 'GBK' | 'auto'
+  defaultTailLines: number
+  enabled: boolean
+  remark?: string
+}
+
+export interface HighlightRule {
+  id: string
+  name: string
+  pattern: string
+  patternType: 'keyword' | 'regex'
+  color: string
+  enabled: boolean
+  scope: 'global' | 'server' | 'app'
+  serverId?: string
+  appId?: string
+}
+
+export interface RemoteFileEntry {
+  name: string
+  path: string
+  isDirectory: boolean
+  isSymlink: boolean
+  size: number
+  modifiedAt?: string
+  permissions?: string
+  owner?: string
+  group?: string
+}
+
+export interface RemoteCommandResult {
+  success: boolean
+  output: string
+  exitCode: number
+}
+
+export type ConnectionStatus = 'unknown' | 'connecting' | 'connected' | 'disconnected' | 'error'
+
+export interface ServerConnectionState {
+  serverId: string
+  status: ConnectionStatus
+  lastCheckedAt?: string
+  errorMessage?: string
 }

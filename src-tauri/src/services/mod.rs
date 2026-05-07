@@ -11,3 +11,4 @@ pub mod secure_storage;
 pub mod service_operation_executor;
 pub mod ssh_transport_service;
 pub mod startup_probe_service;
+pub mod terminal_session_service;

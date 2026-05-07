@@ -16,6 +16,16 @@ pub struct ServerProfile {
     pub privilege: ServerPrivilegeConfig,
     #[serde(default)]
     pub privilege_password_configured: bool,
+    #[serde(default)]
+    pub env_type: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub remark: Option<String>,
+    #[serde(default)]
+    pub favorite: bool,
+    #[serde(default)]
+    pub last_connected_at: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }
@@ -72,6 +82,14 @@ pub struct SaveServerProfilePayload {
     pub privilege: ServerPrivilegeConfig,
     #[serde(default)]
     pub privilege_password: Option<String>,
+    #[serde(default)]
+    pub env_type: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub remark: Option<String>,
+    #[serde(default)]
+    pub favorite: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -101,6 +101,79 @@ fn initialize_database(connection: &Connection) -> AppResult<()> {
 
             CREATE INDEX IF NOT EXISTS idx_service_operation_histories_started_at
                 ON service_operation_histories(started_at DESC);
+
+            CREATE TABLE IF NOT EXISTS server_groups (
+                id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                parent_id TEXT,
+                sort INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT,
+                updated_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS favorite_paths (
+                id TEXT PRIMARY KEY NOT NULL,
+                server_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                path TEXT NOT NULL,
+                path_type TEXT NOT NULL DEFAULT 'custom',
+                is_default INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT,
+                updated_at TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_favorite_paths_server_id
+                ON favorite_paths(server_id);
+
+            CREATE TABLE IF NOT EXISTS common_commands (
+                id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                command TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT '',
+                scope TEXT NOT NULL DEFAULT 'global',
+                server_id TEXT,
+                risk_level TEXT NOT NULL DEFAULT 'safe',
+                description TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_common_commands_scope
+                ON common_commands(scope, server_id);
+
+            CREATE TABLE IF NOT EXISTS log_sources (
+                id TEXT PRIMARY KEY NOT NULL,
+                server_id TEXT NOT NULL,
+                app_id TEXT,
+                name TEXT NOT NULL,
+                path TEXT NOT NULL,
+                encoding TEXT NOT NULL DEFAULT 'UTF-8',
+                default_tail_lines INTEGER NOT NULL DEFAULT 500,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                remark TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_log_sources_server_id
+                ON log_sources(server_id);
+
+            CREATE TABLE IF NOT EXISTS highlight_rules (
+                id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                pattern TEXT NOT NULL,
+                pattern_type TEXT NOT NULL DEFAULT 'keyword',
+                color TEXT NOT NULL DEFAULT '#ffffff',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                scope TEXT NOT NULL DEFAULT 'global',
+                server_id TEXT,
+                app_id TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_highlight_rules_scope
+                ON highlight_rules(scope, server_id, app_id);
             "#,
         )
         .map_err(|error| to_user_error(format!("无法初始化本地数据库：{}", error)))

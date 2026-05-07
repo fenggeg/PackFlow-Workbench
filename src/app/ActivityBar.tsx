@@ -3,8 +3,8 @@ import {
     BuildOutlined,
     CloudServerOutlined,
     DatabaseOutlined,
+    DesktopOutlined,
     HistoryOutlined,
-    ToolOutlined,
 } from '@ant-design/icons'
 import {Badge, Button, Tooltip} from 'antd'
 import type {ReactNode} from 'react'
@@ -17,7 +17,7 @@ const pageItems: Array<{key: AppPage; label: string; icon: ReactNode}> = [
   {key: 'artifacts', label: '产物', icon: <DatabaseOutlined />},
   {key: 'deployment', label: '部署', icon: <CloudServerOutlined />},
   {key: 'services', label: '服务', icon: <AppstoreOutlined />},
-  {key: 'environment', label: '环境', icon: <ToolOutlined />},
+  {key: 'servers', label: '服务器', icon: <DesktopOutlined />},
   {key: 'history', label: '历史', icon: <HistoryOutlined />},
 ]
 

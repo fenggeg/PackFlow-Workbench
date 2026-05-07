@@ -7,6 +7,7 @@ mod services;
 use services::deployment_executor::DeploymentControlState;
 use services::process_runner::BuildProcessState;
 use services::remote_log_session_service::RemoteLogSessionState;
+use services::terminal_session_service::TerminalManager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -28,6 +29,7 @@ pub fn run() {
         .manage(BuildProcessState::default())
         .manage(DeploymentControlState::default())
         .manage(RemoteLogSessionState::default())
+        .manage(TerminalManager::new())
         .invoke_handler(tauri::generate_handler![
             commands::project::parse_maven_project,
             commands::project::analyze_project_dependencies,
@@ -71,6 +73,33 @@ pub fn run() {
             commands::service_ops::start_service_health_check,
             commands::service_ops::start_remote_log_session,
             commands::service_ops::stop_remote_log_session,
+            commands::server_ops::list_server_groups,
+            commands::server_ops::save_server_group,
+            commands::server_ops::delete_server_group,
+            commands::server_ops::list_favorite_paths,
+            commands::server_ops::save_favorite_path,
+            commands::server_ops::delete_favorite_path,
+            commands::server_ops::list_common_commands,
+            commands::server_ops::save_common_command,
+            commands::server_ops::delete_common_command,
+            commands::server_ops::list_log_sources,
+            commands::server_ops::save_log_source,
+            commands::server_ops::delete_log_source,
+            commands::server_ops::list_highlight_rules,
+            commands::server_ops::save_highlight_rule,
+            commands::server_ops::delete_highlight_rule,
+            commands::server_ops::execute_remote_command,
+            commands::server_ops::list_remote_files,
+            commands::server_ops::delete_remote_file,
+            commands::server_ops::rename_remote_file,
+            commands::server_ops::create_remote_directory,
+            commands::server_ops::read_remote_log_lines,
+            commands::server_ops::create_terminal_session,
+            commands::server_ops::write_terminal_input,
+            commands::server_ops::read_terminal_output,
+            commands::server_ops::resize_terminal,
+            commands::server_ops::close_terminal_session,
+            commands::server_ops::check_terminal_alive,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

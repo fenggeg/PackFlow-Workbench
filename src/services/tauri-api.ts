@@ -5,36 +5,43 @@ import {open} from '@tauri-apps/plugin-dialog'
 import {relaunch} from '@tauri-apps/plugin-process'
 import {check, type DownloadEvent, type Update} from '@tauri-apps/plugin-updater'
 import type {
-    BuildArtifact,
-    BuildCommandPayload,
-    BuildEnvironment,
-    BuildFinishedEvent,
-    BuildHistoryRecord,
-    BuildLogEvent,
-    BuildOptions,
-    BuildTemplate,
-    DeploymentLogEvent,
-    DeploymentProfile,
-    DeploymentTask,
-    EnvironmentSettings,
-    GitCommit,
-    GitPullResult,
-    GitRepositoryStatus,
-    GitSwitchBranchResult,
-    MavenProject,
-    ModuleDependencyGraph,
-    ProbeStatusEvent,
-    RemoteLogLineEvent,
-    RemoteLogSession,
-    SaveServerProfilePayload,
-    ServerProfile,
-    ServiceOperationHistory,
-    ServiceOperationLogEvent,
-    ServiceOperationTask,
-    ServiceRuntimeConfig,
-    StartBuildPayload,
-    StartDeploymentPayload,
-    UploadProgressEvent,
+  BuildArtifact,
+  BuildCommandPayload,
+  BuildEnvironment,
+  BuildFinishedEvent,
+  BuildHistoryRecord,
+  BuildLogEvent,
+  BuildOptions,
+  BuildTemplate,
+  CommonCommand,
+  DeploymentLogEvent,
+  DeploymentProfile,
+  DeploymentTask,
+  EnvironmentSettings,
+  FavoritePath,
+  GitCommit,
+  GitPullResult,
+  GitRepositoryStatus,
+  GitSwitchBranchResult,
+  HighlightRule,
+  LogSource,
+  MavenProject,
+  ModuleDependencyGraph,
+  ProbeStatusEvent,
+  RemoteCommandResult,
+  RemoteFileEntry,
+  RemoteLogLineEvent,
+  RemoteLogSession,
+  SaveServerProfilePayload,
+  ServerGroup,
+  ServerProfile,
+  ServiceOperationHistory,
+  ServiceOperationLogEvent,
+  ServiceOperationTask,
+  ServiceRuntimeConfig,
+  StartBuildPayload,
+  StartDeploymentPayload,
+  UploadProgressEvent,
 } from '../types/domain'
 
 type TauriWindow = Window & { __TAURI_INTERNALS__?: unknown }
@@ -251,6 +258,94 @@ export const api = {
 
   switchGitBranch: (rootPath: string, branchName: string) =>
     invoke<GitSwitchBranchResult>('switch_git_branch', { rootPath, branchName }),
+
+  // Server Groups
+  listServerGroups: () =>
+    invoke<ServerGroup[]>('list_server_groups'),
+
+  saveServerGroup: (group: ServerGroup) =>
+    invoke<ServerGroup>('save_server_group', { group }),
+
+  deleteServerGroup: (groupId: string) =>
+    invoke<void>('delete_server_group', { groupId }),
+
+  // Favorite Paths
+  listFavoritePaths: (serverId: string) =>
+    invoke<FavoritePath[]>('list_favorite_paths', { serverId }),
+
+  saveFavoritePath: (path: FavoritePath) =>
+    invoke<FavoritePath>('save_favorite_path', { path }),
+
+  deleteFavoritePath: (pathId: string) =>
+    invoke<void>('delete_favorite_path', { pathId }),
+
+  // Common Commands
+  listCommonCommands: (serverId?: string) =>
+    invoke<CommonCommand[]>('list_common_commands', { serverId }),
+
+  saveCommonCommand: (command: CommonCommand) =>
+    invoke<CommonCommand>('save_common_command', { command }),
+
+  deleteCommonCommand: (commandId: string) =>
+    invoke<void>('delete_common_command', { commandId }),
+
+  // Log Sources
+  listLogSources: (serverId: string) =>
+    invoke<LogSource[]>('list_log_sources', { serverId }),
+
+  saveLogSource: (source: LogSource) =>
+    invoke<LogSource>('save_log_source', { source }),
+
+  deleteLogSource: (sourceId: string) =>
+    invoke<void>('delete_log_source', { sourceId }),
+
+  // Highlight Rules
+  listHighlightRules: (serverId?: string) =>
+    invoke<HighlightRule[]>('list_highlight_rules', { serverId }),
+
+  saveHighlightRule: (rule: HighlightRule) =>
+    invoke<HighlightRule>('save_highlight_rule', { rule }),
+
+  deleteHighlightRule: (ruleId: string) =>
+    invoke<void>('delete_highlight_rule', { ruleId }),
+
+  // Remote Operations
+  executeRemoteCommand: (serverId: string, command: string) =>
+    invoke<RemoteCommandResult>('execute_remote_command', { serverId, command }),
+
+  listRemoteFiles: (serverId: string, path: string) =>
+    invoke<RemoteFileEntry[]>('list_remote_files', { serverId, path }),
+
+  deleteRemoteFile: (serverId: string, path: string) =>
+    invoke<void>('delete_remote_file', { serverId, path }),
+
+  renameRemoteFile: (serverId: string, oldPath: string, newPath: string) =>
+    invoke<void>('rename_remote_file', { serverId, oldPath, newPath }),
+
+  createRemoteDirectory: (serverId: string, path: string) =>
+    invoke<void>('create_remote_directory', { serverId, path }),
+
+  readRemoteLogLines: (serverId: string, logPath: string, lines: number) =>
+    invoke<string[]>('read_remote_log_lines', { serverId, logPath, lines }),
+
+  // Terminal
+  createTerminalSession: (serverId: string, cols: number, rows: number) =>
+    invoke<string>('create_terminal_session', { serverId, cols, rows }),
+
+  writeTerminalInput: (sessionId: string, data: number[]) =>
+    invoke<void>('write_terminal_input', { sessionId, data }),
+
+  readTerminalOutput: (sessionId: string) =>
+    invoke<number[]>('read_terminal_output', { sessionId }),
+
+  resizeTerminal: (sessionId: string, cols: number, rows: number) =>
+    invoke<void>('resize_terminal', { sessionId, cols, rows }),
+
+  closeTerminalSession: (sessionId: string) =>
+    invoke<void>('close_terminal_session', { sessionId }),
+
+  checkTerminalAlive: (sessionId: string) =>
+    invoke<boolean>('check_terminal_alive', { sessionId }),
 }
 
 export async function registerBuildEvents(

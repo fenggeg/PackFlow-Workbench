@@ -177,7 +177,9 @@ pub async fn test_server_connection(app: AppHandle, server_id: String) -> AppRes
     let task_app = app.clone();
     let result = blocking::run(move || {
         let profile = deployment_repo::get_server_profile_for_execution(&task_app, &server_id)?;
-        ssh_transport_service::test_server_connection(&profile)
+        let test_result = ssh_transport_service::test_server_connection(&profile)?;
+        deployment_repo::update_server_last_connected(&task_app, &server_id)?;
+        Ok(test_result)
     })
     .await;
     match &result {

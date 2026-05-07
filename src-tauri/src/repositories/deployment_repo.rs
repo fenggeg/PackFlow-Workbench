@@ -26,6 +26,16 @@ struct StoredServerProfile {
     #[serde(default)]
     privilege: ServerPrivilegeConfig,
     encrypted_privilege_password: Option<String>,
+    #[serde(default)]
+    env_type: Option<String>,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    remark: Option<String>,
+    #[serde(default)]
+    favorite: bool,
+    #[serde(default)]
+    last_connected_at: Option<String>,
     created_at: Option<String>,
     updated_at: Option<String>,
 }
@@ -116,6 +126,13 @@ pub fn save_server_profile(
             .filter(|value| !value.is_empty()),
         privilege,
         encrypted_privilege_password,
+        env_type: payload.env_type,
+        tags: payload.tags,
+        remark: payload.remark,
+        favorite: payload.favorite,
+        last_connected_at: existing
+            .as_ref()
+            .and_then(|item| item.last_connected_at.clone()),
         created_at: existing
             .as_ref()
             .and_then(|item| item.created_at.clone())
@@ -157,6 +174,24 @@ pub fn delete_server_profile(app: &AppHandle, server_id: &str) -> AppResult<()> 
             params![server_id],
         )
         .map_err(|error| format!("无法删除服务器配置：{}", error))?;
+    Ok(())
+}
+
+pub fn update_server_last_connected(app: &AppHandle, server_id: &str) -> AppResult<()> {
+    let connection = open_database(app)?;
+    let mut stored = load_stored_server_profile(app, server_id)?;
+    let now = Utc::now().to_rfc3339();
+    stored.last_connected_at = Some(now.clone());
+    stored.updated_at = Some(now);
+
+    let content = serde_json::to_string(&stored)
+        .map_err(|error| format!("无法序列化服务器配置：{}", error))?;
+    connection
+        .execute(
+            "UPDATE server_profiles SET updated_at = ?1, payload = ?2 WHERE id = ?3",
+            params![stored.updated_at, content, server_id],
+        )
+        .map_err(|error| format!("无法更新服务器连接时间：{}", error))?;
     Ok(())
 }
 
@@ -392,6 +427,11 @@ fn to_public_server_profile(stored: StoredServerProfile) -> ServerProfile {
             .encrypted_privilege_password
             .as_deref()
             .is_some_and(|value| !value.trim().is_empty()),
+        env_type: stored.env_type,
+        tags: stored.tags,
+        remark: stored.remark,
+        favorite: stored.favorite,
+        last_connected_at: stored.last_connected_at,
         created_at: stored.created_at,
         updated_at: stored.updated_at,
     }

@@ -6,5 +6,6 @@ pub mod git;
 pub mod history;
 pub mod module;
 pub mod project;
+pub mod server_ops;
 pub mod service_ops;
 pub mod template;

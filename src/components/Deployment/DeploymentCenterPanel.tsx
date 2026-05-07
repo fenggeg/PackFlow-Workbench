@@ -1,4 +1,4 @@
-import {
+﻿import {
   Alert,
   Button,
   Card,
@@ -34,7 +34,6 @@ import {
   PlusOutlined,
   QuestionCircleOutlined,
   SaveOutlined,
-  SearchOutlined,
   StopOutlined,
   ToolOutlined,
 } from '@ant-design/icons'
@@ -52,7 +51,7 @@ import {
   profileModuleLabel,
 } from '../../services/deploymentTopologyService'
 import {summarizeDeploymentPipeline} from '../../services/deploymentRuntime'
-import {api, selectLocalFile} from '../../services/tauri-api'
+import {selectLocalFile} from '../../services/tauri-api'
 import {useAppStore} from '../../store/useAppStore'
 import {useNavigationStore} from '../../store/navigationStore'
 import {useUploadProgressStore} from '../../store/useUploadProgressStore'
@@ -67,40 +66,10 @@ import type {
   DeployStepType,
   LogNamingMode,
   ProbeStatus,
-  SaveServerProfilePayload,
-  ServerPrivilegeMode,
-  ServerProfile,
   StartupProbeConfig,
 } from '../../types/domain'
 
 const {Text} = Typography
-
-const privilegeModeOptions: {label: string; value: ServerPrivilegeMode}[] = [
-  {label: '不提权（普通账号直接执行）', value: 'none'},
-  {label: 'sudo（用指定用户执行）', value: 'sudo'},
-  {label: 'sudo -i（带登录环境执行）', value: 'sudo_i'},
-  {label: 'su（切换到指定用户）', value: 'su'},
-  {label: '自定义命令包装（高级）', value: 'custom'},
-]
-
-const privilegeModeLabel = (mode?: string) =>
-  privilegeModeOptions.find((option) => option.value === mode)?.label ?? mode ?? '不提权'
-
-const privilegeModeShortLabel = (mode?: string) => {
-  switch (mode) {
-    case 'sudo': return 'sudo'
-    case 'sudo_i': return 'sudo -i'
-    case 'su': return 'su'
-    case 'custom': return '自定义'
-    default: return '不提权'
-  }
-}
-
-const privilegePasswordOptions = [
-  {label: '不需要提权密码', value: 'none'},
-  {label: '使用登录密码提权', value: 'login_password'},
-  {label: '单独填写提权密码', value: 'separate'},
-]
 
 const HelpLabel = ({children, help}: {children: ReactNode; help: ReactNode}) => (
   <Space size={4} align="center">
@@ -132,30 +101,6 @@ interface DeploymentTemplate {
 type FormMode = 'create' | 'edit'
 
 const DEPLOYMENT_TEMPLATE_STORAGE_KEY = 'packflow-workbench.deploymentTemplates.v1'
-
-const createDefaultPrivilege = () => ({
-  mode: 'none' as const,
-  runAsUser: 'root',
-  passwordMode: 'none' as const,
-  uploadTempDir: '${loginHome}/.packflow/deploy/${deploymentId}',
-  shell: 'bash -lc',
-  customWrapper: '',
-  cleanupOnSuccess: true,
-  keepTempOnFailure: true,
-})
-
-const createServerDraft = (): SaveServerProfilePayload => ({
-  name: '',
-  host: '',
-  port: 22,
-  username: '',
-  authType: 'private_key',
-  password: '',
-  privateKeyPath: '',
-  group: '',
-  privilege: createDefaultPrivilege(),
-  privilegePassword: '',
-})
 
 const createDefaultStartupProbe = (): StartupProbeConfig => ({
   enabled: true,
@@ -642,16 +587,10 @@ export function DeploymentCenterPanel() {
   const deploymentProfiles = useWorkflowStore((state) => state.deploymentProfiles)
   const deploymentTasks = useWorkflowStore((state) => state.deploymentTasks)
   const currentDeploymentTask = useWorkflowStore((state) => state.currentDeploymentTask)
-  const deleteServerProfile = useWorkflowStore((state) => state.deleteServerProfile)
-  const testServerConnection = useWorkflowStore((state) => state.testServerConnection)
   const saveDeploymentProfile = useWorkflowStore((state) => state.saveDeploymentProfile)
   const deleteDeploymentProfile = useWorkflowStore((state) => state.deleteDeploymentProfile)
-  const refreshDeploymentData = useWorkflowStore((state) => state.refreshDeploymentData)
   const startDeployment = useWorkflowStore((state) => state.startDeployment)
   const cancelDeployment = useWorkflowStore((state) => state.cancelDeployment)
-  const [serverDraft, setServerDraft] = useState<SaveServerProfilePayload>(createServerDraft())
-  const [serverFormMode, setServerFormMode] = useState<FormMode>('create')
-  const [serverEditorOpen, setServerEditorOpen] = useState(false)
   const [deploymentDraft, setDeploymentDraft] = useState<DeploymentProfile>(createDeploymentDraft())
   const [deploymentFormMode, setDeploymentFormMode] = useState<FormMode>('create')
   const [deploymentEditorOpen, setDeploymentEditorOpen] = useState(false)
@@ -664,15 +603,12 @@ export function DeploymentCenterPanel() {
   const [pipelineEditorOpen, setPipelineEditorOpen] = useState(false)
   const [pipelineEditorTarget, setPipelineEditorTarget] = useState<'deployment' | 'template'>('deployment')
   const [selectedStepId, setSelectedStepId] = useState<string>()
-  const [testingServerId, setTestingServerId] = useState<string>()
-  const [testResult, setTestResult] = useState<{serverId: string; success: boolean; message: string}>()
   const [deploymentTemplates, setDeploymentTemplates] = useState<DeploymentTemplate[]>(loadDeploymentTemplates)
   const [templateDraft, setTemplateDraft] = useState<DeploymentTemplate>(createTemplateDraft())
   const [templateFormMode, setTemplateFormMode] = useState<FormMode>('create')
   const [templateEditorOpen, setTemplateEditorOpen] = useState(false)
   const [selectedTemplateStepId, setSelectedTemplateStepId] = useState<string>()
   const [activeDeploymentTab, setActiveDeploymentTab] = useState('overview')
-  const [serverListKeyword, setServerListKeyword] = useState('')
   const deploymentPreselectProfileId = useNavigationStore((state) => state.deploymentPreselectProfileId)
   const clearDeploymentPreselect = useNavigationStore((state) => state.clearDeploymentPreselect)
 
@@ -733,7 +669,6 @@ export function DeploymentCenterPanel() {
     ? deriveRuntimeConfig(visibleTaskProfile, visibleTaskServer)
     : undefined
   const buildRunning = buildStatus === 'RUNNING'
-  const privilegeEnabled = serverDraft.privilege.mode !== 'none'
   const packageBuildGoals = buildOptions.goals.some((goal) => ['package', 'install', 'verify', 'deploy'].includes(goal))
     ? buildOptions.goals
     : Array.from(new Set([...(buildOptions.goals.length > 0 ? buildOptions.goals : ['clean']), 'package']))
@@ -978,31 +913,6 @@ export function DeploymentCenterPanel() {
     saveCustomDeploymentTemplates(nextTemplates)
   }
 
-  const openServer = (profile: ServerProfile) => {
-    setServerFormMode('edit')
-    setServerDraft({
-      id: profile.id,
-      name: profile.name,
-      host: profile.host,
-      port: profile.port,
-      username: profile.username,
-      authType: profile.authType,
-      password: '',
-      privateKeyPath: profile.privateKeyPath,
-      group: profile.group,
-      privilege: profile.privilege ?? createDefaultPrivilege(),
-      privilegePassword: '',
-    })
-    setServerEditorOpen(true)
-  }
-
-  const newServer = () => {
-    setServerFormMode('create')
-    setServerDraft(createServerDraft())
-    setTestResult(undefined)
-    setServerEditorOpen(true)
-  }
-
   const openDeployment = (profile: DeploymentProfile) => {
     setDeploymentFormMode('edit')
     setDeploymentDraft({
@@ -1038,40 +948,6 @@ export function DeploymentCenterPanel() {
     setDeploymentDraft({...createDeploymentDraft(), projectRoot})
     setSelectedStepId(undefined)
     setDeploymentEditorOpen(true)
-  }
-
-  const saveServerDraft = async (closeEditor = true) => {
-    if (serverFormMode === 'create') {
-      const created = await api.saveServerProfile({...serverDraft, id: undefined})
-      await refreshDeploymentData()
-      setServerFormMode('edit')
-      setServerDraft({...serverDraft, id: created.id, password: '', privilegePassword: ''})
-      if (closeEditor) {
-        setServerEditorOpen(false)
-      }
-      return created
-    }
-    const saved = await api.saveServerProfile(serverDraft)
-    await refreshDeploymentData()
-    setServerDraft({...serverDraft, id: saved.id, password: '', privilegePassword: ''})
-    if (closeEditor) {
-      setServerEditorOpen(false)
-    }
-    return saved
-  }
-
-  const testServerDraft = async () => {
-    setTestingServerId('draft')
-    setTestResult(undefined)
-    try {
-      const saved = await saveServerDraft(false)
-      const msg = await testServerConnection(saved.id)
-      setTestResult({serverId: 'draft', success: true, message: msg})
-    } catch (err) {
-      setTestResult({serverId: 'draft', success: false, message: err instanceof Error ? err.message : String(err)})
-    } finally {
-      setTestingServerId(undefined)
-    }
   }
 
   const saveDeploymentDraft = async () => {
@@ -1450,373 +1326,6 @@ export function DeploymentCenterPanel() {
                       />
                     )}
                   </div>
-                </Space>
-              ),
-            },
-            {
-              key: 'server',
-              label: '环境资源',
-              children: (
-                <Space direction="vertical" size={16} style={{width: '100%'}}>
-                  <div className="table-toolbar">
-                    <Tooltip title="新增服务器">
-                      <Button type="primary" icon={<PlusOutlined />} onClick={newServer} />
-                    </Tooltip>
-                  </div>
-                  <Modal
-                    title={serverFormMode === 'edit' ? `编辑服务器：${serverDraft.name || serverDraft.host || '未命名'}` : '新增服务器'}
-                    open={serverEditorOpen}
-                    width={760}
-                    footer={null}
-                    onCancel={() => setServerEditorOpen(false)}
-                    destroyOnHidden
-                  >
-                    <Space direction="vertical" size={16} style={{width: '100%'}}>
-                  <Space wrap>
-                    <Input
-                      placeholder="名称"
-                      value={serverDraft.name}
-                      onChange={(event) => setServerDraft((state) => ({...state, name: event.target.value}))}
-                    />
-                    <Input
-                      placeholder="Host"
-                      value={serverDraft.host}
-                      onChange={(event) => setServerDraft((state) => ({...state, host: event.target.value}))}
-                    />
-                    <Input
-                      placeholder="端口"
-                      style={{width: 100}}
-                      value={String(serverDraft.port)}
-                      onChange={(event) => setServerDraft((state) => ({...state, port: Number(event.target.value) || 22}))}
-                    />
-                    <Input
-                      placeholder="用户名"
-                      value={serverDraft.username}
-                      onChange={(event) => setServerDraft((state) => ({...state, username: event.target.value}))}
-                    />
-                  </Space>
-                  <Space wrap>
-                    <Select
-                      value={serverDraft.authType}
-                      style={{width: 160}}
-                      options={[
-                        {label: '私钥认证', value: 'private_key'},
-                        {label: '密码认证', value: 'password'},
-                      ]}
-                      onChange={(value) => setServerDraft((state) => ({...state, authType: value}))}
-                    />
-                    {serverDraft.authType === 'private_key' ? (
-                      <Input
-                        placeholder="私钥路径"
-                        style={{minWidth: 280}}
-                        value={serverDraft.privateKeyPath}
-                        onChange={(event) => setServerDraft((state) => ({...state, privateKeyPath: event.target.value}))}
-                      />
-                    ) : (
-                      <Input.Password
-                        placeholder="密码（留空则保留原密码）"
-                        style={{minWidth: 260}}
-                        value={serverDraft.password}
-                        onChange={(event) => setServerDraft((state) => ({...state, password: event.target.value}))}
-                      />
-                    )}
-                    <Input
-                      placeholder="分组"
-                      value={serverDraft.group}
-                      onChange={(event) => setServerDraft((state) => ({...state, group: event.target.value}))}
-                    />
-                  </Space>
-                  <div className="step-card-body">
-                    <Space direction="vertical" size={12} style={{width: '100%'}}>
-                      <Space wrap>
-                        <Space direction="vertical" size={4}>
-                          <HelpLabel help="服务器登录账号本身有部署目录权限时选不提权；需要以 root 或应用账号执行移动文件、重启服务等命令时再选择 sudo、su 或自定义。">
-                            提权方式
-                          </HelpLabel>
-                          <Select
-                            value={serverDraft.privilege.mode}
-                            style={{width: 240}}
-                            options={privilegeModeOptions}
-                            onChange={(value) =>
-                              setServerDraft((state) => ({
-                                ...state,
-                                privilege: {
-                                  ...state.privilege,
-                                  mode: value,
-                                  passwordMode: value === 'none' ? 'none' : state.privilege.passwordMode,
-                                },
-                                privilegePassword: value === 'none' ? '' : state.privilegePassword,
-                              }))}
-                          />
-                        </Space>
-                        {privilegeEnabled ? (
-                          <>
-                            <Space direction="vertical" size={4}>
-                              <HelpLabel help="提权后希望用哪个系统用户执行部署命令。常见值是 root，也可以填应用运行账号。">
-                                执行用户
-                              </HelpLabel>
-                              <Input
-                                placeholder="例如 root"
-                                style={{width: 140}}
-                                value={serverDraft.privilege.runAsUser}
-                                onChange={(event) =>
-                                  setServerDraft((state) => ({
-                                    ...state,
-                                    privilege: {...state.privilege, runAsUser: event.target.value},
-                                  }))}
-                              />
-                            </Space>
-                            <Space direction="vertical" size={4}>
-                              <HelpLabel help="如果服务器 sudo/su 不需要密码，选不需要；如果密码和登录密码相同，选使用登录密码；否则单独填写。">
-                                提权密码
-                              </HelpLabel>
-                              <Select
-                                value={serverDraft.privilege.passwordMode}
-                                style={{width: 190}}
-                                options={privilegePasswordOptions}
-                                onChange={(value) =>
-                                  setServerDraft((state) => ({
-                                    ...state,
-                                    privilege: {...state.privilege, passwordMode: value},
-                                    privilegePassword: value === 'separate' ? state.privilegePassword : '',
-                                  }))}
-                              />
-                            </Space>
-                            {serverDraft.privilege.passwordMode === 'separate' ? (
-                              <Space direction="vertical" size={4}>
-                                <HelpLabel help="只在提权命令需要独立密码时使用；编辑已有服务器时留空会保留原密码。">
-                                  独立密码
-                                </HelpLabel>
-                                <Input.Password
-                                  placeholder="留空则保留原密码"
-                                  style={{width: 240}}
-                                  value={serverDraft.privilegePassword}
-                                  onChange={(event) => setServerDraft((state) => ({...state, privilegePassword: event.target.value}))}
-                                />
-                              </Space>
-                            ) : null}
-                          </>
-                        ) : null}
-                      </Space>
-                      {!privilegeEnabled ? (
-                        <Alert
-                          type="info"
-                          showIcon
-                          message="当前不提权：上传暂存目录和执行 Shell 不参与默认部署流程。"
-                        />
-                      ) : (
-                        <>
-                          <Space wrap>
-                            <Space direction="vertical" size={4}>
-                              <HelpLabel help="提权部署时，产物会先上传到这个远端临时目录，再由提权命令移动到正式部署目录。${loginHome} 会按登录用户解析为 /home/用户名，root 会解析为 /root。也可用 ${deploymentId}、${loginUser}、${runAsUser}、${remoteArtifactName}。">
-                                上传暂存目录
-                              </HelpLabel>
-                              <Input
-                                placeholder="${loginHome}/.packflow/deploy/${deploymentId}"
-                                style={{minWidth: 360}}
-                                value={serverDraft.privilege.uploadTempDir}
-                                onChange={(event) =>
-                                  setServerDraft((state) => ({
-                                    ...state,
-                                    privilege: {...state.privilege, uploadTempDir: event.target.value},
-                                  }))}
-                              />
-                            </Space>
-                            <Space direction="vertical" size={4}>
-                              <HelpLabel help="提权后执行远程命令时使用的 Shell 包装器。Linux 服务器通常保持 bash -lc；没有 bash 时可改成 sh -lc。">
-                                执行 Shell
-                              </HelpLabel>
-                              <Input
-                                placeholder="bash -lc"
-                                style={{width: 160}}
-                                value={serverDraft.privilege.shell}
-                                onChange={(event) =>
-                                  setServerDraft((state) => ({
-                                    ...state,
-                                    privilege: {...state.privilege, shell: event.target.value},
-                                  }))}
-                              />
-                            </Space>
-                          </Space>
-                          <Space wrap>
-                            <Checkbox
-                              checked={serverDraft.privilege.cleanupOnSuccess}
-                              onChange={(event) =>
-                                setServerDraft((state) => ({
-                                  ...state,
-                                  privilege: {...state.privilege, cleanupOnSuccess: event.target.checked},
-                                }))}
-                            >
-                              成功后清理暂存目录
-                            </Checkbox>
-                            <Tooltip title="部署成功后删除上传暂存目录，减少服务器残留文件。">
-                              <QuestionCircleOutlined />
-                            </Tooltip>
-                            <Checkbox
-                              checked={serverDraft.privilege.keepTempOnFailure}
-                              onChange={(event) =>
-                                setServerDraft((state) => ({
-                                  ...state,
-                                  privilege: {...state.privilege, keepTempOnFailure: event.target.checked},
-                                }))}
-                            >
-                              失败时保留暂存目录
-                            </Checkbox>
-                            <Tooltip title="部署失败时保留上传暂存目录，便于排查文件是否上传成功。">
-                              <QuestionCircleOutlined />
-                            </Tooltip>
-                          </Space>
-                        </>
-                      )}
-                      {serverDraft.privilege.mode === 'custom' ? (
-                        <Space direction="vertical" size={4} style={{width: '100%'}}>
-                          <HelpLabel help="用于高级场景，例如公司封装的提权脚本。填写 ${command} 表示原始部署命令放置的位置。">
-                            自定义包装命令
-                          </HelpLabel>
-                          <Input
-                            placeholder="例如 my-sudo ${command}"
-                            value={serverDraft.privilege.customWrapper}
-                            onChange={(event) =>
-                              setServerDraft((state) => ({
-                                ...state,
-                                privilege: {...state.privilege, customWrapper: event.target.value},
-                              }))}
-                          />
-                        </Space>
-                      ) : null}
-                    </Space>
-                  </div>
-                  <Space wrap>
-                    <Button
-                      type="primary"
-                      icon={<SaveOutlined />}
-                      onClick={() => void saveServerDraft()}
-                    >
-                      {serverFormMode === 'edit' ? '保存修改' : '保存新增'}
-                    </Button>
-                    <Button
-                      icon={<CloudServerOutlined />}
-                      loading={testingServerId === 'draft'}
-                      onClick={() => void testServerDraft()}
-                    >
-                      测试连接
-                    </Button>
-                    <Button onClick={() => setServerEditorOpen(false)}>取消编辑</Button>
-                    {testResult?.serverId === 'draft' && (
-                      <Alert
-                        type={testResult.success ? 'success' : 'error'}
-                        message={testResult.message}
-                        showIcon
-                        closable
-                        onClose={() => setTestResult(undefined)}
-                        style={{maxWidth: 400}}
-                      />
-                    )}
-                  </Space>
-                    </Space>
-                  </Modal>
-                  {serverProfiles.length === 0 ? (
-                    <Empty description="暂无服务器配置" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-                  ) : (
-                    <>
-                      <Input
-                        allowClear
-                        size="small"
-                        placeholder="搜索服务器名称、地址、分组"
-                        prefix={<SearchOutlined />}
-                        className="server-list-search"
-                        value={serverListKeyword}
-                        onChange={(event) => setServerListKeyword(event.target.value)}
-                      />
-                      <Table
-                        size="small"
-                        rowKey="id"
-                        tableLayout="fixed"
-                        className="server-profile-table"
-                        dataSource={serverProfiles.filter((profile) => {
-                          const keyword = serverListKeyword.trim().toLowerCase()
-                          if (!keyword) return true
-                          return [profile.name, profile.group, profile.host, profile.username, String(profile.port)]
-                            .filter(Boolean)
-                            .some((value) => String(value).toLowerCase().includes(keyword))
-                        })}
-                        pagination={{pageSize: 10, size: 'small', showSizeChanger: false, showTotal: (total) => `共 ${total} 台`}}
-                        columns={[
-                          {
-                            title: '服务器',
-                            width: 260,
-                            render: (_, profile) => (
-                              <div className="server-profile-cell">
-                                <div className="server-profile-title">
-                                  <Text strong ellipsis={{tooltip: profile.name}}>{profile.name}</Text>
-                                  {profile.group ? <Tag>{profile.group}</Tag> : null}
-                                </div>
-                                <Text type="secondary" ellipsis={{tooltip: `${profile.username}@${profile.host}:${profile.port}`}}>
-                                  {profile.username}@{profile.host}:{profile.port}
-                                </Text>
-                              </div>
-                            ),
-                          },
-                          {
-                            title: '连接与权限',
-                            render: (_, profile) => (
-                              <div className="server-profile-tags">
-                                <Tag color={profile.authType === 'private_key' ? 'blue' : 'default'}>
-                                  {profile.authType === 'private_key' ? '私钥认证' : '密码认证'}
-                                </Tag>
-                                {profile.passwordConfigured ? <Tag color="gold">已保存登录密码</Tag> : null}
-                                {profile.privilege?.mode && profile.privilege.mode !== 'none' ? (
-                                  <Tooltip title={privilegeModeLabel(profile.privilege.mode)}>
-                                    <Tag color="purple">{privilegeModeShortLabel(profile.privilege.mode)}：{profile.privilege.runAsUser}</Tag>
-                                  </Tooltip>
-                                ) : (
-                                  <Tag>不提权</Tag>
-                                )}
-                                {profile.privilege?.mode !== 'none' && profile.privilegePasswordConfigured ? <Tag color="gold">已保存提权密码</Tag> : null}
-                                {testResult?.serverId === profile.id && (
-                                  <Tag color={testResult.success ? 'green' : 'red'}>
-                                    {testResult.success ? '连接成功' : '连接失败'}
-                                  </Tag>
-                                )}
-                              </div>
-                            ),
-                          },
-                          {
-                            title: '操作',
-                            width: 116,
-                            align: 'right',
-                            render: (_, profile) => (
-                              <Space size={2} className="server-row-actions">
-                                <Tooltip title="测试连接">
-                                  <Button size="small" type="text" icon={<CloudServerOutlined />} loading={testingServerId === profile.id} onClick={() => {
-                                    setTestingServerId(profile.id)
-                                    setTestResult(undefined)
-                                    void testServerConnection(profile.id)
-                                      .then((msg) => setTestResult({serverId: profile.id, success: true, message: msg}))
-                                      .catch((err) => setTestResult({serverId: profile.id, success: false, message: err instanceof Error ? err.message : String(err)}))
-                                      .finally(() => setTestingServerId(undefined))
-                                  }} />
-                                </Tooltip>
-                                <Tooltip title="编辑服务器">
-                                  <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openServer(profile)} />
-                                </Tooltip>
-                                <Popconfirm
-                                  title="删除服务器配置？"
-                                  okText="删除"
-                                  cancelText="取消"
-                                  onConfirm={() => void deleteServerProfile(profile.id)}
-                                >
-                                  <Tooltip title="删除服务器">
-                                    <Button size="small" type="text" danger icon={<DeleteOutlined />} />
-                                  </Tooltip>
-                                </Popconfirm>
-                              </Space>
-                            ),
-                          },
-                        ]}
-                      />
-                    </>
-                  )}
                 </Space>
               ),
             },
