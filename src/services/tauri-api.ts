@@ -5,43 +5,45 @@ import {open} from '@tauri-apps/plugin-dialog'
 import {relaunch} from '@tauri-apps/plugin-process'
 import {check, type DownloadEvent, type Update} from '@tauri-apps/plugin-updater'
 import type {
-  BuildArtifact,
-  BuildCommandPayload,
-  BuildEnvironment,
-  BuildFinishedEvent,
-  BuildHistoryRecord,
-  BuildLogEvent,
-  BuildOptions,
-  BuildTemplate,
-  CommonCommand,
-  DeploymentLogEvent,
-  DeploymentProfile,
-  DeploymentTask,
-  EnvironmentSettings,
-  FavoritePath,
-  GitCommit,
-  GitPullResult,
-  GitRepositoryStatus,
-  GitSwitchBranchResult,
-  HighlightRule,
-  LogSource,
-  MavenProject,
-  ModuleDependencyGraph,
-  ProbeStatusEvent,
-  RemoteCommandResult,
-  RemoteFileEntry,
-  RemoteLogLineEvent,
-  RemoteLogSession,
-  SaveServerProfilePayload,
-  ServerGroup,
-  ServerProfile,
-  ServiceOperationHistory,
-  ServiceOperationLogEvent,
-  ServiceOperationTask,
-  ServiceRuntimeConfig,
-  StartBuildPayload,
-  StartDeploymentPayload,
-  UploadProgressEvent,
+    BuildArtifact,
+    BuildCommandPayload,
+    BuildEnvironment,
+    BuildFinishedEvent,
+    BuildHistoryRecord,
+    BuildLogEvent,
+    BuildOptions,
+    BuildTemplate,
+    CommonCommand,
+    DeploymentLogEvent,
+    DeploymentProfile,
+    DeploymentTask,
+    EnvironmentSettings,
+    FavoritePath,
+    GitCommit,
+    GitPullResult,
+    GitRepositoryStatus,
+    GitSwitchBranchResult,
+    HighlightRule,
+    LogSource,
+    MavenProject,
+    ModuleDependencyGraph,
+    ProbeStatusEvent,
+    ReleaseRecord,
+    ReleaseTemplate,
+    RemoteCommandResult,
+    RemoteFileEntry,
+    RemoteLogLineEvent,
+    RemoteLogSession,
+    SaveServerProfilePayload,
+    ServerGroup,
+    ServerProfile,
+    ServiceOperationHistory,
+    ServiceOperationLogEvent,
+    ServiceOperationTask,
+    ServiceRuntimeConfig,
+    StartBuildPayload,
+    StartDeploymentPayload,
+    UploadProgressEvent,
 } from '../types/domain'
 
 type TauriWindow = Window & { __TAURI_INTERNALS__?: unknown }
@@ -178,6 +180,24 @@ export const api = {
 
   deleteTemplate: (templateId: string) =>
     invoke<void>('delete_template', { templateId }),
+
+  listReleaseTemplates: () =>
+    invoke<ReleaseTemplate[]>('list_release_templates'),
+
+  saveReleaseTemplate: (template: ReleaseTemplate) =>
+    invoke<ReleaseTemplate>('save_release_template', { template }),
+
+  deleteReleaseTemplate: (templateId: string) =>
+    invoke<void>('delete_release_template', { templateId }),
+
+  listReleaseRecords: () =>
+    invoke<ReleaseRecord[]>('list_release_records'),
+
+  saveReleaseRecord: (record: ReleaseRecord) =>
+    invoke<void>('save_release_record', { record }),
+
+  deleteReleaseRecord: (recordId: string) =>
+    invoke<void>('delete_release_record', { recordId }),
 
   listServerProfiles: () => invoke<ServerProfile[]>('list_server_profiles'),
 

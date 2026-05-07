@@ -1,6 +1,6 @@
 import {create} from 'zustand'
 
-export type AppPage = 'build' | 'artifacts' | 'deployment' | 'services' | 'servers' | 'history'
+export type AppPage = 'dashboard' | 'release' | 'build' | 'artifacts' | 'deployment' | 'services' | 'servers' | 'history'
 export type BuildSidebarTab = 'project' | 'git' | 'modules' | 'favorites'
 
 export type InspectorTab = 'logs' | 'diagnosis' | 'details'
@@ -33,7 +33,7 @@ interface NavigationState {
 }
 
 export const useNavigationStore = create<NavigationState>((set) => ({
-  activePage: 'build',
+  activePage: 'dashboard',
   inspectorOpen: false,
   inspectorTab: 'logs',
   inspectorLogSource: 'build',

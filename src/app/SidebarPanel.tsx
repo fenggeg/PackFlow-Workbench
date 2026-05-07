@@ -53,7 +53,14 @@ export function SidebarPanel({activePage}: SidebarPanelProps) {
     )
   }
 
-  if (activePage === 'deployment' || activePage === 'artifacts' || activePage === 'services' || activePage === 'servers') {
+  if (
+    activePage === 'dashboard'
+    || activePage === 'release'
+    || activePage === 'deployment'
+    || activePage === 'artifacts'
+    || activePage === 'services'
+    || activePage === 'servers'
+  ) {
     return null
   }
 

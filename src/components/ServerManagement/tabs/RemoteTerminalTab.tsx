@@ -11,9 +11,16 @@ const {Text} = Typography
 
 interface RemoteTerminalTabProps {
   server: ServerProfile
+  onConnected?: () => Promise<void>
 }
 
-export function RemoteTerminalTab({server}: RemoteTerminalTabProps) {
+interface TerminalMenuState {
+  open: boolean
+  x: number
+  y: number
+}
+
+export function RemoteTerminalTab({server, onConnected}: RemoteTerminalTabProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<Terminal | null>(null)
@@ -22,7 +29,48 @@ export function RemoteTerminalTab({server}: RemoteTerminalTabProps) {
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [connecting, setConnecting] = useState(false)
   const [connected, setConnected] = useState(false)
+  const [menu, setMenu] = useState<TerminalMenuState>({open: false, x: 0, y: 0})
   const initializedRef = useRef(false)
+
+  const focusTerminal = useCallback(() => {
+    queueMicrotask(() => {
+      xtermRef.current?.focus()
+    })
+  }, [])
+
+  const copySelection = useCallback(async () => {
+    const terminal = xtermRef.current
+    const selection = terminal?.getSelection()
+    if (!selection) {
+      message.info('请先选中要复制的终端内容')
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(selection)
+      terminal?.clearSelection()
+      message.success('已复制选中内容')
+    } catch (error) {
+      message.error(`复制失败：${error}`)
+    }
+  }, [])
+
+  const pasteFromClipboard = useCallback(async () => {
+    const terminal = xtermRef.current
+    if (!terminal || !sessionIdRef.current) {
+      return
+    }
+    try {
+      const text = await navigator.clipboard.readText()
+      if (!text) {
+        return
+      }
+      const bytes = Array.from(new TextEncoder().encode(text))
+      await api.writeTerminalInput(sessionIdRef.current, bytes)
+      terminal.focus()
+    } catch (error) {
+      message.error(`粘贴失败：${error}`)
+    }
+  }, [])
 
   const cleanup = useCallback(() => {
     if (pollIntervalRef.current) {
@@ -39,6 +87,7 @@ export function RemoteTerminalTab({server}: RemoteTerminalTabProps) {
     }
     fitAddonRef.current = null
     setConnected(false)
+    setMenu({open: false, x: 0, y: 0})
     initializedRef.current = false
   }, [])
 
@@ -95,6 +144,28 @@ export function RemoteTerminalTab({server}: RemoteTerminalTabProps) {
         },
       })
 
+      terminal.attachCustomKeyEventHandler((event) => {
+        if (event.type !== 'keydown') {
+          return true
+        }
+
+        const key = event.key.toLowerCase()
+        const ctrlOrMeta = event.ctrlKey || event.metaKey
+        if (ctrlOrMeta && key === 'c' && terminal.hasSelection()) {
+          void copySelection()
+          return false
+        }
+        if (ctrlOrMeta && event.shiftKey && key === 'c') {
+          void copySelection()
+          return false
+        }
+        if (ctrlOrMeta && event.shiftKey && key === 'v') {
+          void pasteFromClipboard()
+          return false
+        }
+        return true
+      })
+
       const fitAddon = new FitAddon()
       terminal.loadAddon(fitAddon)
 
@@ -102,6 +173,7 @@ export function RemoteTerminalTab({server}: RemoteTerminalTabProps) {
 
       await new Promise((resolve) => setTimeout(resolve, 100))
       fitAddon.fit()
+      terminal.focus()
 
       const cols = terminal.cols
       const rows = terminal.rows
@@ -128,13 +200,15 @@ export function RemoteTerminalTab({server}: RemoteTerminalTabProps) {
 
       setConnected(true)
       message.success('终端连接成功')
+      focusTerminal()
+      void onConnected?.()
     } catch (error) {
       message.error(`连接失败：${error}`)
       cleanup()
     } finally {
       setConnecting(false)
     }
-  }, [server.id, cleanup, startPolling])
+  }, [server.id, cleanup, copySelection, focusTerminal, onConnected, pasteFromClipboard, startPolling])
 
   useEffect(() => {
     queueMicrotask(() => void connect())
@@ -158,6 +232,19 @@ export function RemoteTerminalTab({server}: RemoteTerminalTabProps) {
     observer.observe(container)
     return () => observer.disconnect()
   }, [])
+
+  useEffect(() => {
+    if (!menu.open) {
+      return undefined
+    }
+    const close = () => setMenu((current) => ({...current, open: false}))
+    window.addEventListener('click', close)
+    window.addEventListener('keydown', close)
+    return () => {
+      window.removeEventListener('click', close)
+      window.removeEventListener('keydown', close)
+    }
+  }, [menu.open])
 
   return (
     <Card
@@ -197,6 +284,12 @@ export function RemoteTerminalTab({server}: RemoteTerminalTabProps) {
     >
       <div
         ref={containerRef}
+        onMouseDown={focusTerminal}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          focusTerminal()
+          setMenu({open: true, x: event.clientX, y: event.clientY})
+        }}
         style={{
           height: '500px',
           overflow: 'hidden',
@@ -211,6 +304,26 @@ export function RemoteTerminalTab({server}: RemoteTerminalTabProps) {
             height: '100%',
           }}
         />
+        {menu.open ? (
+          <div
+            className="terminal-context-menu"
+            style={{left: menu.x, top: menu.y}}
+            onMouseDown={(event) => event.preventDefault()}
+          >
+            <button type="button" onClick={() => { setMenu({...menu, open: false}); void copySelection() }}>
+              复制选中内容
+            </button>
+            <button type="button" onClick={() => { setMenu({...menu, open: false}); void pasteFromClipboard() }}>
+              粘贴
+            </button>
+            <button type="button" onClick={() => { xtermRef.current?.selectAll(); setMenu({...menu, open: false}) }}>
+              全选
+            </button>
+            <button type="button" onClick={() => { xtermRef.current?.clear(); setMenu({...menu, open: false}); focusTerminal() }}>
+              清屏
+            </button>
+          </div>
+        ) : null}
       </div>
     </Card>
   )

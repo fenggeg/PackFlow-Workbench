@@ -6,6 +6,7 @@ import {useRemoteLogSessionStore} from './features/service-ops/stores/remoteLogS
 import {useServiceOperationStore} from './features/service-ops/stores/serviceOperationStore'
 import {useAppStore} from './store/useAppStore'
 import {useWorkflowStore} from './store/useWorkflowStore'
+import {useReleaseStore} from './store/useReleaseStore'
 import {useUploadProgressStore} from './store/useUploadProgressStore'
 import {useDeploymentLogStore} from './store/useDeploymentLogStore'
 import {UI_TOKENS} from './theme/uiTokens'
@@ -17,6 +18,7 @@ function App() {
   const finishBuild = useAppStore((state) => state.finishBuild)
   const project = useAppStore((state) => state.project)
   const initializeWorkflow = useWorkflowStore((state) => state.initialize)
+  const initializeRelease = useReleaseStore((state) => state.initialize)
   const initializeServiceOps = useServiceOperationStore((state) => state.initialize)
   const loadDependencyGraph = useWorkflowStore((state) => state.loadDependencyGraph)
   const clearDependencyGraph = useWorkflowStore((state) => state.clearDependencyGraph)
@@ -26,6 +28,11 @@ function App() {
   const updateUploadProgress = useUploadProgressStore((state) => state.updateProgress)
   const clearUploadProgress = useUploadProgressStore((state) => state.clearProgress)
   const appendDeploymentLog = useDeploymentLogStore((state) => state.appendLog)
+  const appendReleaseBuildLog = useReleaseStore((state) => state.handleBuildLog)
+  const finishReleaseBuild = useReleaseStore((state) => state.handleBuildFinished)
+  const appendReleaseDeploymentLog = useReleaseStore((state) => state.handleDeploymentLog)
+  const updateReleaseDeploymentTask = useReleaseStore((state) => state.handleDeploymentUpdated)
+  const finishReleaseDeploymentTask = useReleaseStore((state) => state.handleDeploymentFinished)
   const startLogFlushTimer = useDeploymentLogStore((state) => state.startFlushTimer)
   const stopLogFlushTimer = useDeploymentLogStore((state) => state.stopFlushTimer)
   const appendServiceOperationLog = useServiceOperationStore((state) => state.appendOperationLog)
@@ -37,6 +44,7 @@ function App() {
   useEffect(() => {
     initialize()
     void initializeWorkflow()
+    void initializeRelease()
     void initializeServiceOps()
     startLogFlushTimer()
 
@@ -45,7 +53,16 @@ function App() {
     let cleanupServiceOps: (() => void) | undefined
     let disposed = false
 
-    void registerBuildEvents(appendBuildLog, finishBuild).then((unlisten) => {
+    void registerBuildEvents(
+      (event) => {
+        appendBuildLog(event)
+        appendReleaseBuildLog(event)
+      },
+      (event) => {
+        finishBuild(event)
+        finishReleaseBuild(event)
+      },
+    ).then((unlisten) => {
       if (disposed) {
         unlisten()
         return
@@ -53,9 +70,18 @@ function App() {
       cleanupBuild = unlisten
     })
     void registerDeploymentEvents(
-      appendDeploymentLog,
-      updateDeploymentTask,
-      finishDeploymentTask,
+      (event) => {
+        appendDeploymentLog(event)
+        appendReleaseDeploymentLog(event)
+      },
+      (event) => {
+        updateDeploymentTask(event)
+        updateReleaseDeploymentTask(event)
+      },
+      (event) => {
+        finishDeploymentTask(event)
+        finishReleaseDeploymentTask(event)
+      },
       updateProbeStatuses,
       (event) => {
         updateUploadProgress(event.taskId, {
@@ -102,18 +128,24 @@ function App() {
   }, [
     appendBuildLog,
     appendDeploymentLog,
+    appendReleaseBuildLog,
+    appendReleaseDeploymentLog,
     appendRemoteLogLine,
     appendServiceOperationLog,
     clearUploadProgress,
     finishBuild,
     finishDeploymentTask,
+    finishReleaseBuild,
+    finishReleaseDeploymentTask,
     finishServiceOperationTask,
     initialize,
+    initializeRelease,
     initializeServiceOps,
     initializeWorkflow,
     startLogFlushTimer,
     stopLogFlushTimer,
     updateDeploymentTask,
+    updateReleaseDeploymentTask,
     updateProbeStatuses,
     updateRemoteLogSession,
     updateServiceOperationTask,

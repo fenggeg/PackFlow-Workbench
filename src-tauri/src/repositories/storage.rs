@@ -40,6 +40,40 @@ fn initialize_database(connection: &Connection) -> AppResult<()> {
             CREATE INDEX IF NOT EXISTS idx_build_templates_name
                 ON build_templates(name ASC);
 
+            CREATE TABLE IF NOT EXISTS release_templates (
+                id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                project_path TEXT NOT NULL,
+                module_id TEXT NOT NULL,
+                target_server_id TEXT NOT NULL,
+                created_at TEXT,
+                updated_at TEXT,
+                payload TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_release_templates_updated_at
+                ON release_templates(updated_at DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_release_templates_project
+                ON release_templates(project_path, module_id);
+
+            CREATE TABLE IF NOT EXISTS release_records (
+                id TEXT PRIMARY KEY NOT NULL,
+                project_path TEXT NOT NULL,
+                module_name TEXT NOT NULL,
+                target_server_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                ended_at TEXT,
+                payload TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_release_records_started_at
+                ON release_records(started_at DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_release_records_status
+                ON release_records(status);
+
             CREATE TABLE IF NOT EXISTS app_settings (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 payload TEXT NOT NULL

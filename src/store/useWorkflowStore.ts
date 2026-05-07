@@ -147,7 +147,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
   testServerConnection: async (serverId) => {
     try {
-      return await api.testServerConnection(serverId)
+      const result = await api.testServerConnection(serverId)
+      await get().refreshDeploymentData()
+      return result
     } catch (error) {
       throw new Error(getErrorMessage(error))
     }

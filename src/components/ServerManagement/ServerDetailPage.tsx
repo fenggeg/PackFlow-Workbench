@@ -86,7 +86,7 @@ export function ServerDetailPage({serverId}: ServerDetailPageProps) {
           {
             key: 'terminal',
             label: '终端',
-            children: server ? <RemoteTerminalTab server={server} /> : null,
+            children: server ? <RemoteTerminalTab server={server} onConnected={loadServer} /> : null,
           },
           {
             key: 'files',

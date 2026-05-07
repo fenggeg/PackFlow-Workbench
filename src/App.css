@@ -1198,6 +1198,34 @@
   height: 30px;
 }
 
+.terminal-context-menu {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  min-width: 132px;
+  padding: 4px;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+}
+
+.terminal-context-menu button {
+  padding: 7px 10px;
+  color: #111827;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.terminal-context-menu button:hover {
+  background: #f3f4f6;
+}
+
 .deployment-history-table .ant-table-cell {
   vertical-align: top;
 }

@@ -360,6 +360,89 @@ export interface BuildTemplate {
   pinned?: boolean
 }
 
+export interface ReleaseLogConfig {
+  logPath: string
+  tailLines: number
+  keyword?: string
+}
+
+export type ReleaseTargetBindingMode = 'fixed' | 'runtime'
+
+export interface ReleaseTemplate {
+  id: string
+  name: string
+  projectPath: string
+  moduleId: string
+  moduleName: string
+  buildOptions: BuildOptions
+  environmentProfileId?: string
+  preferMavenWrapper: boolean
+  artifactPattern: string
+  targetBindingMode?: ReleaseTargetBindingMode
+  targetServerId: string
+  remoteDeployDir: string
+  stopCommand: string
+  startCommand: string
+  healthCheck?: StartupProbeConfig
+  logConfig?: ReleaseLogConfig
+  deploymentProfileId?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export type ReleaseStatus =
+  | 'draft'
+  | 'prechecking'
+  | 'building'
+  | 'matching_artifact'
+  | 'deploying'
+  | 'starting'
+  | 'checking'
+  | 'observing_log'
+  | 'success'
+  | 'failed'
+  | 'cancelled'
+
+export interface ReleaseStageRecord {
+  key: string
+  label: string
+  status: 'pending' | 'running' | 'success' | 'failed' | 'cancelled' | 'skipped'
+  startedAt?: string
+  endedAt?: string
+  durationMs?: number
+  summary?: string
+}
+
+export interface ReleaseRecord {
+  id: string
+  projectName: string
+  projectPath: string
+  moduleName: string
+  gitBranch?: string
+  gitCommit?: string
+  buildHistoryId?: string
+  artifactPath?: string
+  deploymentTaskId?: string
+  targetServerId: string
+  status: ReleaseStatus
+  startedAt: string
+  endedAt?: string
+  durationMs?: number
+  failedStage?: string
+  failureSummary?: string
+  templateId?: string
+  stages: ReleaseStageRecord[]
+  logs: string[]
+  artifacts: BuildArtifact[]
+}
+
+export interface ReleasePrecheckItem {
+  key: string
+  label: string
+  status: 'pending' | 'running' | 'success' | 'warning' | 'failed'
+  message?: string
+}
+
 export interface EnvironmentSettings {
   activeProfileId?: string
   profiles: EnvironmentProfile[]

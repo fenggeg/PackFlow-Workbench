@@ -1,16 +1,16 @@
 import {Button, Card, Empty, Input, message, Popconfirm, Select, Space, Table, Tag, Tooltip, Typography,} from 'antd'
 import {
-  CloudServerOutlined,
-  CodeOutlined,
-  DeleteOutlined,
-  EditOutlined,
-  FileOutlined,
-  FolderOutlined,
-  PlusOutlined,
-  ReloadOutlined,
-  SearchOutlined,
-  StarFilled,
-  StarOutlined,
+    CloudServerOutlined,
+    CodeOutlined,
+    DeleteOutlined,
+    EditOutlined,
+    FileOutlined,
+    FolderOutlined,
+    PlusOutlined,
+    ReloadOutlined,
+    SearchOutlined,
+    StarFilled,
+    StarOutlined,
 } from '@ant-design/icons'
 import {useCallback, useEffect, useMemo, useState} from 'react'
 import {api} from '../../services/tauri-api'
@@ -109,6 +109,7 @@ export function ServerListPanel() {
     try {
       const result = await api.testServerConnection(serverId)
       message.success(result)
+      await loadServers()
     } catch (error) {
       message.error(`连接测试失败：${error}`)
     } finally {

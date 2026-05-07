@@ -5,6 +5,8 @@ import {
     DatabaseOutlined,
     DesktopOutlined,
     HistoryOutlined,
+    HomeOutlined,
+    RocketOutlined,
 } from '@ant-design/icons'
 import {Badge, Button, Tooltip} from 'antd'
 import type {ReactNode} from 'react'
@@ -13,6 +15,8 @@ import {type AppPage, useNavigationStore} from '../store/navigationStore'
 import {useWorkflowStore} from '../store/useWorkflowStore'
 
 const pageItems: Array<{key: AppPage; label: string; icon: ReactNode}> = [
+  {key: 'dashboard', label: '首页', icon: <HomeOutlined />},
+  {key: 'release', label: '发布', icon: <RocketOutlined />},
   {key: 'build', label: '构建', icon: <BuildOutlined />},
   {key: 'artifacts', label: '产物', icon: <DatabaseOutlined />},
   {key: 'deployment', label: '部署', icon: <CloudServerOutlined />},

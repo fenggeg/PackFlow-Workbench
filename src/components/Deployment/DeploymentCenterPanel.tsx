@@ -591,6 +591,7 @@ export function DeploymentCenterPanel() {
   const deleteDeploymentProfile = useWorkflowStore((state) => state.deleteDeploymentProfile)
   const startDeployment = useWorkflowStore((state) => state.startDeployment)
   const cancelDeployment = useWorkflowStore((state) => state.cancelDeployment)
+  const refreshDeploymentData = useWorkflowStore((state) => state.refreshDeploymentData)
   const [deploymentDraft, setDeploymentDraft] = useState<DeploymentProfile>(createDeploymentDraft())
   const [deploymentFormMode, setDeploymentFormMode] = useState<FormMode>('create')
   const [deploymentEditorOpen, setDeploymentEditorOpen] = useState(false)
@@ -621,6 +622,16 @@ export function DeploymentCenterPanel() {
       })
     }
   }, [deploymentPreselectProfileId, clearDeploymentPreselect])
+
+  useEffect(() => {
+    void refreshDeploymentData()
+  }, [refreshDeploymentData])
+
+  useEffect(() => {
+    if (serverPickerOpen) {
+      void refreshDeploymentData()
+    }
+  }, [refreshDeploymentData, serverPickerOpen])
 
   const projectRoot = project?.rootPath ?? ''
   const modules = useMemo(() => flattenModules(project?.modules ?? []), [project?.modules])
@@ -2203,7 +2214,13 @@ export function DeploymentCenterPanel() {
                     }}
                   />
                   <div className="deployment-server-select">
-                    <Button onClick={() => setServerPickerOpen(true)}>
+                    <Button
+                      onClick={() => {
+                        void refreshDeploymentData()
+                        setServerPickerKeyword('')
+                        setServerPickerOpen(true)
+                      }}
+                    >
                       {selectedServer
                         ? `${selectedServer.name}（${selectedServer.username}@${selectedServer.host}:${selectedServer.port}）`
                         : '选择目标服务器'}

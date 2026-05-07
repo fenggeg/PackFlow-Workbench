@@ -13,7 +13,7 @@ import {SidebarPanel} from './SidebarPanel'
 
 const {Text} = Typography
 
-const noSidebarPages = new Set(['deployment', 'artifacts', 'services', 'servers'])
+const noSidebarPages = new Set(['dashboard', 'release', 'deployment', 'artifacts', 'services', 'servers'])
 
 const branchStatusColor = (hasLocalChanges?: boolean, hasRemoteUpdates?: boolean) => {
   if (hasRemoteUpdates) {
