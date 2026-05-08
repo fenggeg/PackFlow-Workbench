@@ -1,41 +1,41 @@
 ﻿import {
-  Alert,
-  Button,
-  Card,
-  Checkbox,
-  Empty,
-  Input,
-  InputNumber,
-  List,
-  Modal,
-  Popconfirm,
-  Progress,
-  Select,
-  Space,
-  Steps,
-  Table,
-  Tabs,
-  Tag,
-  Tooltip,
-  Typography,
+    Alert,
+    Button,
+    Card,
+    Checkbox,
+    Empty,
+    Input,
+    InputNumber,
+    List,
+    Modal,
+    Popconfirm,
+    Progress,
+    Select,
+    Space,
+    Steps,
+    Table,
+    Tabs,
+    Tag,
+    Tooltip,
+    Typography,
 } from 'antd'
 import {
-  ArrowDownOutlined,
-  ArrowUpOutlined,
-  CheckOutlined,
-  CloudServerOutlined,
-  CopyOutlined,
-  DeleteOutlined,
-  DeploymentUnitOutlined,
-  EditOutlined,
-  HistoryOutlined,
-  InboxOutlined,
-  PlayCircleOutlined,
-  PlusOutlined,
-  QuestionCircleOutlined,
-  SaveOutlined,
-  StopOutlined,
-  ToolOutlined,
+    ArrowDownOutlined,
+    ArrowUpOutlined,
+    CheckOutlined,
+    CloudServerOutlined,
+    CopyOutlined,
+    DeleteOutlined,
+    DeploymentUnitOutlined,
+    EditOutlined,
+    HistoryOutlined,
+    InboxOutlined,
+    PlayCircleOutlined,
+    PlusOutlined,
+    QuestionCircleOutlined,
+    SaveOutlined,
+    StopOutlined,
+    ToolOutlined,
 } from '@ant-design/icons'
 import type {ReactNode} from 'react'
 import {memo, useEffect, useMemo, useState} from 'react'
@@ -43,30 +43,33 @@ import {DeploymentHistoryTable} from './DeploymentHistoryTable'
 import {ServiceOperationButtons} from '../../features/service-ops/components/ServiceOperationButtons'
 import {deriveRuntimeConfig} from '../../features/service-ops/services/serviceRuntimeConfigService'
 import {
-  belongsToProject,
-  findDeployableArtifacts,
-  findProfileModule,
-  flattenModules,
-  normalizeProjectRoot,
-  profileModuleLabel,
+    belongsToProject,
+    findDeployableArtifacts,
+    findProfileModule,
+    flattenModules,
+    normalizeProjectRoot,
+    profileModuleLabel,
 } from '../../services/deploymentTopologyService'
 import {summarizeDeploymentPipeline} from '../../services/deploymentRuntime'
-import {selectLocalFile} from '../../services/tauri-api'
+import {selectLocalDirectory, selectLocalFile} from '../../services/tauri-api'
 import {useAppStore} from '../../store/useAppStore'
 import {useNavigationStore} from '../../store/navigationStore'
 import {useUploadProgressStore} from '../../store/useUploadProgressStore'
 import {useWorkflowStore} from '../../store/useWorkflowStore'
 import type {
-  BackupConfig,
-  BuildArtifact,
-  DeployFailureStrategy,
-  DeploymentProfile,
-  DeploymentStage,
-  DeployStep,
-  DeployStepType,
-  LogNamingMode,
-  ProbeStatus,
-  StartupProbeConfig,
+    BackupConfig,
+    BuildArtifact,
+    DeployFailureStrategy,
+    DeploymentProfile,
+    DeploymentStage,
+    DeployStep,
+    DeployStepType,
+    FrontendDeployMode,
+    FrontendStaticDeployConfig,
+    LogNamingMode,
+    ProbeStatus,
+    PublishType,
+    StartupProbeConfig,
 } from '../../types/domain'
 
 const {Text} = Typography
@@ -136,9 +139,40 @@ const createDefaultBackupConfig = (): BackupConfig => ({
   restartAfterRollback: false,
 })
 
+const createDefaultFrontendConfig = (): FrontendStaticDeployConfig => ({
+  artifactSourceType: 'directory',
+  localDistPath: 'dist',
+  localArchivePath: '',
+  remoteSiteDir: '',
+  remoteTempDir: '/tmp/deploy',
+  deployMode: 'backup_then_overwrite',
+  entryFile: 'index.html',
+  backupBeforeDeploy: true,
+  remoteBackupDir: '',
+  cleanBeforeDeploy: false,
+  reloadCommand: '',
+  verify: {
+    enabled: false,
+    url: '',
+    method: 'GET',
+    expectedStatusCodes: [200],
+    expectedBodyContains: '<html',
+    timeoutSeconds: 30,
+    retryIntervalSeconds: 3,
+  },
+  releaseConfig: {
+    releasesDir: '',
+    currentLinkPath: '',
+    keepReleases: 5,
+  },
+  cleanupTempFiles: true,
+  autoRollback: false,
+})
+
 const createDeploymentDraft = (): DeploymentProfile => ({
   id: crypto.randomUUID(),
   name: '',
+  publishType: 'backend_service',
   projectRoot: '',
   moduleId: '',
   modulePath: '',
@@ -159,6 +193,7 @@ const createDeploymentDraft = (): DeploymentProfile => ({
   logEncoding: 'UTF-8',
   enableDeployLog: true,
   backupConfig: createDefaultBackupConfig(),
+  frontendConfig: createDefaultFrontendConfig(),
   deploymentSteps: [],
   customCommands: [],
   startupProbe: createDefaultStartupProbe(),
@@ -287,7 +322,7 @@ const springBootStopCommand =
   `PID_FILE="\${pidFile}"; if [ -f "$PID_FILE" ]; then PID=$(cat "$PID_FILE"); if [ -n "$PID" ]; then echo "====== 停止服务进程 PID=$PID"; kill -9 "$PID" 2>/dev/null || true; fi; rm -f "$PID_FILE"; fi; pkill -9 -f "\${remoteDeployPath}/\${remoteArtifactName}" 2>/dev/null || true; ${stopPortOwnerFragment}`
 
 const springBootStartCommand =
-  'mkdir -p "${logDir}" && cd "${serviceDir}" || exit 1; nohup "${javaBin}" ${jvmOptions} -jar "${remoteDeployPath}/${remoteArtifactName}" ${springProfile} ${extraArgs} > "${logFile}" 2>&1 & PID=$!; echo "$PID" > "${pidFile}"; echo "${logFile}" > "${logPathFile}"; sleep 1; if ! ps -p "$PID" > /dev/null 2>&1; then echo "服务进程启动后立即退出"; tail -n 80 "${logFile}" 2>/dev/null || true; exit 1; fi; echo "PID=$PID; LOG_FILE=${logFile}"'
+  'mkdir -p "${logDir}" "${remoteDeployPath}/.packflow" && cd "${serviceDir}" || exit 1; nohup "${javaBin}" ${jvmOptions} -jar "${remoteDeployPath}/${remoteArtifactName}" ${springProfile} ${extraArgs} > "${logFile}" 2>&1 & PID=$!; echo "$PID" > "${pidFile}"; echo "${logFile}" > "${logPathFile}"; rm -f "${remoteDeployPath}/${remoteArtifactBaseName}.log.path"; echo "PID=$PID; LOG_FILE=${logFile}"'
 
 const createSpringBootJarSteps = (): DeployStep[] => {
   const steps: DeployStep[] = [
@@ -325,17 +360,84 @@ const createTomcatWarSteps = (): DeployStep[] => {
   return steps
 }
 
-const createStaticFileSteps = (): DeployStep[] => {
+const frontendArchiveExtractCommand = (targetDir: string) =>
+  `rm -rf "${targetDir}" && mkdir -p "${targetDir}" && case "\${artifactName}" in *.tar.gz|*.tgz) tar -xzf "\${remoteUploadPath}" -C "${targetDir}" ;; *) unzip -oq "\${remoteUploadPath}" -d "${targetDir}" ;; esac`
+
+const createFrontendStaticSteps = (
+  mode: FrontendDeployMode = 'backup_then_overwrite',
+  config: FrontendStaticDeployConfig = createDefaultFrontendConfig(),
+): DeployStep[] => {
+  const tempDir = '${remoteTempDir}/${deploymentId}'
   const steps: DeployStep[] = [
     createDeployStep('upload_file', 10, '上传静态包'),
-    createDeployStep('ssh_command', 20, '备份当前目录'),
-    createDeployStep('ssh_command', 30, '解压并替换'),
-    createDeployStep('http_check', 40, '站点验证'),
+    createDeployStep('ssh_command', 20, '校验上传完整性'),
+    createDeployStep('ssh_command', 30, mode === 'release_symlink' ? '解压到 release 目录' : '解压静态资源'),
+    createDeployStep('ssh_command', 40, '校验入口文件'),
   ]
-  steps[0].config = {localPath: '${artifactPath}', remotePath: '${remoteDeployPath}/.${artifactName}.uploading', overwrite: true}
-  steps[1].config = {command: 'if [ -d "${remoteDeployPath}/current" ]; then cp -a "${remoteDeployPath}/current" "${remoteDeployPath}/backup-${timestamp}"; fi', successExitCodes: [0]}
-  steps[2].config = {command: 'test -n "${remoteDeployPath}" && test "${remoteDeployPath}" != "/" && rm -rf "${remoteDeployPath}/next" && mkdir -p "${remoteDeployPath}/next" && unzip -oq "${remoteDeployPath}/.${artifactName}.uploading" -d "${remoteDeployPath}/next" && rm -rf "${remoteDeployPath}/current" && mv "${remoteDeployPath}/next" "${remoteDeployPath}/current"', successExitCodes: [0]}
-  steps[3].config = {url: 'http://127.0.0.1/', method: 'GET', expectedStatusCodes: [200], expectedBodyContains: '', checkIntervalSeconds: 5}
+  steps[0].config = {localPath: '${artifactPath}', remotePath: '${remoteTempDir}/${artifactName}', overwrite: true}
+  steps[1].config = {command: 'test -f "${remoteUploadPath}" && ACTUAL_SIZE=$(wc -c < "${remoteUploadPath}") && if [ "$ACTUAL_SIZE" != "${localArtifactSize}" ]; then echo "上传大小不一致：$ACTUAL_SIZE != ${localArtifactSize}"; exit 12; fi; echo "上传完整性校验通过：$ACTUAL_SIZE bytes"', successExitCodes: [0]}
+
+  if (mode === 'release_symlink') {
+    steps[2].config = {command: 'mkdir -p "${releasesDir}" && rm -rf "${releaseDir}" && mkdir -p "${releaseDir}" && case "${artifactName}" in *.tar.gz|*.tgz) tar -xzf "${remoteUploadPath}" -C "${releaseDir}" ;; *) unzip -oq "${remoteUploadPath}" -d "${releaseDir}" ;; esac', successExitCodes: [0]}
+    steps[3].config = {command: 'test -f "${releaseDir}/${entryFile}" || { echo "入口文件不存在：${releaseDir}/${entryFile}"; exit 11; }', successExitCodes: [0]}
+    steps.push(createDeployStep('ssh_command', 50, '切换 current 软链接'))
+    steps[4].config = {command: 'ln -sfn "${releaseDir}" "${currentLinkPath}" && echo "current -> ${releaseDir}"', successExitCodes: [0]}
+  } else {
+    steps[2].config = {command: frontendArchiveExtractCommand(tempDir), successExitCodes: [0]}
+    steps[3].config = {command: 'test -f "${remoteTempDir}/${deploymentId}/${entryFile}" || { echo "入口文件不存在：${remoteTempDir}/${deploymentId}/${entryFile}"; exit 11; }', successExitCodes: [0]}
+
+    if (mode === 'backup_then_overwrite') {
+      steps.push(createDeployStep('ssh_command', 50, '备份旧资源'))
+      steps.at(-1)!.config = {command: 'mkdir -p "${remoteBackupDir}" "${remoteTempDir}" && BACKUP_FILE="${remoteBackupDir}/${remoteArtifactBaseName}-${timestamp}.tar.gz"; if [ -d "${remoteSiteDir}" ]; then tar -czf "$BACKUP_FILE" -C "${remoteSiteDir}" . && echo "$BACKUP_FILE" > "${remoteTempDir}/${deploymentId}.backup.path"; else echo "站点目录不存在，跳过备份"; : > "${remoteTempDir}/${deploymentId}.backup.path"; fi', successExitCodes: [0]}
+    }
+
+    steps.push(createDeployStep('ssh_command', (steps.length + 1) * 10, mode === 'clean_then_upload' ? '清空后发布到站点目录' : '发布到站点目录'))
+    steps.at(-1)!.config = {
+      command: mode === 'clean_then_upload'
+        ? 'test -n "${remoteSiteDir}" && test "${remoteSiteDir}" != "/" && mkdir -p "${remoteSiteDir}" && find "${remoteSiteDir}" -mindepth 1 -maxdepth 1 -exec rm -rf {} + && cp -r "${remoteTempDir}/${deploymentId}"/. "${remoteSiteDir}"/'
+        : 'mkdir -p "${remoteSiteDir}" && cp -r "${remoteTempDir}/${deploymentId}"/. "${remoteSiteDir}"/',
+      successExitCodes: [0],
+    }
+  }
+
+  if (config.reloadCommand?.trim()) {
+    steps.push(createDeployStep('ssh_command', (steps.length + 1) * 10, 'Reload Nginx'))
+    steps.at(-1)!.config = {command: '${reloadCommand}', successExitCodes: [0]}
+  }
+
+  if (config.verify?.enabled && config.verify.url?.trim()) {
+    steps.push(createDeployStep('http_check', (steps.length + 1) * 10, '访问验证'))
+    steps.at(-1)!.timeoutSeconds = config.verify.timeoutSeconds || 30
+    steps.at(-1)!.retryIntervalSeconds = config.verify.retryIntervalSeconds || 3
+    steps.at(-1)!.config = {
+      url: '${verifyUrl}',
+      method: 'GET',
+      expectedStatusCodes: config.verify.expectedStatusCodes?.length ? config.verify.expectedStatusCodes : [200],
+      expectedBodyContains: config.verify.expectedBodyContains ?? '',
+      checkIntervalSeconds: config.verify.retryIntervalSeconds || 3,
+    }
+  }
+
+  if (mode === 'release_symlink') {
+    steps.push(createDeployStep('ssh_command', (steps.length + 1) * 10, '清理旧 release'))
+    steps.at(-1)!.config = {command: 'cd "${releasesDir}" || exit 0; ls -1dt */ 2>/dev/null | tail -n +$(( ${keepReleases} + 1 )) | xargs -r rm -rf', successExitCodes: [0]}
+  } else if (config.cleanupTempFiles !== false) {
+    steps.push(createDeployStep('ssh_command', (steps.length + 1) * 10, '清理临时文件'))
+    steps.at(-1)!.config = {command: 'rm -rf "${remoteTempDir}/${deploymentId}" "${remoteUploadPath}" "${remoteTempDir}/${deploymentId}.backup.path"', successExitCodes: [0]}
+  }
+
+  if (config.autoRollback && (mode === 'backup_then_overwrite' || mode === 'release_symlink')) {
+    steps.forEach((step) => {
+      const rollbackPoint = step.name.includes('发布到站点目录')
+        || step.name.includes('切换 current')
+        || step.name.includes('Reload')
+        || step.name.includes('访问验证')
+      if (rollbackPoint) {
+        step.failureStrategy = 'rollback'
+      }
+    })
+  }
+
   return steps
 }
 
@@ -363,10 +465,24 @@ const builtinDeploymentTemplates = (): DeploymentTemplate[] => [
     builtin: true,
   },
   {
-    id: 'builtin-static-files',
-    name: '静态站点压缩包发布',
-    description: '上传 zip、备份 current、解压替换并验证站点首页。',
-    steps: createStaticFileSteps(),
+    id: 'builtin-frontend-backup-overwrite',
+    name: '前端静态资源：备份后覆盖发布',
+    description: '默认推荐：上传 zip/目录自动压缩，校验入口文件，备份旧站点后覆盖，不要求软链接。',
+    steps: createFrontendStaticSteps('backup_then_overwrite'),
+    builtin: true,
+  },
+  {
+    id: 'builtin-frontend-clean-upload',
+    name: '前端静态资源：清空后发布',
+    description: '校验新包后清空站点目录再复制，适合需要清理旧 hash 文件的站点。',
+    steps: createFrontendStaticSteps('clean_then_upload'),
+    builtin: true,
+  },
+  {
+    id: 'builtin-frontend-release-symlink',
+    name: '前端静态资源：版本目录软链接发布',
+    description: '发布到 releases 版本目录并切换 current 软链接，仅适合生产 root 已指向 current 的场景。',
+    steps: createFrontendStaticSteps('release_symlink'),
     builtin: true,
   },
 ]
@@ -462,12 +578,19 @@ const profileLogSummary = (profile: DeploymentProfile) => {
     return '未输出部署日志'
   }
   if (profile.logPath?.trim()) {
-    return profile.logPath
+    const trimmed = profile.logPath.trim()
+    if (trimmed.toLowerCase().endsWith('.log') || trimmed.includes('*')) {
+      return trimmed
+    }
+    const logName = profile.logNamingMode === 'fixed' && profile.logName?.trim()
+      ? profile.logName.trim()
+      : `${profileArtifactBaseName(profile)}-*`
+    return `${trimmed.replace(/[\\/]+$/, '')}/${logName}.log`
   }
   if (profile.logNamingMode === 'fixed' && profile.logName?.trim()) {
-    return `${profile.logName}.log`
+    return `${profile.remoteDeployPath.replace(/[\\/]+$/, '')}/logs/${profile.logName}.log`
   }
-  return '自动生成'
+  return `${profile.remoteDeployPath.replace(/[\\/]+$/, '')}/logs/${profileArtifactBaseName(profile)}-*.log`
 }
 
 const profilePidSummary = (profile: DeploymentProfile) =>
@@ -665,8 +788,9 @@ export function DeploymentCenterPanel() {
     [artifacts, history, projectRoot],
   )
   const selectedProfile = currentProjectDeploymentProfiles.find((item) => item.id === selectedDeploymentProfileId)
+  const selectedProfileIsFrontend = selectedProfile?.publishType === 'frontend_static'
   const selectedProfileModule = selectedProfile ? findProfileModule(modules, selectedProfile) : undefined
-  const selectedProfileModuleMissing = Boolean((selectedProfile?.moduleId || selectedProfile?.modulePath) && !selectedProfileModule)
+  const selectedProfileModuleMissing = Boolean(!selectedProfileIsFrontend && (selectedProfile?.moduleId || selectedProfile?.modulePath) && !selectedProfileModule)
   const selectedServer = serverProfiles.find((item) => item.id === selectedServerId)
   const deploymentStages = visibleDeploymentTask?.stages.length ? visibleDeploymentTask.stages : defaultDeploymentStages
   const deploymentRunning = Boolean(visibleDeploymentTask && !deploymentTaskFinished(visibleDeploymentTask.status))
@@ -684,7 +808,7 @@ export function DeploymentCenterPanel() {
     ? buildOptions.goals
     : Array.from(new Set([...(buildOptions.goals.length > 0 ? buildOptions.goals : ['clean']), 'package']))
   const artifactOptions = useMemo(() => {
-    if (!selectedProfile || selectedProfileModuleMissing) {
+    if (!selectedProfile || selectedProfileIsFrontend || selectedProfileModuleMissing) {
       return []
     }
 
@@ -693,7 +817,7 @@ export function DeploymentCenterPanel() {
         label: `${artifact.fileName}${artifact.modulePath ? ` · ${artifact.modulePath}` : ''}`,
         value: artifact.path,
       }))
-  }, [artifactPool, modules, selectedProfile, selectedProfileModuleMissing])
+  }, [artifactPool, modules, selectedProfile, selectedProfileIsFrontend, selectedProfileModuleMissing])
   const filteredServerProfiles = useMemo(() => {
     const keyword = serverPickerKeyword.trim().toLowerCase()
     if (!keyword) {
@@ -737,7 +861,7 @@ export function DeploymentCenterPanel() {
     pendingDeployAfterBuild,
     startDeployment,
   ])
-  const showPackageArtifactHint = Boolean(selectedProfile && !selectedProfileModuleMissing && artifactOptions.length === 0)
+  const showPackageArtifactHint = Boolean(selectedProfile && !selectedProfileIsFrontend && !selectedProfileModuleMissing && artifactOptions.length === 0)
   const packageTargetLabel = selectedProfileModule?.artifactId ?? '当前项目'
   const buildOptionSummary = [
     packageBuildGoals.join(' '),
@@ -925,6 +1049,13 @@ export function DeploymentCenterPanel() {
   }
 
   const openDeployment = (profile: DeploymentProfile) => {
+    const defaultFrontendConfig = createDefaultFrontendConfig()
+    const frontendConfig = {
+      ...defaultFrontendConfig,
+      ...(profile.frontendConfig ?? {}),
+      verify: {...defaultFrontendConfig.verify!, ...(profile.frontendConfig?.verify ?? {})},
+      releaseConfig: {...defaultFrontendConfig.releaseConfig!, ...(profile.frontendConfig?.releaseConfig ?? {})},
+    }
     setDeploymentFormMode('edit')
     setDeploymentDraft({
       ...profile,
@@ -945,6 +1076,8 @@ export function DeploymentCenterPanel() {
       logEncoding: profile.logEncoding ?? 'UTF-8',
       enableDeployLog: profile.enableDeployLog ?? true,
       backupConfig: profile.backupConfig ?? createDefaultBackupConfig(),
+      publishType: profile.publishType ?? 'backend_service',
+      frontendConfig,
       deploymentSteps: profile.deploymentSteps ?? [],
       customCommands: profile.customCommands ?? [],
       startupProbe: profile.startupProbe ?? createDefaultStartupProbe(),
@@ -962,12 +1095,22 @@ export function DeploymentCenterPanel() {
   }
 
   const saveDeploymentDraft = async () => {
+    const publishType = deploymentDraft.publishType ?? 'backend_service'
+    const frontendConfig = deploymentDraft.frontendConfig ?? createDefaultFrontendConfig()
+    const deploymentSteps = publishType === 'frontend_static' && (deploymentDraft.deploymentSteps?.length ?? 0) === 0
+      ? createFrontendStaticSteps(frontendConfig.deployMode, frontendConfig)
+      : deploymentDraft.deploymentSteps
     const profile = {
       ...(deploymentFormMode === 'create'
         ? {...deploymentDraft, id: crypto.randomUUID()}
         : deploymentDraft),
       projectRoot,
-      ...moduleSnapshot(deploymentDraft.moduleId),
+      ...(publishType === 'backend_service' ? moduleSnapshot(deploymentDraft.moduleId) : {}),
+      publishType,
+      deploymentSteps,
+      remoteDeployPath: publishType === 'frontend_static'
+        ? (frontendConfig.remoteSiteDir ?? deploymentDraft.remoteDeployPath)
+        : deploymentDraft.remoteDeployPath,
     }
     await saveDeploymentProfile(profile)
     setDeploymentFormMode('edit')
@@ -976,7 +1119,7 @@ export function DeploymentCenterPanel() {
   }
 
   const packageDeploymentArtifact = async () => {
-    if (!selectedProfile || selectedProfileModuleMissing) {
+    if (!selectedProfile || selectedProfileIsFrontend || selectedProfileModuleMissing) {
       return
     }
 
@@ -1308,14 +1451,14 @@ export function DeploymentCenterPanel() {
                   <div className="deployment-overview-block">
                     <Space size={8} className="deployment-overview-heading">
                       <DeploymentUnitOutlined />
-                      <Text strong>模块 → 产物 → 服务 → 环境 → 部署配置</Text>
+                      <Text strong>发布映射 → 产物 → 环境 → 部署配置</Text>
                     </Space>
                     {topologyRows.length === 0 ? (
                       <Alert
                         type="info"
                         showIcon
-                        message="尚未建立服务映射"
-                        description="在“服务映射”中绑定模块、产物规则和部署配置后，构建成功即可进入部署。"
+                        message="尚未建立发布映射"
+                        description="在“发布映射”中维护后端服务或前端静态资源的产物规则和部署配置后，即可进入部署。"
                       />
                     ) : (
                       <List
@@ -1342,16 +1485,16 @@ export function DeploymentCenterPanel() {
             },
             {
               key: 'profile',
-              label: '服务映射',
+              label: '发布映射',
               children: (
                 <Space direction="vertical" size={16} style={{width: '100%'}}>
                   <div className="table-toolbar">
-                    <Tooltip title="新增服务映射">
+                    <Tooltip title="新增发布映射">
                       <Button type="primary" icon={<PlusOutlined />} onClick={newDeployment} />
                     </Tooltip>
                   </div>
                   <Modal
-                    title={deploymentFormMode === 'edit' ? `编辑服务映射：${deploymentDraft.name || '未命名'}` : '新增服务映射'}
+                    title={deploymentFormMode === 'edit' ? `编辑发布映射：${deploymentDraft.name || '未命名'}` : '新增发布映射'}
                     open={deploymentEditorOpen}
                     width="min(980px, calc(100vw - 64px))"
                     footer={null}
@@ -1361,10 +1504,39 @@ export function DeploymentCenterPanel() {
                     <div className="deployment-form-modal">
                       <Space direction="vertical" size={16} style={{width: '100%'}}>
                   <Input
-                    addonBefore="服务名称"
+                    addonBefore="映射名称"
                     value={deploymentDraft.name}
                     onChange={(event) => setDeploymentDraft((state) => ({...state, name: event.target.value}))}
                   />
+                  <Select
+                    value={deploymentDraft.publishType ?? 'backend_service'}
+                    style={{width: 240}}
+                    options={[
+                      {label: '后端服务 Jar', value: 'backend_service'},
+                      {label: '前端静态资源', value: 'frontend_static'},
+                    ]}
+                    onChange={(value: PublishType) => {
+                      const frontendConfig = deploymentDraft.frontendConfig ?? createDefaultFrontendConfig()
+                      setDeploymentDraft((state) => ({
+                        ...state,
+                        publishType: value,
+                        localArtifactPattern: value === 'frontend_static' ? (state.localArtifactPattern || 'dist') : (state.localArtifactPattern || '*.jar'),
+                        remoteDeployPath: value === 'frontend_static'
+                          ? (frontendConfig.remoteSiteDir || state.remoteDeployPath)
+                          : state.remoteDeployPath,
+                        frontendConfig,
+                        enableDeployLog: value === 'frontend_static' ? false : state.enableDeployLog,
+                        startupProbe: value === 'frontend_static'
+                          ? {...(state.startupProbe ?? createDefaultStartupProbe()), enabled: false}
+                          : (state.startupProbe ?? createDefaultStartupProbe()),
+                      }))
+                      if (value === 'frontend_static' && deploymentSteps.length === 0) {
+                        updateDeploymentSteps(createFrontendStaticSteps(frontendConfig.deployMode, frontendConfig))
+                      }
+                    }}
+                  />
+                  {(deploymentDraft.publishType ?? 'backend_service') === 'backend_service' ? (
+                    <>
                   <Space wrap>
                     <Input
                       addonBefore="服务简称"
@@ -1573,6 +1745,269 @@ export function DeploymentCenterPanel() {
                       输出部署日志
                     </Checkbox>
                   </Space>
+                    </>
+                  ) : (
+                    <Card title="前端静态资源发布配置" size="small" className="panel-card">
+                      <Space direction="vertical" size={12} style={{width: '100%'}}>
+                        <Alert
+                          type="info"
+                          showIcon
+                          message="前端静态资源发布不会执行进程启动、PID、启动日志或启动探针。"
+                        />
+                        <Space wrap>
+                          <Select
+                            value={deploymentDraft.frontendConfig?.artifactSourceType ?? 'directory'}
+                            style={{width: 160}}
+                            options={[
+                              {label: '目录', value: 'directory'},
+                              {label: 'zip 包', value: 'zip'},
+                              {label: 'tar.gz 包', value: 'tar_gz'},
+                            ]}
+                            onChange={(artifactSourceType) => setDeploymentDraft((state) => ({
+                              ...state,
+                              frontendConfig: {...(state.frontendConfig ?? createDefaultFrontendConfig()), artifactSourceType},
+                            }))}
+                          />
+                          <Input
+                            addonBefore="本地产物路径"
+                            placeholder="dist、build 或压缩包路径"
+                            style={{minWidth: 360}}
+                            value={
+                              deploymentDraft.frontendConfig?.artifactSourceType === 'directory'
+                                ? deploymentDraft.frontendConfig?.localDistPath
+                                : deploymentDraft.frontendConfig?.localArchivePath
+                            }
+                            onChange={(event) => setDeploymentDraft((state) => {
+                              const config = state.frontendConfig ?? createDefaultFrontendConfig()
+                              return {
+                                ...state,
+                                localArtifactPattern: event.target.value || state.localArtifactPattern,
+                                frontendConfig: config.artifactSourceType === 'directory'
+                                  ? {...config, localDistPath: event.target.value || undefined}
+                                  : {...config, localArchivePath: event.target.value || undefined},
+                              }
+                            })}
+                          />
+                          <Button
+                            onClick={() => {
+                              const picker = deploymentDraft.frontendConfig?.artifactSourceType === 'directory'
+                                ? selectLocalDirectory('选择静态资源目录')
+                                : selectLocalFile('选择静态资源压缩包')
+                              void picker.then((path) => {
+                                if (!path) {
+                                  return
+                                }
+                                setDeploymentDraft((state) => {
+                                  const config = state.frontendConfig ?? createDefaultFrontendConfig()
+                                  return {
+                                    ...state,
+                                    localArtifactPattern: path,
+                                    frontendConfig: config.artifactSourceType === 'directory'
+                                      ? {...config, localDistPath: path}
+                                      : {...config, localArchivePath: path},
+                                  }
+                                })
+                              })
+                            }}
+                          >
+                            选择
+                          </Button>
+                        </Space>
+                        <Space wrap>
+                          <Input
+                            addonBefore="远程站点目录"
+                            placeholder="/var/www/admin-web"
+                            style={{minWidth: 360}}
+                            value={deploymentDraft.frontendConfig?.remoteSiteDir ?? ''}
+                            status={deploymentDraft.frontendConfig?.remoteSiteDir === '/' ? 'error' : undefined}
+                            onChange={(event) => setDeploymentDraft((state) => ({
+                              ...state,
+                              remoteDeployPath: event.target.value,
+                              frontendConfig: {...(state.frontendConfig ?? createDefaultFrontendConfig()), remoteSiteDir: event.target.value},
+                            }))}
+                          />
+                          <Input
+                            addonBefore="远程临时目录"
+                            placeholder="/tmp/deploy"
+                            style={{minWidth: 260}}
+                            value={deploymentDraft.frontendConfig?.remoteTempDir ?? '/tmp/deploy'}
+                            onChange={(event) => setDeploymentDraft((state) => ({
+                              ...state,
+                              frontendConfig: {...(state.frontendConfig ?? createDefaultFrontendConfig()), remoteTempDir: event.target.value || '/tmp/deploy'},
+                            }))}
+                          />
+                        </Space>
+                        {['/usr', '/usr/share', '/var', '/var/www', '/home', '/root'].includes((deploymentDraft.frontendConfig?.remoteSiteDir ?? '').replace(/[\\/]+$/, '')) ? (
+                          <Alert type="warning" showIcon message="远程站点目录看起来是上级目录，建议配置到具体应用目录，例如 /var/www/admin-web。" />
+                        ) : null}
+                        <Space wrap>
+                          <Select
+                            value={deploymentDraft.frontendConfig?.deployMode ?? 'backup_then_overwrite'}
+                            style={{width: 220}}
+                            options={[
+                              {label: '覆盖发布', value: 'overwrite'},
+                              {label: '清空后发布', value: 'clean_then_upload'},
+                              {label: '备份后覆盖发布', value: 'backup_then_overwrite'},
+                              {label: '版本目录 current 软链接', value: 'release_symlink'},
+                            ]}
+                            onChange={(deployMode: FrontendDeployMode) => setDeploymentDraft((state) => {
+                              const config = {...(state.frontendConfig ?? createDefaultFrontendConfig()), deployMode}
+                              return {...state, frontendConfig: config, deploymentSteps: createFrontendStaticSteps(deployMode, config)}
+                            })}
+                          />
+                          <Input
+                            addonBefore="入口文件"
+                            style={{width: 220}}
+                            value={deploymentDraft.frontendConfig?.entryFile ?? 'index.html'}
+                            onChange={(event) => setDeploymentDraft((state) => {
+                              const config = {...(state.frontendConfig ?? createDefaultFrontendConfig()), entryFile: event.target.value || 'index.html'}
+                              return {...state, frontendConfig: config, deploymentSteps: createFrontendStaticSteps(config.deployMode, config)}
+                            })}
+                          />
+                          <Checkbox
+                            checked={deploymentDraft.frontendConfig?.cleanupTempFiles ?? true}
+                            onChange={(event) => setDeploymentDraft((state) => ({
+                              ...state,
+                              frontendConfig: {...(state.frontendConfig ?? createDefaultFrontendConfig()), cleanupTempFiles: event.target.checked},
+                            }))}
+                          >
+                            清理临时文件
+                          </Checkbox>
+                        </Space>
+                        {deploymentDraft.frontendConfig?.deployMode === 'clean_then_upload' ? (
+                          <Alert type="warning" showIcon message="该模式会在新包解压并校验入口文件后清空远程站点目录，请确认路径配置正确。" />
+                        ) : null}
+                        {deploymentDraft.frontendConfig?.deployMode === 'backup_then_overwrite' ? (
+                          <Space wrap>
+                            <Input
+                              addonBefore="远程备份目录"
+                              placeholder="/var/backups/admin-web"
+                              style={{minWidth: 360}}
+                              value={deploymentDraft.frontendConfig?.remoteBackupDir ?? ''}
+                              onChange={(event) => setDeploymentDraft((state) => ({
+                                ...state,
+                                frontendConfig: {...(state.frontendConfig ?? createDefaultFrontendConfig()), remoteBackupDir: event.target.value || undefined},
+                              }))}
+                            />
+                            <Checkbox
+                              checked={deploymentDraft.frontendConfig?.autoRollback ?? false}
+                              onChange={(event) => setDeploymentDraft((state) => {
+                                const config = {...(state.frontendConfig ?? createDefaultFrontendConfig()), autoRollback: event.target.checked}
+                                return {...state, frontendConfig: config, deploymentSteps: createFrontendStaticSteps(config.deployMode, config)}
+                              })}
+                            >
+                              失败后自动回滚
+                            </Checkbox>
+                          </Space>
+                        ) : null}
+                        {deploymentDraft.frontendConfig?.deployMode === 'release_symlink' ? (
+                          <Space direction="vertical" size={8} style={{width: '100%'}}>
+                            <Alert type="warning" showIcon message="软链接模式需要生产站点 root 指向 current；如果当前生产未使用软链接，请不要选择该模式。" />
+                            <Space wrap>
+                              <Input
+                                addonBefore="releases 目录"
+                                style={{minWidth: 360}}
+                                value={deploymentDraft.frontendConfig?.releaseConfig?.releasesDir ?? ''}
+                                onChange={(event) => setDeploymentDraft((state) => ({
+                                  ...state,
+                                  frontendConfig: {
+                                    ...(state.frontendConfig ?? createDefaultFrontendConfig()),
+                                    releaseConfig: {...((state.frontendConfig ?? createDefaultFrontendConfig()).releaseConfig ?? createDefaultFrontendConfig().releaseConfig!), releasesDir: event.target.value},
+                                  },
+                                }))}
+                              />
+                              <Input
+                                addonBefore="current 链接"
+                                style={{minWidth: 360}}
+                                value={deploymentDraft.frontendConfig?.releaseConfig?.currentLinkPath ?? ''}
+                                onChange={(event) => setDeploymentDraft((state) => ({
+                                  ...state,
+                                  frontendConfig: {
+                                    ...(state.frontendConfig ?? createDefaultFrontendConfig()),
+                                    releaseConfig: {...((state.frontendConfig ?? createDefaultFrontendConfig()).releaseConfig ?? createDefaultFrontendConfig().releaseConfig!), currentLinkPath: event.target.value},
+                                  },
+                                }))}
+                              />
+                              <InputNumber
+                                addonBefore="保留版本"
+                                min={1}
+                                max={50}
+                                value={deploymentDraft.frontendConfig?.releaseConfig?.keepReleases ?? 5}
+                                onChange={(value) => setDeploymentDraft((state) => ({
+                                  ...state,
+                                  frontendConfig: {
+                                    ...(state.frontendConfig ?? createDefaultFrontendConfig()),
+                                    releaseConfig: {...((state.frontendConfig ?? createDefaultFrontendConfig()).releaseConfig ?? createDefaultFrontendConfig().releaseConfig!), keepReleases: Number(value) || 5},
+                                  },
+                                }))}
+                              />
+                            </Space>
+                          </Space>
+                        ) : null}
+                        <Input
+                          addonBefore="Reload 命令"
+                          placeholder="例如 nginx -t && systemctl reload nginx，可留空"
+                          value={deploymentDraft.frontendConfig?.reloadCommand ?? ''}
+                          onChange={(event) => setDeploymentDraft((state) => {
+                            const config = {...(state.frontendConfig ?? createDefaultFrontendConfig()), reloadCommand: event.target.value || undefined}
+                            return {...state, frontendConfig: config, deploymentSteps: createFrontendStaticSteps(config.deployMode, config)}
+                          })}
+                        />
+                        <Space wrap>
+                          <Checkbox
+                            checked={deploymentDraft.frontendConfig?.verify?.enabled ?? false}
+                            onChange={(event) => setDeploymentDraft((state) => {
+                              const config = state.frontendConfig ?? createDefaultFrontendConfig()
+                              const next = {...config, verify: {...(config.verify ?? createDefaultFrontendConfig().verify!), enabled: event.target.checked}}
+                              return {...state, frontendConfig: next, deploymentSteps: createFrontendStaticSteps(next.deployMode, next)}
+                            })}
+                          >
+                            启用访问验证
+                          </Checkbox>
+                          <Input
+                            addonBefore="验证 URL"
+                            style={{minWidth: 360}}
+                            value={deploymentDraft.frontendConfig?.verify?.url ?? ''}
+                            onChange={(event) => setDeploymentDraft((state) => {
+                              const config = state.frontendConfig ?? createDefaultFrontendConfig()
+                              const next = {...config, verify: {...(config.verify ?? createDefaultFrontendConfig().verify!), url: event.target.value}}
+                              return {...state, frontendConfig: next, deploymentSteps: createFrontendStaticSteps(next.deployMode, next)}
+                            })}
+                          />
+                          <Input
+                            addonBefore="状态码"
+                            style={{width: 180}}
+                            value={(deploymentDraft.frontendConfig?.verify?.expectedStatusCodes ?? [200]).join(',')}
+                            onChange={(event) => setDeploymentDraft((state) => {
+                              const config = state.frontendConfig ?? createDefaultFrontendConfig()
+                              const expectedStatusCodes = event.target.value
+                                .split(',')
+                                .map((item) => Number(item.trim()))
+                                .filter((item) => Number.isInteger(item) && item > 0)
+                              const next = {
+                                ...config,
+                                verify: {
+                                  ...(config.verify ?? createDefaultFrontendConfig().verify!),
+                                  expectedStatusCodes: expectedStatusCodes.length ? expectedStatusCodes : [200],
+                                },
+                              }
+                              return {...state, frontendConfig: next, deploymentSteps: createFrontendStaticSteps(next.deployMode, next)}
+                            })}
+                          />
+                          <Input
+                            addonBefore="响应包含"
+                            style={{width: 220}}
+                            value={deploymentDraft.frontendConfig?.verify?.expectedBodyContains ?? ''}
+                            onChange={(event) => setDeploymentDraft((state) => {
+                              const config = state.frontendConfig ?? createDefaultFrontendConfig()
+                              const next = {...config, verify: {...(config.verify ?? createDefaultFrontendConfig().verify!), expectedBodyContains: event.target.value || undefined}}
+                              return {...state, frontendConfig: next, deploymentSteps: createFrontendStaticSteps(next.deployMode, next)}
+                            })}
+                          />
+                        </Space>
+                      </Space>
+                    </Card>
+                  )}
                   <Card
                     title="部署流程"
                     size="small"
@@ -1956,7 +2391,7 @@ export function DeploymentCenterPanel() {
                     </div>
                   </Modal>
                   {currentProjectDeploymentProfiles.length === 0 ? (
-                    <Empty description="暂无服务映射" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                    <Empty description="暂无发布映射" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                   ) : (
                     <Table
                       rowKey="id"
@@ -1966,26 +2401,40 @@ export function DeploymentCenterPanel() {
                       pagination={false}
                       columns={[
                         {
-                          title: '服务',
+                          title: '发布对象',
                           width: 300,
                           render: (_: unknown, record: DeploymentProfile) => (
                             <div className="service-profile-cell">
                               <div className="service-profile-title">
-                                <Text strong ellipsis={{tooltip: record.name || '未命名服务'}}>
-                                  {record.name || '未命名服务'}
+                                <Text strong ellipsis={{tooltip: record.name || '未命名映射'}}>
+                                  {record.name || '未命名映射'}
                                 </Text>
-                                {record.serviceAlias ? <Tag color="blue">{record.serviceAlias}</Tag> : null}
+                                <Tag color={record.publishType === 'frontend_static' ? 'gold' : 'blue'}>
+                                  {record.publishType === 'frontend_static' ? '前端静态' : '后端服务'}
+                                </Tag>
+                                {record.publishType !== 'frontend_static' && record.serviceAlias ? <Tag color="blue">{record.serviceAlias}</Tag> : null}
                               </div>
-                              <Text type="secondary" className="service-profile-desc" ellipsis={{tooltip: record.serviceDescription || '未填写服务描述'}}>
-                                {record.serviceDescription || '未填写服务描述'}
+                              <Text type="secondary" className="service-profile-desc" ellipsis={{tooltip: record.serviceDescription || (record.publishType === 'frontend_static' ? '静态资源发布映射' : '未填写服务描述')}}>
+                                {record.serviceDescription || (record.publishType === 'frontend_static' ? '静态资源发布映射' : '未填写服务描述')}
                               </Text>
                               <div className="service-profile-meta">
-                                <Tag color={record.backupConfig?.enabled === false ? 'default' : 'green'}>
-                                  {record.backupConfig?.enabled === false ? '未备份' : `备份 ${record.backupConfig?.retentionCount ?? 5} 份`}
-                                </Tag>
-                                <Tag color={record.enableDeployLog === false ? 'default' : 'cyan'}>
-                                  {record.enableDeployLog === false ? '无部署日志' : '部署日志'}
-                                </Tag>
+                                {record.publishType === 'frontend_static' ? (
+                                  <>
+                                    <Tag color="green">{record.frontendConfig?.deployMode ?? 'backup_then_overwrite'}</Tag>
+                                    <Tag color={record.frontendConfig?.verify?.enabled ? 'cyan' : 'default'}>
+                                      {record.frontendConfig?.verify?.enabled ? '访问验证' : '未启用验证'}
+                                    </Tag>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Tag color={record.backupConfig?.enabled === false ? 'default' : 'green'}>
+                                      {record.backupConfig?.enabled === false ? '未备份' : `备份 ${record.backupConfig?.retentionCount ?? 5} 份`}
+                                    </Tag>
+                                    <Tag color={record.enableDeployLog === false ? 'default' : 'cyan'}>
+                                      {record.enableDeployLog === false ? '无部署日志' : '部署日志'}
+                                    </Tag>
+                                  </>
+                                )}
                               </div>
                             </div>
                           ),
@@ -1995,24 +2444,31 @@ export function DeploymentCenterPanel() {
                           width: 420,
                           render: (_: unknown, record: DeploymentProfile) => {
                             const mod = findProfileModule(modules, record)
-                            const moduleName = mod?.artifactId || record.moduleArtifactId || record.moduleId || '未绑定模块'
+                            const isFrontend = record.publishType === 'frontend_static'
+                            const moduleName = isFrontend ? '前端静态资源' : (mod?.artifactId || record.moduleArtifactId || record.moduleId || '未绑定模块')
                             const modulePath = mod?.relativePath || record.modulePath
                             return (
                               <div className="service-target-cell">
                                 <div className="service-target-heading">
                                   <Tag>{moduleName}</Tag>
-                                  {modulePath ? (
+                                  {!isFrontend && modulePath ? (
                                     <Text type="secondary" ellipsis={{tooltip: modulePath}}>{modulePath}</Text>
                                   ) : null}
                                 </div>
                                 <div className="service-target-row">
                                   <span>产物</span>
-                                  <Text code ellipsis={{tooltip: profileArtifactName(record)}}>{profileArtifactName(record)}</Text>
+                                  <Text code ellipsis={{tooltip: isFrontend
+                                    ? (record.frontendConfig?.localDistPath || record.frontendConfig?.localArchivePath || record.localArtifactPattern)
+                                    : profileArtifactName(record)}}>
+                                    {isFrontend
+                                      ? (record.frontendConfig?.localDistPath || record.frontendConfig?.localArchivePath || record.localArtifactPattern)
+                                      : profileArtifactName(record)}
+                                  </Text>
                                 </div>
                                 <div className="service-target-row">
                                   <span>目录</span>
-                                  <Text ellipsis={{tooltip: record.remoteDeployPath || '未配置远端目录'}}>
-                                    {record.remoteDeployPath || '未配置远端目录'}
+                                  <Text ellipsis={{tooltip: (isFrontend ? record.frontendConfig?.remoteSiteDir : record.remoteDeployPath) || '未配置远端目录'}}>
+                                    {(isFrontend ? record.frontendConfig?.remoteSiteDir : record.remoteDeployPath) || '未配置远端目录'}
                                   </Text>
                                 </div>
                               </div>
@@ -2023,6 +2479,28 @@ export function DeploymentCenterPanel() {
                           title: '运行保障',
                           width: 360,
                           render: (_: unknown, record: DeploymentProfile) => {
+                            if (record.publishType === 'frontend_static') {
+                              return (
+                                <div className="service-runtime-cell">
+                                  <div className="service-runtime-tags">
+                                    <Tag color="blue">{profileEnabledStepCount(record)} 步流程</Tag>
+                                    <Tag color={record.frontendConfig?.reloadCommand ? 'green' : 'default'}>
+                                      {record.frontendConfig?.reloadCommand ? 'Reload' : '无 Reload'}
+                                    </Tag>
+                                  </div>
+                                  <div className="service-target-row">
+                                    <span>入口</span>
+                                    <Text>{record.frontendConfig?.entryFile || 'index.html'}</Text>
+                                  </div>
+                                  <div className="service-target-row">
+                                    <span>验证</span>
+                                    <Text ellipsis={{tooltip: record.frontendConfig?.verify?.url || '未启用'}}>
+                                      {record.frontendConfig?.verify?.enabled ? record.frontendConfig.verify.url : '未启用'}
+                                    </Text>
+                                  </div>
+                                </div>
+                              )
+                            }
                             const port = record.startupProbe?.portProbe?.enabled ? record.startupProbe.portProbe.port : undefined
                             const url = record.startupProbe?.httpProbe?.enabled ? record.startupProbe.httpProbe.url : undefined
                             const steps = profileEnabledStepCount(record)
@@ -2064,12 +2542,12 @@ export function DeploymentCenterPanel() {
                                 />
                               </Tooltip>
                               <Popconfirm
-                                title="删除服务映射？"
+                                title="删除发布映射？"
                                 okText="删除"
                                 cancelText="取消"
                                 onConfirm={() => void deleteDeploymentProfile(record.id)}
                               >
-                                <Tooltip title="删除服务映射">
+                                <Tooltip title="删除发布映射">
                                   <Button size="small" type="text" danger icon={<DeleteOutlined />} />
                                 </Tooltip>
                               </Popconfirm>
@@ -2204,13 +2682,19 @@ export function DeploymentCenterPanel() {
               children: (
                 <Space direction="vertical" size={16} style={{width: '100%'}}>
                   <Select
-                    placeholder="选择服务映射"
+                    placeholder="选择发布映射"
                     style={{minWidth: 260}}
                     value={selectedDeploymentProfileId}
                     options={currentProjectDeploymentProfiles.map((item) => ({label: item.name, value: item.id}))}
                     onChange={(value) => {
                       setSelectedDeploymentProfileId(value)
-                      setSelectedArtifactPath(undefined)
+                      const profile = currentProjectDeploymentProfiles.find((item) => item.id === value)
+                      const configuredFrontendArtifact = profile?.publishType === 'frontend_static'
+                        ? (profile.frontendConfig?.artifactSourceType === 'directory'
+                            ? profile.frontendConfig?.localDistPath
+                            : profile.frontendConfig?.localArchivePath)
+                        : undefined
+                      setSelectedArtifactPath(configuredFrontendArtifact || undefined)
                     }}
                   />
                   <div className="deployment-server-select">
@@ -2232,17 +2716,19 @@ export function DeploymentCenterPanel() {
                     )}
                   </div>
                   <Select
-                    placeholder="选择构建产物（来自配置绑定模块）"
+                    placeholder={selectedProfileIsFrontend ? '选择或输入静态资源目录/压缩包' : '选择构建产物（来自配置绑定模块）'}
                     style={{minWidth: 260}}
                     value={selectedArtifactPath}
                     options={artifactOptions}
                     onChange={setSelectedArtifactPath}
                     notFoundContent={
                       selectedProfile
-                        ? selectedProfileModuleMissing
-                          ? '服务映射绑定的模块不在当前项目中'
+                        ? selectedProfileIsFrontend
+                          ? '前端静态资源可使用下方按钮选择目录或压缩包'
+                          : selectedProfileModuleMissing
+                          ? '发布映射绑定的模块不在当前项目中'
                           : '当前项目没有匹配该模块和规则的本地产物'
-                        : '先选择服务映射'
+                        : '先选择发布映射'
                     }
                   />
                   {showPackageArtifactHint ? (
@@ -2272,16 +2758,29 @@ export function DeploymentCenterPanel() {
                     />
                   ) : null}
                   <Space wrap>
+                    {selectedProfileIsFrontend && selectedProfile?.frontendConfig?.artifactSourceType === 'directory' ? (
+                      <Button
+                        onClick={() => {
+                          void selectLocalDirectory('选择静态资源目录').then((path) => {
+                            if (path) {
+                              setSelectedArtifactPath(path)
+                            }
+                          })
+                        }}
+                      >
+                        选择静态目录
+                      </Button>
+                    ) : null}
                     <Button
                       onClick={() => {
-                        void selectLocalFile('选择要部署的本地产物').then((path) => {
+                        void selectLocalFile(selectedProfileIsFrontend ? '选择静态资源压缩包' : '选择要部署的本地产物').then((path) => {
                           if (path) {
                             setSelectedArtifactPath(path)
                           }
                         })
                       }}
                     >
-                      手动选择产物
+                      {selectedProfileIsFrontend ? '选择压缩包' : '手动选择产物'}
                     </Button>
                     <Button
                       type="primary"
@@ -2296,14 +2795,20 @@ export function DeploymentCenterPanel() {
                               <Text>
                                 将部署到 {selectedServer?.name ?? '目标服务器'}（{selectedServer?.host ?? ''}），请确认配置无误。
                               </Text>
-                              <Checkbox
-                                disabled={buildRunning || !projectRoot}
-                                onChange={(event) => {
-                                  repackageBeforeDeploy = event.target.checked
-                                }}
-                              >
-                                重新打包后使用最新产物部署
-                              </Checkbox>
+                              {!selectedProfileIsFrontend ? (
+                                <Checkbox
+                                  disabled={buildRunning || !projectRoot}
+                                  onChange={(event) => {
+                                    repackageBeforeDeploy = event.target.checked
+                                  }}
+                                >
+                                  重新打包后使用最新产物部署
+                                </Checkbox>
+                              ) : (
+                                <Text type="secondary">
+                                  前端静态资源将直接发布当前选择的目录或压缩包，目录会在本地自动压缩后上传。
+                                </Text>
+                              )}
                             </Space>
                           ),
                           okText: '确认部署',
@@ -2338,8 +2843,10 @@ export function DeploymentCenterPanel() {
                     <Alert
                       type={selectedProfileModuleMissing ? 'warning' : 'info'}
                       showIcon
-                      message={`服务映射：${selectedProfile.name}`}
-                      description={`模块：${selectedProfileModule?.artifactId ?? (selectedProfile.moduleId || selectedProfile.modulePath ? '当前项目不存在该模块' : '未绑定')}；目标目录：${selectedProfile.remoteDeployPath}；匹配规则：${selectedProfile.localArtifactPattern}；部署流程：${selectedProfile.deploymentSteps?.filter((step) => step.enabled).length ?? 0} 个启用步骤${selectedServer ? `；服务器：${selectedServer.name}` : ''}`}
+                      message={`发布映射：${selectedProfile.name}`}
+                      description={selectedProfileIsFrontend
+                        ? `类型：前端静态资源；目标目录：${selectedProfile.frontendConfig?.remoteSiteDir || selectedProfile.remoteDeployPath || '-'}；模式：${selectedProfile.frontendConfig?.deployMode ?? 'backup_then_overwrite'}；部署流程：${selectedProfile.deploymentSteps?.filter((step) => step.enabled).length ?? 0} 个启用步骤${selectedServer ? `；服务器：${selectedServer.name}` : ''}`
+                        : `类型：后端服务；模块：${selectedProfileModule?.artifactId ?? (selectedProfile.moduleId || selectedProfile.modulePath ? '当前项目不存在该模块' : '未绑定')}；目标目录：${selectedProfile.remoteDeployPath}；匹配规则：${selectedProfile.localArtifactPattern}；部署流程：${selectedProfile.deploymentSteps?.filter((step) => step.enabled).length ?? 0} 个启用步骤${selectedServer ? `；服务器：${selectedServer.name}` : ''}`}
                     />
                   ) : null}
                   {visibleDeploymentTask ? (

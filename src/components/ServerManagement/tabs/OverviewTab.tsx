@@ -3,7 +3,7 @@ import {CloudServerOutlined, CodeOutlined, FolderOutlined, ReloadOutlined,} from
 import {useState} from 'react'
 import {api} from '../../../services/tauri-api'
 import {useNavigationStore} from '../../../store/navigationStore'
-import type {ServerProfile} from '../../../types/domain'
+import type {ServerPrivilegeMode, ServerProfile} from '../../../types/domain'
 
 const {Text} = Typography
 
@@ -20,6 +20,17 @@ const envTypeLabel = (type?: string) =>
 
 const envTypeColor = (type?: string) =>
   envTypeOptions.find((opt) => opt.value === type)?.color ?? 'default'
+
+const privilegeModeOptions: {label: string; value: ServerPrivilegeMode}[] = [
+  {label: '不提权（普通账号直接执行）', value: 'none'},
+  {label: 'sudo（用指定用户执行）', value: 'sudo'},
+  {label: 'sudo -i（带登录环境执行）', value: 'sudo_i'},
+  {label: 'su（切换到指定用户）', value: 'su'},
+  {label: '自定义命令包装（高级）', value: 'custom'},
+]
+
+const privilegeModeLabel = (mode?: string) =>
+  privilegeModeOptions.find((option) => option.value === mode)?.label ?? mode ?? '不提权'
 
 interface OverviewTabProps {
   server: ServerProfile
@@ -56,6 +67,32 @@ export function OverviewTab({server, onRefresh}: OverviewTabProps) {
           <Descriptions.Item label="认证方式">
             {server.authType === 'password' ? '密码' : '私钥'}
           </Descriptions.Item>
+          <Descriptions.Item label="提权方式">
+            {server.privilege?.mode && server.privilege.mode !== 'none' ? (
+              <Space size={6} wrap>
+                <Tag color="purple">{privilegeModeLabel(server.privilege.mode)}</Tag>
+                <Text type="secondary">执行用户：{server.privilege.runAsUser}</Text>
+              </Space>
+            ) : (
+              <Tag>不提权</Tag>
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label="提权密码">
+            {server.privilege?.mode && server.privilege.mode !== 'none'
+              ? (
+                <Space size={6} wrap>
+                  <Tag>{server.privilege.passwordMode === 'login_password' ? '使用登录密码' : server.privilege.passwordMode === 'separate' ? '独立密码' : '不需要密码'}</Tag>
+                  {server.privilegePasswordConfigured ? <Tag color="gold">已保存</Tag> : null}
+                </Space>
+              )
+              : '未启用'}
+          </Descriptions.Item>
+          {server.privilege?.mode && server.privilege.mode !== 'none' ? (
+            <>
+              <Descriptions.Item label="上传暂存目录">{server.privilege.uploadTempDir}</Descriptions.Item>
+              <Descriptions.Item label="执行 Shell">{server.privilege.shell}</Descriptions.Item>
+            </>
+          ) : null}
           <Descriptions.Item label="环境">
             <Tag color={envTypeColor(server.envType)}>{envTypeLabel(server.envType)}</Tag>
           </Descriptions.Item>

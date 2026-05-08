@@ -16,7 +16,7 @@ import {useCallback, useEffect, useMemo, useState} from 'react'
 import {api} from '../../services/tauri-api'
 import {useNavigationStore} from '../../store/navigationStore'
 import {ServerEditorDrawer} from './ServerEditorDrawer'
-import type {ServerProfile} from '../../types/domain'
+import type {ServerPrivilegeMode, ServerProfile} from '../../types/domain'
 
 const {Text} = Typography
 
@@ -33,6 +33,27 @@ const envTypeLabel = (type?: string) =>
 
 const envTypeColor = (type?: string) =>
   envTypeOptions.find((opt) => opt.value === type)?.color ?? 'default'
+
+const privilegeModeOptions: {label: string; value: ServerPrivilegeMode}[] = [
+  {label: '不提权（普通账号直接执行）', value: 'none'},
+  {label: 'sudo（用指定用户执行）', value: 'sudo'},
+  {label: 'sudo -i（带登录环境执行）', value: 'sudo_i'},
+  {label: 'su（切换到指定用户）', value: 'su'},
+  {label: '自定义命令包装（高级）', value: 'custom'},
+]
+
+const privilegeModeLabel = (mode?: string) =>
+  privilegeModeOptions.find((option) => option.value === mode)?.label ?? mode ?? '不提权'
+
+const privilegeModeShortLabel = (mode?: string) => {
+  switch (mode) {
+    case 'sudo': return 'sudo'
+    case 'sudo_i': return 'sudo -i'
+    case 'su': return 'su'
+    case 'custom': return '自定义'
+    default: return '不提权'
+  }
+}
 
 export function ServerListPanel() {
   const [servers, setServers] = useState<ServerProfile[]>([])
@@ -174,6 +195,30 @@ export function ServerListPanel() {
       title: '用户名',
       dataIndex: 'username',
       key: 'username',
+    },
+    {
+      title: '连接与权限',
+      key: 'connection',
+      render: (_: unknown, record: ServerProfile) => (
+        <Space size={[0, 4]} wrap>
+          <Tag color={record.authType === 'private_key' ? 'blue' : 'default'}>
+            {record.authType === 'private_key' ? '私钥认证' : '密码认证'}
+          </Tag>
+          {record.passwordConfigured ? <Tag color="gold">已保存登录密码</Tag> : null}
+          {record.privilege?.mode && record.privilege.mode !== 'none' ? (
+            <Tooltip title={privilegeModeLabel(record.privilege.mode)}>
+              <Tag color="purple">
+                {privilegeModeShortLabel(record.privilege.mode)}：{record.privilege.runAsUser}
+              </Tag>
+            </Tooltip>
+          ) : (
+            <Tag>不提权</Tag>
+          )}
+          {record.privilege?.mode !== 'none' && record.privilegePasswordConfigured ? (
+            <Tag color="gold">已保存提权密码</Tag>
+          ) : null}
+        </Space>
+      ),
     },
     {
       title: '环境',

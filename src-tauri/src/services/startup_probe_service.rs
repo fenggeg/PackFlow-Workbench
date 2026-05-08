@@ -239,7 +239,7 @@ impl ProbeContext {
             default_pid_file: format!("{}/{}.pid", remote_deploy_path, base_name),
             deploy_log_name,
             deploy_log_path,
-            log_path_file: format!("{}/{}.log.path", remote_deploy_path, base_name),
+            log_path_file: format!("{}/.packflow/{}.log.path", remote_deploy_path, base_name),
             custom_log_path: custom_log_path.map(|s| s.to_string()),
             enable_deploy_log,
             _log_encoding: log_encoding.to_string(),
@@ -675,11 +675,17 @@ fn resolve_runtime_log_path(
     context: &ProbeContext,
     current_log_path: Option<&str>,
 ) -> Option<String> {
-    let pointer_cmd = format!("cat {} 2>/dev/null", shell_quote(&context.log_path_file));
-    if let Ok(result) = conn.execute_privileged_with_cancel(&pointer_cmd, || false) {
-        let path = result.output.trim();
-        if !path.is_empty() {
-            return Some(path.to_string());
+    let legacy_log_path_file = format!(
+        "{}/{}.log.path",
+        context.remote_deploy_path, context.remote_artifact_base_name
+    );
+    for pointer_file in [&context.log_path_file, &legacy_log_path_file] {
+        let pointer_cmd = format!("cat {} 2>/dev/null", shell_quote(pointer_file));
+        if let Ok(result) = conn.execute_privileged_with_cancel(&pointer_cmd, || false) {
+            let path = result.output.trim();
+            if !path.is_empty() {
+                return Some(path.to_string());
+            }
         }
     }
 

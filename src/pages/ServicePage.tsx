@@ -115,7 +115,8 @@ export function ServicePage() {
   const histories = useServiceOperationStore((state) => state.histories)
   const navigateToDeployment = useNavigationStore((state) => state.navigateToDeployment)
   const currentProjectDeploymentProfiles = useMemo(
-    () => deploymentProfiles.filter((profile) => belongsToProject(profile, project?.rootPath)),
+    () => deploymentProfiles.filter((profile) =>
+      profile.publishType !== 'frontend_static' && belongsToProject(profile, project?.rootPath)),
     [deploymentProfiles, project?.rootPath],
   )
 
@@ -171,7 +172,7 @@ export function ServicePage() {
       <div className="workspace-heading">
         <div>
           <Title level={3}>服务运维</Title>
-          <Text type="secondary">围绕服务映射、部署配置和服务器配置执行重启、日志查看与健康检查。</Text>
+          <Text type="secondary">围绕后端服务映射、部署配置和服务器配置执行重启、日志查看与健康检查。</Text>
         </div>
       </div>
 
@@ -184,7 +185,7 @@ export function ServicePage() {
       </Space>
 
       {currentProjectDeploymentProfiles.length === 0 ? (
-        <Empty description="暂无服务配置，请先在部署中心添加服务映射" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        <Empty description="暂无后端服务配置，请先在部署中心添加后端发布映射" image={Empty.PRESENTED_IMAGE_SIMPLE} />
       ) : (
         <Space direction="vertical" size={16} style={{width: '100%'}}>
           {currentProjectDeploymentProfiles.map((profile) => {

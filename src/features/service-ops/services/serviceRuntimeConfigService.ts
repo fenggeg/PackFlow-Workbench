@@ -117,16 +117,66 @@ const concreteLogPath = (value?: string) => {
   return trimmed
 }
 
-const deriveLogSource = (profile: DeploymentProfile): ServiceLogConfig | undefined => {
+const profileArtifactName = (profile: DeploymentProfile) =>
+  profile.remoteArtifactName?.trim() || profile.localArtifactPattern || profile.moduleArtifactId
+
+const profileArtifactBaseName = (profile: DeploymentProfile) =>
+  profileArtifactName(profile).replace(/\.[^.]+$/, '')
+
+const isExplicitLogFile = (path: string) => {
+  const fileName = path.trim().replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? path
+  return fileName.toLowerCase().endsWith('.log') || fileName.includes('*')
+}
+
+const resolveLogName = (profile: DeploymentProfile) => {
+  if (profile.logNamingMode === 'fixed') {
+    return profile.logName?.trim() || profileArtifactBaseName(profile)
+  }
+  return `${profileArtifactBaseName(profile)}-*`
+}
+
+const resolveProfileLogPath = (profile: DeploymentProfile) => {
   const configuredPath = concreteLogPath(profile.logPath)
-    ?? concreteLogPath(profile.startupProbe?.logProbe?.logPath)
+  if (configuredPath) {
+    if (isExplicitLogFile(configuredPath)) {
+      return configuredPath
+    }
+    return `${configuredPath.replace(/[\\/]+$/, '')}/${resolveLogName(profile)}.log`
+  }
+
+  const probeLogPath = concreteLogPath(profile.startupProbe?.logProbe?.logPath)
+  if (probeLogPath) {
+    return probeLogPath
+  }
+
+  if (profile.remoteDeployPath?.trim()) {
+    return `${profile.remoteDeployPath.replace(/[\\/]+$/, '')}/logs/${resolveLogName(profile)}.log`
+  }
+  return undefined
+}
+
+const deriveLogSource = (profile: DeploymentProfile): ServiceLogConfig | undefined => {
+  const configuredPath = resolveProfileLogPath(profile)
   if (configuredPath) {
     return {type: 'file', logPath: configuredPath, tailLines: 300}
   }
-  if (profile.remoteDeployPath?.trim()) {
-    return {type: 'file', logPath: `${profile.remoteDeployPath.replace(/[\\/]+$/, '')}/logs/*.log`, tailLines: 300}
-  }
   return undefined
+}
+
+const shouldRefreshExistingLogSource = (
+  existing: ServiceRuntimeConfig | undefined,
+  profile: DeploymentProfile,
+  derived: ServiceLogConfig | undefined,
+) => {
+  const existingPath = existing?.logSource?.type === 'file'
+    ? existing.logSource.logPath?.trim()
+    : undefined
+  const profileLogPath = concreteLogPath(profile.logPath)
+  if (!existingPath || !profileLogPath || !derived?.logPath) {
+    return false
+  }
+  return existingPath.replace(/[\\/]+$/, '') === profileLogPath.replace(/[\\/]+$/, '')
+    && existingPath !== derived.logPath
 }
 
 export const getEnvironmentId = (server: ServerProfile) =>
@@ -169,6 +219,7 @@ export const deriveRuntimeConfig = (
   const restartCommand = existingRestartInvalid ? undefined : existing?.restartCommand
     ?? findCommand(profile, 'restart')
     ?? combineRestartCommand(stopCommand, startCommand)
+  const derivedLogSource = deriveLogSource(profile)
   return {
     id: existing?.id ?? crypto.randomUUID(),
     serviceMappingId: profile.id,
@@ -179,7 +230,9 @@ export const deriveRuntimeConfig = (
     restartCommand,
     stopCommand,
     startCommand,
-    logSource: existing?.logSource ?? deriveLogSource(profile),
+    logSource: shouldRefreshExistingLogSource(existing, profile, derivedLogSource)
+      ? derivedLogSource
+      : (existing?.logSource ?? derivedLogSource),
     statusCommand: existing?.statusCommand,
     healthCheckUrl: existing?.healthCheckUrl
       ?? (profile.startupProbe?.httpProbe?.enabled ? profile.startupProbe.httpProbe.url : undefined),

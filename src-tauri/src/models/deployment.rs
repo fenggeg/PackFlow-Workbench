@@ -141,6 +141,8 @@ pub struct BackupConfig {
 pub struct DeploymentProfile {
     pub id: String,
     pub name: String,
+    #[serde(default = "default_publish_type")]
+    pub publish_type: String,
     #[serde(default)]
     pub project_root: String,
     pub module_id: String,
@@ -179,6 +181,8 @@ pub struct DeploymentProfile {
     #[serde(default)]
     pub backup_config: BackupConfig,
     #[serde(default)]
+    pub frontend_config: Option<FrontendStaticDeployConfig>,
+    #[serde(default)]
     pub deployment_steps: Vec<DeployStep>,
     #[serde(default)]
     pub custom_commands: Vec<DeploymentCustomCommand>,
@@ -186,6 +190,70 @@ pub struct DeploymentProfile {
     pub startup_probe: Option<StartupProbeConfig>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrontendStaticDeployConfig {
+    #[serde(default = "default_frontend_artifact_source_type")]
+    pub artifact_source_type: String,
+    #[serde(default)]
+    pub local_dist_path: Option<String>,
+    #[serde(default)]
+    pub local_archive_path: Option<String>,
+    pub remote_site_dir: String,
+    #[serde(default = "default_frontend_remote_temp_dir")]
+    pub remote_temp_dir: String,
+    #[serde(default = "default_frontend_deploy_mode")]
+    pub deploy_mode: String,
+    #[serde(default = "default_frontend_entry_file")]
+    pub entry_file: String,
+    #[serde(default = "default_true")]
+    pub backup_before_deploy: bool,
+    #[serde(default)]
+    pub remote_backup_dir: Option<String>,
+    #[serde(default)]
+    pub clean_before_deploy: bool,
+    #[serde(default)]
+    pub reload_command: Option<String>,
+    #[serde(default)]
+    pub verify: Option<FrontendVerifyConfig>,
+    #[serde(default)]
+    pub release_config: Option<FrontendReleaseSymlinkConfig>,
+    #[serde(default = "default_true")]
+    pub cleanup_temp_files: bool,
+    #[serde(default)]
+    pub auto_rollback: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrontendVerifyConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default = "default_http_method")]
+    pub method: String,
+    #[serde(default = "default_verify_status_codes")]
+    pub expected_status_codes: Vec<u16>,
+    #[serde(default)]
+    pub expected_body_contains: Option<String>,
+    #[serde(default = "default_frontend_verify_timeout")]
+    pub timeout_seconds: u64,
+    #[serde(default = "default_interval")]
+    pub retry_interval_seconds: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrontendReleaseSymlinkConfig {
+    #[serde(default)]
+    pub releases_dir: String,
+    #[serde(default)]
+    pub current_link_path: String,
+    #[serde(default = "default_keep_releases")]
+    pub keep_releases: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -409,6 +477,38 @@ fn default_log_naming_mode() -> String {
 
 fn default_log_encoding() -> String {
     "UTF-8".to_string()
+}
+
+fn default_publish_type() -> String {
+    "backend_service".to_string()
+}
+
+fn default_frontend_artifact_source_type() -> String {
+    "directory".to_string()
+}
+
+fn default_frontend_remote_temp_dir() -> String {
+    "/tmp/deploy".to_string()
+}
+
+fn default_frontend_deploy_mode() -> String {
+    "backup_then_overwrite".to_string()
+}
+
+fn default_frontend_entry_file() -> String {
+    "index.html".to_string()
+}
+
+fn default_verify_status_codes() -> Vec<u16> {
+    vec![200]
+}
+
+fn default_frontend_verify_timeout() -> u64 {
+    30
+}
+
+fn default_keep_releases() -> u32 {
+    5
 }
 
 fn default_retention_count() -> u32 {

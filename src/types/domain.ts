@@ -648,6 +648,9 @@ export interface ProbeStatusEvent {
 }
 
 export type LogNamingMode = 'date' | 'fixed'
+export type PublishType = 'backend_service' | 'frontend_static'
+export type FrontendArtifactSourceType = 'directory' | 'zip' | 'tar_gz'
+export type FrontendDeployMode = 'overwrite' | 'clean_then_upload' | 'backup_then_overwrite' | 'release_symlink'
 
 export interface BackupConfig {
   enabled: boolean
@@ -657,9 +660,44 @@ export interface BackupConfig {
   restartAfterRollback: boolean
 }
 
+export interface FrontendVerifyConfig {
+  enabled: boolean
+  url: string
+  method: 'GET'
+  expectedStatusCodes: number[]
+  expectedBodyContains?: string
+  timeoutSeconds: number
+  retryIntervalSeconds: number
+}
+
+export interface FrontendReleaseSymlinkConfig {
+  releasesDir: string
+  currentLinkPath: string
+  keepReleases: number
+}
+
+export interface FrontendStaticDeployConfig {
+  artifactSourceType: FrontendArtifactSourceType
+  localDistPath?: string
+  localArchivePath?: string
+  remoteSiteDir: string
+  remoteTempDir: string
+  deployMode: FrontendDeployMode
+  entryFile: string
+  backupBeforeDeploy: boolean
+  remoteBackupDir?: string
+  cleanBeforeDeploy: boolean
+  reloadCommand?: string
+  verify?: FrontendVerifyConfig
+  releaseConfig?: FrontendReleaseSymlinkConfig
+  cleanupTempFiles: boolean
+  autoRollback: boolean
+}
+
 export interface DeploymentProfile {
   id: string
   name: string
+  publishType?: PublishType
   projectRoot: string
   moduleId: string
   modulePath: string
@@ -680,6 +718,7 @@ export interface DeploymentProfile {
   logEncoding?: string
   enableDeployLog: boolean
   backupConfig: BackupConfig
+  frontendConfig?: FrontendStaticDeployConfig
   deploymentSteps: DeployStep[]
   customCommands: DeploymentCustomCommand[]
   startupProbe?: StartupProbeConfig

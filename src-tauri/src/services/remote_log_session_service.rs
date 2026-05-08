@@ -159,12 +159,16 @@ fn build_log_command(
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .ok_or_else(|| "当前服务未配置日志文件路径。".to_string())?;
-            let path_arg = if path.contains('*') {
-                path.to_string()
+            let command = if path.contains('*') {
+                format!("tail -n {} -F {}", tail_lines, path)
             } else {
-                shell_quote(path)
+                format!(
+                    "if [ -d {path} ]; then tail -n {tail_lines} -F {path}/*.log; else tail -n {tail_lines} -F {path}; fi",
+                    path = shell_quote(path),
+                    tail_lines = tail_lines,
+                )
             };
-            Ok(format!("tail -n {} -F {}", tail_lines, path_arg))
+            Ok(command)
         }
         "systemd" => source
             .systemd_unit

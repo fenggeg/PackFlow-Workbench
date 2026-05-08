@@ -100,6 +100,9 @@ export const useServiceOperationStore = create<ServiceOperationState>((set, get)
     const existing = findRuntimeConfig(get().runtimeConfigs, profile, server)
     const derived = deriveRuntimeConfig(profile, server, existing)
     if (existing) {
+      if (JSON.stringify(derived) !== JSON.stringify(existing)) {
+        return get().saveRuntimeConfig(derived)
+      }
       return derived
     }
     return get().saveRuntimeConfig(derived)

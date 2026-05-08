@@ -242,12 +242,12 @@ const mergeDeploymentStages = (record: ReleaseRecord, task: DeploymentTask): Rel
 
 const loadDeploymentProfileForRelease = async (template: ReleaseTemplate) => {
   if (!template.deploymentProfileId) {
-    throw new Error('发布模板未绑定部署中心服务映射，请先选择已有服务映射。')
+    throw new Error('发布模板未绑定部署中心发布映射，请先选择已有发布映射。')
   }
   const profiles = await api.listDeploymentProfiles()
   const profile = profiles.find((item) => item.id === template.deploymentProfileId)
   if (!profile) {
-    throw new Error('发布模板绑定的服务映射不存在或已被删除。')
+    throw new Error('发布模板绑定的发布映射不存在或已被删除。')
   }
   return profile
 }
@@ -412,9 +412,9 @@ export const useReleaseStore = create<ReleaseState>((set, get) => ({
     }
 
     if ((deploymentProfile.deploymentSteps?.length ?? 0) > 0 || (deploymentProfile.customCommands?.length ?? 0) > 0) {
-      updateItem('start_command', 'success', '将使用部署中心服务映射中的部署流程')
+      updateItem('start_command', 'success', '将使用部署中心发布映射中的部署流程')
     } else {
-      updateItem('start_command', 'warning', '服务映射未配置自定义流程，将使用部署中心内置默认流程。')
+      updateItem('start_command', 'warning', '发布映射未配置自定义流程，将使用部署中心内置默认流程。')
     }
 
     const health = deploymentProfile.startupProbe
@@ -437,7 +437,7 @@ export const useReleaseStore = create<ReleaseState>((set, get) => ({
       return
     }
     if (!template.deploymentProfileId) {
-      set({error: '当前发布模板未绑定部署中心服务映射，请先选择已有服务映射。'})
+      set({error: '当前发布模板未绑定部署中心发布映射，请先选择已有发布映射。'})
       return
     }
 

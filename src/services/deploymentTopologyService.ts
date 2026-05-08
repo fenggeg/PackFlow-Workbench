@@ -33,6 +33,10 @@ export const moduleLabel = (modules: MavenModule[], moduleId?: string) => {
 }
 
 export const profileModuleLabel = (modules: MavenModule[], profile: DeploymentProfile) => {
+  if (profile.publishType === 'frontend_static') {
+    return '前端静态资源'
+  }
+
   if (!profile.moduleId && !profile.modulePath) {
     return '全部项目'
   }
@@ -59,6 +63,10 @@ export const artifactMatchesDeploymentProfile = (
   profile: DeploymentProfile,
   modules: MavenModule[],
 ) => {
+  if (profile.publishType === 'frontend_static') {
+    return false
+  }
+
   const matcher = globToRegex(profile.localArtifactPattern || '*')
   if (!matcher.test(artifact.fileName)) {
     return false

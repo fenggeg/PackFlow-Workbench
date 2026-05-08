@@ -1,8 +1,8 @@
 use crate::error::{to_user_error, AppResult};
 use crate::models::deployment::{
-    BackupConfig, DeployStep, DeploymentProfile, DeploymentStage, DeploymentTask, ProbeStatus,
-    ProbeStatusEvent, RollbackResult, ServerPrivilegeConfig, StartDeploymentPayload,
-    StartupProbeConfig, UploadProgressEvent,
+    BackupConfig, DeployStep, DeploymentProfile, DeploymentStage, DeploymentTask,
+    FrontendStaticDeployConfig, ProbeStatus, ProbeStatusEvent, RollbackResult,
+    ServerPrivilegeConfig, StartDeploymentPayload, StartupProbeConfig, UploadProgressEvent,
 };
 use crate::repositories::deployment_repo;
 use crate::services::ssh_transport_service::SshConnection;
@@ -11,7 +11,9 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -61,9 +63,22 @@ impl DeploymentControlState {
 struct DeploymentContext {
     deployment_id: String,
     artifact_path: String,
+    artifact_size: u64,
     artifact_name: String,
     remote_artifact_name: String,
     remote_deploy_path: String,
+    publish_type: String,
+    frontend_remote_temp_dir: Option<String>,
+    frontend_entry_file: Option<String>,
+    frontend_reload_command: Option<String>,
+    frontend_verify_url: Option<String>,
+    frontend_verify_expected_status_codes: Vec<u16>,
+    frontend_verify_expected_body_contains: Option<String>,
+    frontend_release_dir: Option<String>,
+    frontend_releases_dir: Option<String>,
+    frontend_current_link_path: Option<String>,
+    frontend_keep_releases: Option<u32>,
+    frontend_backup_dir: Option<String>,
     remote_upload_dir: String,
     remote_upload_path: String,
     login_user: String,
@@ -270,6 +285,106 @@ pub fn cancel_deployment(app: AppHandle, task_id: String) -> AppResult<()> {
     Ok(())
 }
 
+struct PreparedDeployArtifact {
+    path: PathBuf,
+    cleanup_path: Option<PathBuf>,
+}
+
+impl Drop for PreparedDeployArtifact {
+    fn drop(&mut self) {
+        if let Some(path) = &self.cleanup_path {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
+fn prepare_deploy_artifact(task_id: &str, source_path: &str) -> AppResult<PreparedDeployArtifact> {
+    let source = Path::new(source_path);
+    if !source.exists() {
+        return Err(to_user_error("所选构建产物不存在。"));
+    }
+    if source.is_file() {
+        return Ok(PreparedDeployArtifact {
+            path: source.to_path_buf(),
+            cleanup_path: None,
+        });
+    }
+    if !source.is_dir() {
+        return Err(to_user_error("当前产物既不是文件也不是目录。"));
+    }
+
+    let base_name = source
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("static-dist");
+    let zip_name = format!("{}-{}.zip", sanitize_file_stem(base_name), task_id);
+    let zip_path = std::env::temp_dir().join(zip_name);
+    if zip_path.exists() {
+        let _ = fs::remove_file(&zip_path);
+    }
+    let command = format!(
+        "$src={src}; $dst={dst}; if (!(Test-Path -LiteralPath $src -PathType Container)) {{ exit 2 }}; Compress-Archive -Path (Join-Path $src '*') -DestinationPath $dst -Force",
+        src = powershell_quote(&source.to_string_lossy()),
+        dst = powershell_quote(&zip_path.to_string_lossy()),
+    );
+    let output = Command::new("powershell.exe")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &command])
+        .output()
+        .map_err(|error| to_user_error(format!("压缩静态资源目录失败：{}", error)))?;
+    if !output.status.success() || !zip_path.exists() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        return Err(to_user_error(format!(
+            "压缩静态资源目录失败：{}{}",
+            stderr.trim(),
+            stdout.trim()
+        )));
+    }
+    Ok(PreparedDeployArtifact {
+        path: zip_path.clone(),
+        cleanup_path: Some(zip_path),
+    })
+}
+
+fn sanitize_file_stem(value: &str) -> String {
+    let sanitized: String = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    if sanitized.trim_matches('-').is_empty() {
+        "static-dist".to_string()
+    } else {
+        sanitized
+    }
+}
+
+fn powershell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+fn frontend_release_dir(
+    config: Option<&FrontendStaticDeployConfig>,
+    deployment_id: &str,
+) -> Option<String> {
+    let release = config?.release_config.as_ref()?;
+    let releases_dir = release.releases_dir.trim();
+    if releases_dir.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "{}/{}",
+        normalize_remote_dir(releases_dir),
+        deployment_id
+    ))
+}
+
 fn execute_deployment(
     app: &AppHandle,
     task_id: &str,
@@ -277,17 +392,14 @@ fn execute_deployment(
 ) -> AppResult<DeploymentTask> {
     let profile = deployment_repo::get_deployment_profile(app, &payload.deployment_profile_id)?;
     let server = deployment_repo::get_server_profile_for_execution(app, &payload.server_id)?;
-    let remote_deploy_path = profile.remote_deploy_path.trim();
-    if remote_deploy_path.is_empty() {
-        return Err(to_user_error("远端部署目录不能为空。"));
-    }
-    if remote_deploy_path == "/" {
-        return Err(to_user_error("远端部署目录不能为根目录 /。"));
-    }
-    let artifact_path = Path::new(&payload.local_artifact_path);
+    let prepared_artifact = prepare_deploy_artifact(task_id, &payload.local_artifact_path)?;
+    let artifact_path = prepared_artifact.path.as_path();
     if !artifact_path.exists() {
         return Err(to_user_error("所选构建产物不存在。"));
     }
+    let artifact_size = fs::metadata(artifact_path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
     let artifact_name = artifact_path
         .file_name()
         .and_then(|value| value.to_str())
@@ -311,7 +423,40 @@ fn execute_deployment(
         .filter(|value| !value.trim().is_empty())
         .map(|value| value.to_string());
     let privilege = server.privilege.clone();
-    let remote_deploy_path = normalize_remote_dir(&profile.remote_deploy_path);
+    let publish_type = if profile.publish_type.trim().is_empty() {
+        "backend_service".to_string()
+    } else {
+        profile.publish_type.clone()
+    };
+    let frontend = profile.frontend_config.clone();
+    let configured_remote_deploy_path = if publish_type == "frontend_static" {
+        frontend
+            .as_ref()
+            .map(|config| config.remote_site_dir.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| profile.remote_deploy_path.trim().to_string())
+    } else {
+        profile.remote_deploy_path.trim().to_string()
+    };
+    if configured_remote_deploy_path.is_empty() {
+        return Err(to_user_error("远端部署目录不能为空。"));
+    }
+    if configured_remote_deploy_path == "/" {
+        return Err(to_user_error("远端部署目录不能为根目录 /。"));
+    }
+    let remote_deploy_path = if publish_type == "frontend_static" {
+        frontend
+            .as_ref()
+            .map(|config| normalize_remote_dir(&config.remote_site_dir))
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| normalize_remote_dir(&profile.remote_deploy_path))
+    } else {
+        normalize_remote_dir(&profile.remote_deploy_path)
+    };
+    let frontend_remote_temp_dir = frontend
+        .as_ref()
+        .map(|config| normalize_remote_dir(&config.remote_temp_dir))
+        .filter(|value| !value.trim().is_empty());
     let privilege_enabled = privilege.mode.trim() != "none";
     let (remote_upload_dir, remote_upload_path) = if privilege_enabled {
         let upload_dir = resolve_upload_temp_dir(
@@ -326,6 +471,14 @@ fn execute_deployment(
             normalized_upload_dir.clone(),
             format!("{}/{}", normalized_upload_dir, remote_artifact_name),
         )
+    } else if publish_type == "frontend_static" {
+        let upload_dir = frontend_remote_temp_dir
+            .clone()
+            .unwrap_or_else(|| remote_deploy_path.clone());
+        (
+            upload_dir.clone(),
+            format!("{}/{}", upload_dir, artifact_name),
+        )
     } else {
         (
             remote_deploy_path.clone(),
@@ -334,10 +487,62 @@ fn execute_deployment(
     };
     let context = DeploymentContext {
         deployment_id: task_id.to_string(),
-        artifact_path: payload.local_artifact_path.clone(),
+        artifact_path: artifact_path.to_string_lossy().to_string(),
+        artifact_size,
         artifact_name: artifact_name.clone(),
         remote_artifact_name,
-        remote_deploy_path,
+        remote_deploy_path: remote_deploy_path.clone(),
+        publish_type: publish_type.clone(),
+        frontend_remote_temp_dir,
+        frontend_entry_file: frontend
+            .as_ref()
+            .map(|config| config.entry_file.trim().to_string())
+            .filter(|value| !value.is_empty()),
+        frontend_reload_command: frontend
+            .as_ref()
+            .and_then(|config| non_empty_option(config.reload_command.clone())),
+        frontend_verify_url: frontend
+            .as_ref()
+            .and_then(|config| config.verify.as_ref())
+            .filter(|verify| verify.enabled)
+            .map(|verify| verify.url.trim().to_string())
+            .filter(|value| !value.is_empty()),
+        frontend_verify_expected_status_codes: frontend
+            .as_ref()
+            .and_then(|config| config.verify.as_ref())
+            .map(|verify| verify.expected_status_codes.clone())
+            .filter(|values| !values.is_empty())
+            .unwrap_or_else(|| vec![200]),
+        frontend_verify_expected_body_contains: frontend
+            .as_ref()
+            .and_then(|config| config.verify.as_ref())
+            .and_then(|verify| non_empty_option(verify.expected_body_contains.clone())),
+        frontend_release_dir: frontend_release_dir(frontend.as_ref(), task_id),
+        frontend_releases_dir: frontend
+            .as_ref()
+            .and_then(|config| config.release_config.as_ref())
+            .map(|config| normalize_remote_dir(&config.releases_dir))
+            .filter(|value| !value.trim().is_empty()),
+        frontend_current_link_path: frontend
+            .as_ref()
+            .and_then(|config| config.release_config.as_ref())
+            .map(|config| normalize_remote_dir(&config.current_link_path))
+            .filter(|value| !value.trim().is_empty()),
+        frontend_keep_releases: frontend
+            .as_ref()
+            .and_then(|config| config.release_config.as_ref())
+            .map(|config| config.keep_releases.max(1)),
+        frontend_backup_dir: frontend
+            .as_ref()
+            .and_then(|config| non_empty_option(config.remote_backup_dir.clone()))
+            .map(|value| normalize_remote_dir(&value))
+            .or_else(|| {
+                if publish_type == "frontend_static" {
+                    Some(format!("{}/.packflow/backups", remote_deploy_path))
+                } else {
+                    None
+                }
+            }),
         remote_upload_dir,
         remote_upload_path,
         login_user: server.username.clone(),
@@ -390,6 +595,14 @@ fn execute_deployment(
         None,
         format!("正在连接服务器 {}:{} ...", server.host, server.port),
     );
+    if publish_type == "frontend_static" && prepared_artifact.cleanup_path.is_some() {
+        append_log(
+            app,
+            &mut task,
+            None,
+            format!("本地静态资源目录已压缩为临时包：{}", artifact_path.display()),
+        );
+    }
     emit_task_update(app, &task);
     let mut conn = match SshConnection::connect(&server, || is_cancel_requested(app, task_id)) {
         Ok(conn) => {
@@ -467,7 +680,19 @@ fn execute_deployment(
         }
     }
 
-    if let Some(probe_config) = &profile.startup_probe {
+    if context.publish_type == "frontend_static" {
+        task.status = "success".to_string();
+        append_log(
+            app,
+            &mut task,
+            None,
+            if context.frontend_verify_url.is_some() {
+                "前端静态资源发布完成，访问验证已通过，未执行后端启动探针。".to_string()
+            } else {
+                "前端静态资源发布完成，未配置访问验证，无法确认页面是否可从外部访问。".to_string()
+            },
+        );
+    } else if let Some(probe_config) = &profile.startup_probe {
         if probe_config.enabled {
             match execute_startup_probe(app, &mut conn, &mut task, probe_config, &context, task_id)
             {
@@ -503,7 +728,7 @@ fn execute_deployment(
             app,
             &mut task,
             None,
-            "未配置启动探针，无法确认服务是否真正启动成功。建议在服务映射中配置启动探针。"
+            "未配置启动探针，无法确认服务是否真正启动成功。建议在发布映射中配置启动探针。"
                 .to_string(),
         );
     }
@@ -947,7 +1172,7 @@ fn standard_stop_command() -> String {
 }
 
 fn standard_start_command() -> String {
-    "mkdir -p \"${logDir}\" && cd \"${serviceDir}\" || exit 1; nohup \"${javaBin}\" ${jvmOptions} -jar \"${remoteDeployPath}/${remoteArtifactName}\" ${springProfile} ${extraArgs} > \"${logFile}\" 2>&1 & PID=$!; echo \"$PID\" > \"${pidFile}\"; echo \"${logFile}\" > \"${logPathFile}\"; sleep 1; if ! ps -p \"$PID\" > /dev/null 2>&1; then echo \"服务进程启动后立即退出\"; tail -n 80 \"${logFile}\" 2>/dev/null || true; exit 1; fi; echo \"PID=$PID; LOG_FILE=${logFile}\"".to_string()
+    "mkdir -p \"${logDir}\" \"${remoteDeployPath}/.packflow\" && cd \"${serviceDir}\" || exit 1; nohup \"${javaBin}\" ${jvmOptions} -jar \"${remoteDeployPath}/${remoteArtifactName}\" ${springProfile} ${extraArgs} > \"${logFile}\" 2>&1 & PID=$!; echo \"$PID\" > \"${pidFile}\"; echo \"${logFile}\" > \"${logPathFile}\"; rm -f \"${remoteDeployPath}/${remoteArtifactBaseName}.log.path\"; echo \"PID=$PID; LOG_FILE=${logFile}\"".to_string()
 }
 
 fn stop_port_check_fragment(port: Option<u16>) -> String {
@@ -1356,7 +1581,9 @@ fn legacy_steps_from_custom_commands(
         .rsplit_once('/')
         .map(|(dir, _)| dir.to_string())
         .unwrap_or_else(|| format!("{}/logs", context.remote_deploy_path));
-    let log_path_file = format!("{}/{}.log.path", context.remote_deploy_path, base_name);
+    let log_path_dir = format!("{}/.packflow", context.remote_deploy_path);
+    let log_path_file = format!("{}/{}.log.path", log_path_dir, base_name);
+    let legacy_log_path_file = format!("{}/{}.log.path", context.remote_deploy_path, base_name);
     let java_bin = context.java_bin_path.as_deref().unwrap_or("java");
     let jvm_opts = context.jvm_options.as_deref().unwrap_or("");
     let profile_arg = match &context.spring_profile {
@@ -1373,8 +1600,9 @@ fn legacy_steps_from_custom_commands(
         .unwrap_or(&context.remote_deploy_path);
     let start_command = if context.enable_deploy_log {
         format!(
-            "mkdir -p {log_dir} && cd {app_dir} || exit 1; nohup {java_bin} {jvm_opts} -jar {jar_path}{profile_arg}{extra} > {log_file} 2>&1 & PID=$!; echo \"$PID\" > {pid_file} && echo {log_file_var} > {log_path_file}; sleep 1; if ! ps -p \"$PID\" > /dev/null 2>&1; then echo \"服务进程启动后立即退出\"; tail -n 80 {log_file} 2>/dev/null || true; exit 1; fi; echo PID=$(cat {pid_file}) && echo LOG_FILE=$(cat {log_path_file})",
+            "mkdir -p {log_dir} {log_path_dir} && cd {app_dir} || exit 1; nohup {java_bin} {jvm_opts} -jar {jar_path}{profile_arg}{extra} > {log_file} 2>&1 & PID=$!; echo \"$PID\" > {pid_file} && echo {log_file_var} > {log_path_file}; rm -f {legacy_log_path_file}; echo PID=$(cat {pid_file}) && echo LOG_FILE=$(cat {log_path_file})",
             log_dir = shell_quote(&log_dir),
+            log_path_dir = shell_quote(&log_path_dir),
             app_dir = shell_quote(service_dir),
             java_bin = shell_quote(java_bin),
             jvm_opts = jvm_opts,
@@ -1385,10 +1613,11 @@ fn legacy_steps_from_custom_commands(
             pid_file = shell_quote(&pid_file),
             log_file_var = shell_quote(&log_file),
             log_path_file = shell_quote(&log_path_file),
+            legacy_log_path_file = shell_quote(&legacy_log_path_file),
         )
     } else {
         format!(
-            "cd {app_dir} || exit 1; nohup {java_bin} {jvm_opts} -jar {jar_path}{profile_arg}{extra} > /dev/null 2>&1 & PID=$!; echo \"$PID\" > {pid_file}; sleep 1; if ! ps -p \"$PID\" > /dev/null 2>&1; then echo \"服务进程启动后立即退出\"; exit 1; fi; echo PID=$(cat {pid_file})",
+            "cd {app_dir} || exit 1; nohup {java_bin} {jvm_opts} -jar {jar_path}{profile_arg}{extra} > /dev/null 2>&1 & PID=$!; echo \"$PID\" > {pid_file}; echo PID=$(cat {pid_file})",
             app_dir = shell_quote(service_dir),
             java_bin = shell_quote(java_bin),
             jvm_opts = jvm_opts,
@@ -1629,7 +1858,7 @@ fn create_failed_start_task(
         server_name: None,
         module_id: String::new(),
         artifact_path: payload.local_artifact_path.clone(),
-        artifact_name,
+        artifact_name: artifact_name.clone(),
         status: "failed".to_string(),
         log: vec![error.clone()],
         stages: vec![DeploymentStage {
@@ -1729,6 +1958,97 @@ fn execute_rollback(
 
     append_log(app, task, None, "=== 开始回滚 ===".to_string());
 
+    if context.publish_type == "frontend_static" {
+        rollback.restarted_old_version = None;
+        let rollback_command = if let (Some(current_link), Some(releases_dir)) = (
+            context.frontend_current_link_path.as_deref(),
+            context.frontend_releases_dir.as_deref(),
+        ) {
+            Some(format!(
+                "CURRENT=$(readlink -f {current} 2>/dev/null || true); PREVIOUS=$(ls -1dt {releases}/* 2>/dev/null | while read item; do REAL=$(readlink -f \"$item\" 2>/dev/null || echo \"$item\"); if [ \"$REAL\" != \"$CURRENT\" ]; then echo \"$item\"; break; fi; done); if [ -z \"$PREVIOUS\" ]; then echo \"未找到可回切的历史 release\"; exit 3; fi; ln -sfn \"$PREVIOUS\" {current}; echo \"$PREVIOUS\"",
+                current = shell_quote(current_link),
+                releases = shell_quote(releases_dir),
+            ))
+        } else {
+            context.frontend_backup_dir.as_deref().map(|backup_dir| {
+                let backup_pointer = format!(
+                    "{}/{}.backup.path",
+                    context
+                        .frontend_remote_temp_dir
+                        .as_deref()
+                        .unwrap_or(&context.remote_deploy_path),
+                    context.deployment_id
+                );
+                format!(
+                    "BACKUP=$(cat {pointer} 2>/dev/null || true); if [ -z \"$BACKUP\" ]; then BACKUP=$(ls -1t {backup_dir}/{base}-*.tar.gz 2>/dev/null | head -1); fi; if [ -z \"$BACKUP\" ] || [ ! -f \"$BACKUP\" ]; then echo \"未找到可恢复的静态资源备份\"; exit 3; fi; test -n {site} && test {site} != / && mkdir -p {site} && find {site} -mindepth 1 -maxdepth 1 -exec rm -rf {{}} + && tar -xzf \"$BACKUP\" -C {site}; echo \"$BACKUP\"",
+                    pointer = shell_quote(&backup_pointer),
+                    backup_dir = shell_quote(backup_dir),
+                    base = shell_quote(base_name),
+                    site = shell_quote(&context.remote_deploy_path),
+                )
+            })
+        };
+
+        match rollback_command {
+            Some(command) => match execute_remote_command(conn, context, &command, &[0], || false) {
+                Ok(result) => {
+                    let restored_path = result.output.trim().to_string();
+                    rollback.success = Some(true);
+                    if !restored_path.is_empty() {
+                        rollback.restored_backup_path = Some(restored_path.clone());
+                    }
+                    append_log(
+                        app,
+                        task,
+                        None,
+                        format!(
+                            "回滚：已恢复前端静态资源{}",
+                            if restored_path.is_empty() {
+                                String::new()
+                            } else {
+                                format!("：{}", restored_path)
+                            }
+                        ),
+                    );
+                    if let Some(reload_command) = context.frontend_reload_command.as_deref() {
+                        match execute_remote_command(conn, context, reload_command, &[0], || false) {
+                            Ok(_) => append_log(app, task, None, "回滚：已执行 reload 命令".to_string()),
+                            Err(error) => append_log(
+                                app,
+                                task,
+                                None,
+                                format!("回滚：reload 命令执行失败：{}", error),
+                            ),
+                        }
+                    }
+                }
+                Err(error) => {
+                    rollback.message = Some(format!("前端静态资源回滚失败：{}", error));
+                    append_log(
+                        app,
+                        task,
+                        None,
+                        format!("回滚：前端静态资源恢复失败：{}", error),
+                    );
+                }
+            },
+            None => {
+                rollback.message = Some("未配置可用的前端回滚方式".to_string());
+                append_log(
+                    app,
+                    task,
+                    None,
+                    "回滚：未配置备份目录或 release 软链接，无法自动恢复前端静态资源".to_string(),
+                );
+            }
+        }
+
+        append_log(app, task, None, "=== 回滚结束 ===".to_string());
+        task.rollback_result = Some(rollback);
+        emit_task_update(app, task);
+        return;
+    }
+
     let stop_cmd = stop_service_command(
         &shell_quote(&pid_file),
         &shell_quote(&target_path),
@@ -1793,7 +2113,9 @@ fn execute_rollback(
             "{}/{}-rollback-$(date +%Y%m%d%H%M%S).log",
             log_dir, base_name
         );
-        let log_path_file = format!("{}/{}.log.path", context.remote_deploy_path, base_name);
+        let log_path_dir = format!("{}/.packflow", context.remote_deploy_path);
+        let log_path_file = format!("{}/{}.log.path", log_path_dir, base_name);
+        let legacy_log_path_file = format!("{}/{}.log.path", context.remote_deploy_path, base_name);
         let java_bin = context.java_bin_path.as_deref().unwrap_or("java");
         let jvm_opts = context.jvm_options.as_deref().unwrap_or("");
         let profile_arg = match &context.spring_profile {
@@ -1809,8 +2131,9 @@ fn execute_rollback(
             .as_deref()
             .unwrap_or(&context.remote_deploy_path);
         let restart_cmd = format!(
-            "mkdir -p {log_dir} && cd {app_dir} || exit 1; nohup {java_bin} {jvm_opts} -jar {jar_path}{profile_arg}{extra} > {log_file} 2>&1 & PID=$!; echo \"$PID\" > {pid_file} && echo {log_file_var} > {log_path_file}; sleep 1; if ! ps -p \"$PID\" > /dev/null 2>&1; then echo \"回滚服务进程启动后立即退出\"; tail -n 80 {log_file} 2>/dev/null || true; exit 1; fi",
+            "mkdir -p {log_dir} {log_path_dir} && cd {app_dir} || exit 1; nohup {java_bin} {jvm_opts} -jar {jar_path}{profile_arg}{extra} > {log_file} 2>&1 & PID=$!; echo \"$PID\" > {pid_file} && echo {log_file_var} > {log_path_file}; rm -f {legacy_log_path_file}; echo PID=$(cat {pid_file}) && echo LOG_FILE=$(cat {log_path_file})",
             log_dir = shell_quote(&log_dir),
+            log_path_dir = shell_quote(&log_path_dir),
             app_dir = shell_quote(service_dir),
             java_bin = shell_quote(java_bin),
             jvm_opts = jvm_opts,
@@ -1821,6 +2144,7 @@ fn execute_rollback(
             pid_file = shell_quote(&pid_file),
             log_file_var = shell_quote(&log_file),
             log_path_file = shell_quote(&log_path_file),
+            legacy_log_path_file = shell_quote(&legacy_log_path_file),
         );
         match execute_remote_command(conn, context, &restart_cmd, &[0], || false) {
             Ok(_) => {
@@ -2022,11 +2346,45 @@ fn expand_tokens(value: &str, context: &DeploymentContext) -> String {
         .unwrap_or(&context.remote_deploy_path)
         .to_string();
     let pid_file = format!("{}/{}.pid", context.remote_deploy_path, base_name);
-    let log_path_file = format!("{}/{}.log.path", context.remote_deploy_path, base_name);
+    let log_path_file = format!(
+        "{}/.packflow/{}.log.path",
+        context.remote_deploy_path, base_name
+    );
     let port_probe_port = context
         .port_probe_port
         .map(|port| port.to_string())
         .unwrap_or_default();
+    let remote_temp_dir = context
+        .frontend_remote_temp_dir
+        .as_deref()
+        .unwrap_or(&context.remote_deploy_path);
+    let frontend_entry_file = context
+        .frontend_entry_file
+        .as_deref()
+        .unwrap_or("index.html");
+    let frontend_reload_command = context.frontend_reload_command.as_deref().unwrap_or("");
+    let frontend_verify_url = context.frontend_verify_url.as_deref().unwrap_or("");
+    let frontend_verify_codes = context
+        .frontend_verify_expected_status_codes
+        .iter()
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let frontend_verify_body = context
+        .frontend_verify_expected_body_contains
+        .as_deref()
+        .unwrap_or("");
+    let frontend_release_dir = context.frontend_release_dir.as_deref().unwrap_or("");
+    let frontend_releases_dir = context.frontend_releases_dir.as_deref().unwrap_or("");
+    let frontend_current_link_path = context
+        .frontend_current_link_path
+        .as_deref()
+        .unwrap_or("");
+    let frontend_keep_releases = context
+        .frontend_keep_releases
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "5".to_string());
+    let frontend_backup_dir = context.frontend_backup_dir.as_deref().unwrap_or("");
     let resolved_upload_path = if uses_privilege(context) {
         value
             .replace(
@@ -2052,9 +2410,22 @@ fn expand_tokens(value: &str, context: &DeploymentContext) -> String {
         .replace("${remoteArtifactName}", &context.remote_artifact_name)
         .replace("${remoteArtifactBaseName}", base_name)
         .replace("${remoteDeployPath}", &context.remote_deploy_path)
+        .replace("${remoteSiteDir}", &context.remote_deploy_path)
+        .replace("${remoteTempDir}", remote_temp_dir)
         .replace("${remoteUploadDir}", &context.remote_upload_dir)
         .replace("${remoteUploadPath}", &context.remote_upload_path)
         .replace("${deploymentId}", &context.deployment_id)
+        .replace("${localArtifactSize}", &context.artifact_size.to_string())
+        .replace("${entryFile}", frontend_entry_file)
+        .replace("${reloadCommand}", frontend_reload_command)
+        .replace("${verifyUrl}", frontend_verify_url)
+        .replace("${verifyExpectedStatusCodes}", &frontend_verify_codes)
+        .replace("${verifyExpectedBodyContains}", frontend_verify_body)
+        .replace("${releaseDir}", frontend_release_dir)
+        .replace("${releasesDir}", frontend_releases_dir)
+        .replace("${currentLinkPath}", frontend_current_link_path)
+        .replace("${keepReleases}", &frontend_keep_releases)
+        .replace("${remoteBackupDir}", frontend_backup_dir)
         .replace("${loginUser}", &context.login_user)
         .replace("${runAsUser}", &context.privilege.run_as_user)
         .replace("${date}", &today)

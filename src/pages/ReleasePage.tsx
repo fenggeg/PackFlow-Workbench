@@ -289,8 +289,8 @@ export function ReleasePage() {
     const templateToSave = createTemplateForSave()
     if (!templateToSave.deploymentProfileId) {
       Modal.warning({
-        title: '请选择服务映射',
-        content: '发布模板需要引用部署中心已有服务映射，不会自动创建新的服务映射。',
+        title: '请选择发布映射',
+        content: '发布模板需要引用部署中心已有发布映射，不会自动创建新的发布映射。',
         okText: '知道了',
       })
       setActiveStep(2)
@@ -483,7 +483,7 @@ export function ReleasePage() {
                       disabled={Boolean(selectedDeploymentProfile)}
                       value={selectedDeploymentProfile?.localArtifactPattern ?? draft.artifactPattern}
                       onChange={(event) => patchDraft({artifactPattern: event.target.value})}
-                      placeholder="先在部署中心服务映射中维护"
+                      placeholder="先在部署中心发布映射中维护"
                     />
                   </div>
                 </div>
@@ -535,34 +535,34 @@ export function ReleasePage() {
             {activeStep === 2 ? (
               <div className="step-card-body">
                 <div className="step-field step-field-full">
-                  <Text type="secondary">部署中心服务映射</Text>
+                  <Text type="secondary">部署中心发布映射</Text>
                   <Select
-                    placeholder="选择已有服务映射"
+                    placeholder="选择已有发布映射"
                     value={draft.deploymentProfileId}
                     options={currentProjectDeploymentProfiles.map((profile) => ({
                       label: `${profile.name} · ${profile.moduleArtifactId || profile.modulePath || '未绑定模块'} · ${profile.remoteDeployPath}`,
                       value: profile.id,
                     }))}
                     onChange={applyDeploymentProfile}
-                    notFoundContent="当前项目暂无服务映射，请先到部署中心创建。"
+                    notFoundContent="当前项目暂无发布映射，请先到部署中心创建。"
                   />
                   <Text type="secondary" style={{fontSize: 12}}>
-                    发布模板只引用这里的服务映射；远程目录、上传替换流程、启停命令、健康检查都继续在部署中心维护。
+                    发布模板只引用这里的发布映射；远程目录、上传替换流程、启停命令、健康检查都继续在部署中心维护。
                   </Text>
                 </div>
                 {selectedDeploymentProfile ? (
                   <Alert
                     type="info"
                     showIcon
-                    message={`已引用服务映射：${selectedDeploymentProfile.name}`}
+                    message={`已引用发布映射：${selectedDeploymentProfile.name}`}
                     description={`模块：${selectedDeploymentProfile.moduleArtifactId || selectedDeploymentProfile.modulePath || '-'}；远程目录：${selectedDeploymentProfile.remoteDeployPath || '-'}；产物规则：${selectedDeploymentProfile.localArtifactPattern || '*.jar'}；部署步骤：${selectedDeploymentProfile.deploymentSteps?.filter((step) => step.enabled).length ?? 0} 个`}
                   />
                 ) : (
                   <Alert
                     type="warning"
                     showIcon
-                    message="发布模板还没有引用服务映射"
-                    description="请先在部署中心创建或选择已有服务映射。发布向导不会再自动创建服务映射。"
+                    message="发布模板还没有引用发布映射"
+                    description="请先在部署中心创建或选择已有发布映射。发布向导不会再自动创建发布映射。"
                   />
                 )}
                 <div className="step-field">
@@ -604,7 +604,7 @@ export function ReleasePage() {
                 </div>
                 <div className="step-field">
                   <Text type="secondary">远程部署目录</Text>
-                  <Input disabled value={selectedDeploymentProfile?.remoteDeployPath ?? draft.remoteDeployDir} placeholder="来自服务映射" />
+                  <Input disabled value={selectedDeploymentProfile?.remoteDeployPath ?? draft.remoteDeployDir} placeholder="来自发布映射" />
                 </div>
               </div>
             ) : null}
@@ -614,8 +614,8 @@ export function ReleasePage() {
                 <Alert
                   type="info"
                   showIcon
-                  message="健康检查和日志观察来自部署中心服务映射"
-                  description="这里展示当前引用服务映射中的关键配置。需要调整探针、日志路径或部署步骤时，请到部署中心编辑服务映射。"
+                  message="健康检查和日志观察来自部署中心发布映射"
+                  description="这里展示当前引用发布映射中的关键配置。需要调整探针、日志路径或部署步骤时，请到部署中心编辑发布映射。"
                 />
                 <div className="step-field">
                   <Checkbox

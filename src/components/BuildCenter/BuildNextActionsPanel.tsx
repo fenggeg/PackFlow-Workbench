@@ -123,12 +123,12 @@ export function BuildNextActionsPanel() {
           <div className="next-action-deploy">
             <Space direction="vertical" size={10} style={{width: '100%'}}>
               <Space size={8} wrap>
-                <Tag color="green">已有服务映射</Tag>
+                <Tag color="green">已有发布映射</Tag>
                 <Text strong>可直接部署到测试环境</Text>
               </Space>
               <Space wrap>
                 <Select
-                  placeholder="服务映射"
+                  placeholder="发布映射"
                   style={{minWidth: 220}}
                   value={effectiveDeploymentProfileId}
                   options={mappedProfiles.map((profile) => ({label: profile.name, value: profile.id}))}
@@ -188,8 +188,8 @@ export function BuildNextActionsPanel() {
             type="info"
             showIcon
             icon={<SettingOutlined />}
-            message="未找到当前产物的服务映射"
-            description="请在部署中心的“服务映射”中绑定模块、产物规则、服务名称和部署配置。"
+            message="未找到当前产物的后端发布映射"
+            description="请在部署中心的“发布映射”中绑定模块、产物规则、服务名称和部署配置。"
           />
         )}
 
