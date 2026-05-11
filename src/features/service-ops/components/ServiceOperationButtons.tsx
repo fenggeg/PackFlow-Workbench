@@ -1,13 +1,14 @@
-import {FileTextOutlined, HeartOutlined, PoweroffOutlined, RocketOutlined, SettingOutlined} from '@ant-design/icons'
-import {App, Button, Space, Tooltip} from 'antd'
-import {useState} from 'react'
-import type {DeploymentProfile, ServerProfile, ServiceRuntimeConfig} from '../../../types/domain'
-import {useNavigationStore} from '../../../store/navigationStore'
-import {hasLogSource, hasRestartCommand} from '../services/serviceRuntimeConfigService'
-import {useRemoteLogSessionStore} from '../stores/remoteLogSessionStore'
-import {useServiceOperationStore} from '../stores/serviceOperationStore'
-import {RestartConfirmDialog} from './RestartConfirmDialog'
-import {ServiceRuntimeConfigEditor} from './ServiceRuntimeConfigEditor'
+import {useState} from "react"
+import {Button} from "@/components/ui/button"
+import {Tooltip, TooltipContent, TooltipTrigger,} from "@/components/ui/tooltip"
+import {FileText, Heart, Loader2, Power, Rocket, Settings,} from "lucide-react"
+import type {DeploymentProfile, ServerProfile, ServiceRuntimeConfig,} from "../../../types/domain"
+import {useNavigationStore} from "../../../store/navigationStore"
+import {hasLogSource, hasRestartCommand,} from "../services/serviceRuntimeConfigService"
+import {useRemoteLogSessionStore} from "../stores/remoteLogSessionStore"
+import {useServiceOperationStore} from "../stores/serviceOperationStore"
+import {RestartConfirmDialog} from "./RestartConfirmDialog"
+import {ServiceRuntimeConfigEditor} from "./ServiceRuntimeConfigEditor"
 
 interface ServiceOperationButtonsProps {
   profile: DeploymentProfile
@@ -24,21 +25,34 @@ export function ServiceOperationButtons({
   onConfigSaved,
   onDeploy,
 }: ServiceOperationButtonsProps) {
-  const {message} = App.useApp()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [configOpen, setConfigOpen] = useState(false)
   const [working, setWorking] = useState(false)
-  const saveRuntimeConfig = useServiceOperationStore((state) => state.saveRuntimeConfig)
-  const startRestart = useServiceOperationStore((state) => state.startRestart)
-  const startHealthCheck = useServiceOperationStore((state) => state.startHealthCheck)
-  const openLogSession = useRemoteLogSessionStore((state) => state.openSession)
-  const setInspectorOpen = useNavigationStore((state) => state.setInspectorOpen)
-  const setInspectorTab = useNavigationStore((state) => state.setInspectorTab)
-  const setInspectorLogSource = useNavigationStore((state) => state.setInspectorLogSource)
+  const saveRuntimeConfig = useServiceOperationStore(
+    (state) => state.saveRuntimeConfig,
+  )
+  const startRestart = useServiceOperationStore(
+    (state) => state.startRestart,
+  )
+  const startHealthCheck = useServiceOperationStore(
+    (state) => state.startHealthCheck,
+  )
+  const openLogSession = useRemoteLogSessionStore(
+    (state) => state.openSession,
+  )
+  const setInspectorOpen = useNavigationStore(
+    (state) => state.setInspectorOpen,
+  )
+  const setInspectorTab = useNavigationStore(
+    (state) => state.setInspectorTab,
+  )
+  const setInspectorLogSource = useNavigationStore(
+    (state) => state.setInspectorLogSource,
+  )
 
-  const openInspector = (source: 'serviceOps' | 'remoteLog') => {
+  const openInspector = (source: "serviceOps" | "remoteLog") => {
     setInspectorLogSource(source)
-    setInspectorTab('logs')
+    setInspectorTab("logs")
     setInspectorOpen(true)
   }
 
@@ -47,15 +61,17 @@ export function ServiceOperationButtons({
       const saved = await saveRuntimeConfig(nextConfig)
       onConfigSaved?.(saved)
       setConfigOpen(false)
-      message.success('服务运行配置已保存')
+      console.log("服务运行配置已保存")
     } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error))
+      console.error(error instanceof Error ? error.message : String(error))
     }
   }
 
   const handleRestart = async () => {
     if (!hasRestartCommand(config)) {
-      message.warning('当前服务未配置重启命令，请先配置 restartCommand 或 stopCommand + startCommand。')
+      console.warn(
+        "当前服务未配置重启命令，请先配置 restartCommand 或 stopCommand + startCommand。",
+      )
       setConfigOpen(true)
       return
     }
@@ -67,9 +83,9 @@ export function ServiceOperationButtons({
     try {
       await startRestart(config)
       setConfirmOpen(false)
-      openInspector('serviceOps')
+      openInspector("serviceOps")
     } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error))
+      console.error(error instanceof Error ? error.message : String(error))
     } finally {
       setWorking(false)
     }
@@ -77,7 +93,9 @@ export function ServiceOperationButtons({
 
   const handleOpenLog = async () => {
     if (!hasLogSource(config)) {
-      message.warning('当前服务未配置日志来源，请先配置日志路径、systemd、Docker 或自定义命令。')
+      console.warn(
+        "当前服务未配置日志来源，请先配置日志路径、systemd、Docker 或自定义命令。",
+      )
       setConfigOpen(true)
       return
     }
@@ -86,9 +104,9 @@ export function ServiceOperationButtons({
       const saved = await saveRuntimeConfig(config)
       onConfigSaved?.(saved)
       await openLogSession(saved)
-      openInspector('remoteLog')
+      openInspector("remoteLog")
     } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error))
+      console.error(error instanceof Error ? error.message : String(error))
     } finally {
       setWorking(false)
     }
@@ -98,66 +116,100 @@ export function ServiceOperationButtons({
     setWorking(true)
     try {
       await startHealthCheck(config)
-      openInspector('serviceOps')
+      openInspector("serviceOps")
     } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error))
+      console.error(error instanceof Error ? error.message : String(error))
     } finally {
       setWorking(false)
     }
   }
 
+  const LoadingIcon = working ? Loader2 : undefined
+
   return (
     <>
-      <Space size={4} wrap className="service-operation-buttons">
-        <Tooltip title="重启服务">
-          <Button
-            size="small"
-            type="text"
-            aria-label="重启服务"
-            icon={<PoweroffOutlined />}
-            loading={working}
-            onClick={() => void handleRestart()}
-          />
+      <div className="flex flex-wrap gap-1 service-operation-buttons">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label="重启服务"
+              disabled={working}
+              onClick={() => void handleRestart()}
+            >
+              {working ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Power className="h-4 w-4" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>重启服务</TooltipContent>
         </Tooltip>
-        <Tooltip title="查看远程日志">
-          <Button
-            size="small"
-            type="text"
-            aria-label="查看远程日志"
-            icon={<FileTextOutlined />}
-            loading={working}
-            onClick={() => void handleOpenLog()}
-          />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label="查看远程日志"
+              disabled={working}
+              onClick={() => void handleOpenLog()}
+            >
+              {working ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FileText className="h-4 w-4" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>查看远程日志</TooltipContent>
         </Tooltip>
-        <Tooltip title="健康检查">
-          <Button
-            size="small"
-            type="text"
-            aria-label="健康检查"
-            icon={<HeartOutlined />}
-            loading={working}
-            onClick={() => void handleHealthCheck()}
-          />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label="健康检查"
+              disabled={working}
+              onClick={() => void handleHealthCheck()}
+            >
+              {working ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Heart className="h-4 w-4" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>健康检查</TooltipContent>
         </Tooltip>
-        <Tooltip title="部署服务">
-          <Button
-            size="small"
-            type="text"
-            aria-label="部署服务"
-            icon={<RocketOutlined />}
-            onClick={onDeploy}
-          />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label="部署服务"
+              onClick={onDeploy}
+            >
+              <Rocket className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>部署服务</TooltipContent>
         </Tooltip>
-        <Tooltip title="服务运行配置">
-          <Button
-            size="small"
-            type="text"
-            aria-label="服务运行配置"
-            icon={<SettingOutlined />}
-            onClick={() => setConfigOpen(true)}
-          />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label="服务运行配置"
+              onClick={() => setConfigOpen(true)}
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>服务运行配置</TooltipContent>
         </Tooltip>
-      </Space>
+      </div>
       {confirmOpen ? (
         <RestartConfirmDialog
           open={confirmOpen}
@@ -171,7 +223,7 @@ export function ServiceOperationButtons({
       {configOpen ? (
         <ServiceRuntimeConfigEditor
           open={configOpen}
-          config={{...config, deploymentProfileId: profile.id}}
+          config={{ ...config, deploymentProfileId: profile.id }}
           onCancel={() => setConfigOpen(false)}
           onSave={(nextConfig) => void saveConfig(nextConfig)}
         />

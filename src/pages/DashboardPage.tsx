@@ -1,29 +1,22 @@
-import {Alert, Button, Card, Col, Empty, List, Row, Space, Tag, Typography,} from 'antd'
-import {
-  CloudServerOutlined,
-  DatabaseOutlined,
-  FileSearchOutlined,
-  PlayCircleOutlined,
-  ReloadOutlined,
-  RocketOutlined,
-} from '@ant-design/icons'
+import {Badge} from '@/components/ui/badge'
+import {Button} from '@/components/ui/button'
+import {Card, CardContent, CardHeader, CardTitle,} from '@/components/ui/card'
+import {AlertTriangle, Database, FileSearch, Play, RefreshCw, Rocket, Server,} from 'lucide-react'
 import {useMemo} from 'react'
 import {useAppStore} from '../store/useAppStore'
 import {useNavigationStore} from '../store/navigationStore'
 import {useReleaseStore} from '../store/useReleaseStore'
 import {useWorkflowStore} from '../store/useWorkflowStore'
 
-const {Title, Text} = Typography
-
 const releaseStatusMeta = (status: string) => {
   switch (status) {
-    case 'success': return {label: '成功', color: 'green'}
-    case 'failed': return {label: '失败', color: 'red'}
-    case 'cancelled': return {label: '已取消', color: 'default'}
-    case 'building': return {label: '构建中', color: 'processing'}
-    case 'deploying': return {label: '部署中', color: 'processing'}
-    case 'checking': return {label: '验证中', color: 'processing'}
-    default: return {label: '进行中', color: 'blue'}
+    case 'success': return { label: '成功', className: 'bg-green-500 text-white' }
+    case 'failed': return { label: '失败', className: 'bg-red-500 text-white' }
+    case 'cancelled': return { label: '已取消', className: 'bg-secondary text-secondary-foreground' }
+    case 'building': return { label: '构建中', className: 'bg-blue-500 text-white animate-pulse' }
+    case 'deploying': return { label: '部署中', className: 'bg-blue-500 text-white animate-pulse' }
+    case 'checking': return { label: '验证中', className: 'bg-blue-500 text-white animate-pulse' }
+    default: return { label: '进行中', className: 'bg-blue-500 text-white' }
   }
 }
 
@@ -59,124 +52,161 @@ export function DashboardPage() {
     <main className="workspace-page">
       <div className="workspace-heading">
         <div>
-          <Title level={3}>首页 Dashboard</Title>
-          <Text type="secondary">围绕一键发布闭环聚合模板、历史、环境和正在运行的任务。</Text>
+          <h3 className="text-xl font-semibold">首页 Dashboard</h3>
+          <p className="text-sm text-muted-foreground">围绕一键发布闭环聚合模板、历史、环境和正在运行的任务。</p>
         </div>
-        <Button type="primary" icon={<RocketOutlined />} onClick={() => setActivePage('release')}>
+        <Button onClick={() => setActivePage('release')}>
+          <Rocket className="mr-1.5 h-4 w-4" />
           一键发布
         </Button>
       </div>
 
-      <Row gutter={[16, 16]}>
-        <Col xs={24} xl={12}>
-          <Card title="常用发布模板" className="panel-card">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">常用发布模板</CardTitle>
+          </CardHeader>
+          <CardContent>
             {favoriteTemplates.length === 0 ? (
-              <Empty description="暂无发布模板" image={Empty.PRESENTED_IMAGE_SIMPLE}>
-                <Button type="primary" icon={<RocketOutlined />} onClick={() => setActivePage('release')}>
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <p className="mb-3">暂无发布模板</p>
+                <Button onClick={() => setActivePage('release')}>
+                  <Rocket className="mr-1.5 h-4 w-4" />
                   创建发布模板
                 </Button>
-              </Empty>
+              </div>
             ) : (
-              <List
-                dataSource={favoriteTemplates}
-                renderItem={(template) => (
-                  <List.Item
-                    actions={[
-                      <Button
-                        key="run"
-                        type="primary"
-                        size="small"
-                        icon={<PlayCircleOutlined />}
-                        loading={runningRelease && Boolean(template.targetServerId)}
-                        onClick={() => {
-                          if (targetBindingMode(template.targetServerId, template.targetBindingMode) === 'runtime') {
-                            setActivePage('release')
-                            return
-                          }
-                          void startRelease(template)
-                        }}
-                      >
-                        {targetBindingMode(template.targetServerId, template.targetBindingMode) === 'runtime' ? '选择服务器' : '发布'}
-                      </Button>,
-                    ]}
-                  >
-                    <List.Item.Meta
-                      title={template.name}
-                      description={`${template.moduleName} → ${targetBindingMode(template.targetServerId, template.targetBindingMode) === 'runtime' ? '发布时选择服务器' : serverProfiles.find((server) => server.id === template.targetServerId)?.name ?? '目标服务器'} · ${template.remoteDeployDir}`}
-                    />
-                  </List.Item>
-                )}
-              />
+              <div className="divide-y">
+                {favoriteTemplates.map((template) => (
+                  <div key={template.id ?? template.name} className="flex items-center justify-between py-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium">{template.name}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {`${template.moduleName} → ${targetBindingMode(template.targetServerId, template.targetBindingMode) === 'runtime' ? '发布时选择服务器' : serverProfiles.find((server) => server.id === template.targetServerId)?.name ?? '目标服务器'} · ${template.remoteDeployDir}`}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      className="ml-3 shrink-0"
+                      disabled={runningRelease && Boolean(template.targetServerId)}
+                      onClick={() => {
+                        if (targetBindingMode(template.targetServerId, template.targetBindingMode) === 'runtime') {
+                          setActivePage('release')
+                          return
+                        }
+                        void startRelease(template)
+                      }}
+                    >
+                      <Play className="mr-1 h-3.5 w-3.5" />
+                      {targetBindingMode(template.targetServerId, template.targetBindingMode) === 'runtime' ? '选择服务器' : '发布'}
+                    </Button>
+                  </div>
+                ))}
+              </div>
             )}
-          </Card>
-        </Col>
+          </CardContent>
+        </Card>
 
-        <Col xs={24} xl={12}>
-          <Card title="最近发布记录" className="panel-card">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">最近发布记录</CardTitle>
+          </CardHeader>
+          <CardContent>
             {recentRecords.length === 0 ? (
-              <Empty description="暂无发布历史" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <p>暂无发布历史</p>
+              </div>
             ) : (
-              <List
-                dataSource={recentRecords}
-                renderItem={(record) => {
+              <div className="divide-y">
+                {recentRecords.map((record) => {
                   const meta = releaseStatusMeta(record.status)
                   return (
-                    <List.Item>
-                      <List.Item.Meta
-                        title={(
-                          <Space size={8} wrap>
-                            <Tag color={meta.color}>{meta.label}</Tag>
-                            <Text>{record.moduleName}</Text>
-                          </Space>
-                        )}
-                        description={`${new Date(record.startedAt).toLocaleString()} · ${record.gitBranch ?? '未记录分支'} · ${record.failureSummary ?? record.artifactPath ?? '链路已记录'}`}
-                      />
-                    </List.Item>
+                    <div key={record.id} className="py-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge className={meta.className}>{meta.label}</Badge>
+                        <span className="text-sm">{record.moduleName}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {`${new Date(record.startedAt).toLocaleString()} · ${record.gitBranch ?? '未记录分支'} · ${record.failureSummary ?? record.artifactPath ?? '链路已记录'}`}
+                      </p>
+                    </div>
                   )
-                }}
-              />
+                })}
+              </div>
             )}
-          </Card>
-        </Col>
+          </CardContent>
+        </Card>
 
-        <Col xs={24} md={12}>
-          <Card title="当前环境状态" className="panel-card">
-            <Space direction="vertical" size={8} style={{width: '100%'}}>
-              <Text>项目：{project?.artifactId ?? '未选择'}</Text>
-              <Text type="secondary" ellipsis title={project?.rootPath}>{project?.rootPath ?? '选择项目后显示路径'}</Text>
-              <Space wrap>
-                <Tag color={environment?.status === 'ok' ? 'green' : environment?.status === 'error' ? 'red' : 'gold'}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">当前环境状态</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col gap-2 text-sm">
+              <span>项目：{project?.artifactId ?? '未选择'}</span>
+              <span className="text-muted-foreground truncate" title={project?.rootPath}>
+                {project?.rootPath ?? '选择项目后显示路径'}
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                <Badge className={environment?.status === 'ok' ? 'bg-green-500 text-white' : environment?.status === 'error' ? 'bg-red-500 text-white' : 'bg-amber-500 text-white'}>
                   {environment?.status === 'ok' ? '环境正常' : environment?.status === 'error' ? '环境异常' : '待检查'}
-                </Tag>
-                <Tag>JDK：{environment?.javaVersion ?? '未识别'}</Tag>
-                <Tag>Maven：{environment?.mavenVersion ?? (environment?.hasMavenWrapper ? 'mvnw' : '未识别')}</Tag>
-              </Space>
+                </Badge>
+                <Badge variant="secondary">JDK：{environment?.javaVersion ?? '未识别'}</Badge>
+                <Badge variant="secondary">Maven：{environment?.mavenVersion ?? (environment?.hasMavenWrapper ? 'mvnw' : '未识别')}</Badge>
+              </div>
               {environment?.errors?.length ? (
-                <Alert type="warning" showIcon message={environment.errors.join('；')} />
+                <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                  <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span>{environment.errors.join('；')}</span>
+                </div>
               ) : null}
-            </Space>
-          </Card>
-        </Col>
+            </div>
+          </CardContent>
+        </Card>
 
-        <Col xs={24} md={12}>
-          <Card title="正在运行任务" className="panel-card">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">正在运行任务</CardTitle>
+          </CardHeader>
+          <CardContent>
             {runningTasks.length === 0 ? (
-              <Empty description="当前没有运行中的构建、发布或部署任务" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <p>当前没有运行中的构建、发布或部署任务</p>
+              </div>
             ) : (
-              <List dataSource={runningTasks} renderItem={(item) => <List.Item><Tag color="processing">{item}</Tag></List.Item>} />
+              <div className="flex flex-col gap-2">
+                {runningTasks.map((item) => (
+                  <Badge key={item} className="bg-blue-500 text-white animate-pulse w-fit">{item}</Badge>
+                ))}
+              </div>
             )}
-          </Card>
-        </Col>
+          </CardContent>
+        </Card>
 
-        <Col xs={24}>
-          <Card title="快捷操作" className="panel-card">
-            <Space wrap>
-              <Button type="primary" icon={<RocketOutlined />} onClick={() => setActivePage('release')}>一键发布</Button>
-              <Button icon={<DatabaseOutlined />} onClick={() => setActivePage('build')}>仅打包</Button>
-              <Button icon={<CloudServerOutlined />} onClick={() => navigateToDeployment()}>仅部署</Button>
-              <Button icon={<FileSearchOutlined />} onClick={() => setActivePage('servers')}>查看日志</Button>
+        <Card className="xl:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-base">快捷操作</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => setActivePage('release')}>
+                <Rocket className="mr-1.5 h-4 w-4" />
+                一键发布
+              </Button>
+              <Button variant="outline" onClick={() => setActivePage('build')}>
+                <Database className="mr-1.5 h-4 w-4" />
+                仅打包
+              </Button>
+              <Button variant="outline" onClick={() => navigateToDeployment()}>
+                <Server className="mr-1.5 h-4 w-4" />
+                仅部署
+              </Button>
+              <Button variant="outline" onClick={() => setActivePage('servers')}>
+                <FileSearch className="mr-1.5 h-4 w-4" />
+                查看日志
+              </Button>
               <Button
-                icon={<ReloadOutlined />}
+                variant="outline"
                 disabled={serverProfiles.length === 0}
                 onClick={() => {
                   const firstServer = serverProfiles[0]
@@ -185,12 +215,13 @@ export function DashboardPage() {
                   }
                 }}
               >
+                <RefreshCw className="mr-1.5 h-4 w-4" />
                 重启服务
               </Button>
-            </Space>
-          </Card>
-        </Col>
-      </Row>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </main>
   )
 }

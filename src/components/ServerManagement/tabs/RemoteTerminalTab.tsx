@@ -1,13 +1,12 @@
-import {Button, Card, message, Space, Typography} from 'antd'
-import {CodeOutlined, ReloadOutlined} from '@ant-design/icons'
-import {useCallback, useEffect, useRef, useState} from 'react'
-import {Terminal} from 'xterm'
-import {FitAddon} from 'xterm-addon-fit'
-import 'xterm/css/xterm.css'
-import {api} from '../../../services/tauri-api'
-import type {ServerProfile} from '../../../types/domain'
-
-const {Text} = Typography
+import {Button} from "@/components/ui/button"
+import {Card, CardContent, CardHeader, CardTitle} from "@/components/ui/card"
+import {Code, RefreshCw} from "lucide-react"
+import {useCallback, useEffect, useRef, useState} from "react"
+import {Terminal} from "xterm"
+import {FitAddon} from "xterm-addon-fit"
+import "xterm/css/xterm.css"
+import {api} from "../../../services/tauri-api"
+import type {ServerProfile} from "../../../types/domain"
 
 interface RemoteTerminalTabProps {
   server: ServerProfile
@@ -20,7 +19,7 @@ interface TerminalMenuState {
   y: number
 }
 
-export function RemoteTerminalTab({server, onConnected}: RemoteTerminalTabProps) {
+export function RemoteTerminalTab({ server, onConnected }: RemoteTerminalTabProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<Terminal | null>(null)
@@ -29,7 +28,7 @@ export function RemoteTerminalTab({server, onConnected}: RemoteTerminalTabProps)
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [connecting, setConnecting] = useState(false)
   const [connected, setConnected] = useState(false)
-  const [menu, setMenu] = useState<TerminalMenuState>({open: false, x: 0, y: 0})
+  const [menu, setMenu] = useState<TerminalMenuState>({ open: false, x: 0, y: 0 })
   const initializedRef = useRef(false)
 
   const focusTerminal = useCallback(() => {
@@ -42,15 +41,15 @@ export function RemoteTerminalTab({server, onConnected}: RemoteTerminalTabProps)
     const terminal = xtermRef.current
     const selection = terminal?.getSelection()
     if (!selection) {
-      message.info('请先选中要复制的终端内容')
+      console.log("请先选中要复制的终端内容")
       return
     }
     try {
       await navigator.clipboard.writeText(selection)
       terminal?.clearSelection()
-      message.success('已复制选中内容')
+      console.log("已复制选中内容")
     } catch (error) {
-      message.error(`复制失败：${error}`)
+      console.error(`复制失败：${error}`)
     }
   }, [])
 
@@ -68,7 +67,7 @@ export function RemoteTerminalTab({server, onConnected}: RemoteTerminalTabProps)
       await api.writeTerminalInput(sessionIdRef.current, bytes)
       terminal.focus()
     } catch (error) {
-      message.error(`粘贴失败：${error}`)
+      console.error(`粘贴失败：${error}`)
     }
   }, [])
 
@@ -87,7 +86,7 @@ export function RemoteTerminalTab({server, onConnected}: RemoteTerminalTabProps)
     }
     fitAddonRef.current = null
     setConnected(false)
-    setMenu({open: false, x: 0, y: 0})
+    setMenu({ open: false, x: 0, y: 0 })
     initializedRef.current = false
   }, [])
 
@@ -100,7 +99,7 @@ export function RemoteTerminalTab({server, onConnected}: RemoteTerminalTabProps)
           terminal.write(text)
         }
       } catch (error) {
-        console.error('读取终端输出失败：', error)
+        console.error("读取终端输出失败：", error)
       }
     }, 50)
   }, [])
@@ -115,51 +114,51 @@ export function RemoteTerminalTab({server, onConnected}: RemoteTerminalTabProps)
     try {
       const terminal = new Terminal({
         cursorBlink: true,
-        cursorStyle: 'bar',
+        cursorStyle: "bar",
         fontSize: 14,
         fontFamily: 'Consolas, Monaco, "Courier New", monospace',
         allowTransparency: true,
         disableStdin: false,
         theme: {
-          background: '#1e1e1e',
-          foreground: '#d4d4d4',
-          cursor: '#d4d4d4',
-          selectionBackground: '#264f78',
-          black: '#000000',
-          red: '#f44747',
-          green: '#4ec9b0',
-          yellow: '#ffa500',
-          blue: '#569cd6',
-          magenta: '#c586c0',
-          cyan: '#4fc1ff',
-          white: '#d4d4d4',
-          brightBlack: '#808080',
-          brightRed: '#f44747',
-          brightGreen: '#4ec9b0',
-          brightYellow: '#ffa500',
-          brightBlue: '#569cd6',
-          brightMagenta: '#c586c0',
-          brightCyan: '#4fc1ff',
-          brightWhite: '#ffffff',
+          background: "#1e1e1e",
+          foreground: "#d4d4d4",
+          cursor: "#d4d4d4",
+          selectionBackground: "#264f78",
+          black: "#000000",
+          red: "#f44747",
+          green: "#4ec9b0",
+          yellow: "#ffa500",
+          blue: "#569cd6",
+          magenta: "#c586c0",
+          cyan: "#4fc1ff",
+          white: "#d4d4d4",
+          brightBlack: "#808080",
+          brightRed: "#f44747",
+          brightGreen: "#4ec9b0",
+          brightYellow: "#ffa500",
+          brightBlue: "#569cd6",
+          brightMagenta: "#c586c0",
+          brightCyan: "#4fc1ff",
+          brightWhite: "#ffffff",
         },
       })
 
       terminal.attachCustomKeyEventHandler((event) => {
-        if (event.type !== 'keydown') {
+        if (event.type !== "keydown") {
           return true
         }
 
         const key = event.key.toLowerCase()
         const ctrlOrMeta = event.ctrlKey || event.metaKey
-        if (ctrlOrMeta && key === 'c' && terminal.hasSelection()) {
+        if (ctrlOrMeta && key === "c" && terminal.hasSelection()) {
           void copySelection()
           return false
         }
-        if (ctrlOrMeta && event.shiftKey && key === 'c') {
+        if (ctrlOrMeta && event.shiftKey && key === "c") {
           void copySelection()
           return false
         }
-        if (ctrlOrMeta && event.shiftKey && key === 'v') {
+        if (ctrlOrMeta && event.shiftKey && key === "v") {
           void pasteFromClipboard()
           return false
         }
@@ -190,7 +189,7 @@ export function RemoteTerminalTab({server, onConnected}: RemoteTerminalTabProps)
         }
       })
 
-      terminal.onResize(({cols, rows}) => {
+      terminal.onResize(({ cols, rows }) => {
         if (sessionIdRef.current) {
           void api.resizeTerminal(sessionIdRef.current, cols, rows)
         }
@@ -199,11 +198,11 @@ export function RemoteTerminalTab({server, onConnected}: RemoteTerminalTabProps)
       startPolling(sessionId, terminal)
 
       setConnected(true)
-      message.success('终端连接成功')
+      console.log("终端连接成功")
       focusTerminal()
       void onConnected?.()
     } catch (error) {
-      message.error(`连接失败：${error}`)
+      console.error(`连接失败：${error}`)
       cleanup()
     } finally {
       setConnecting(false)
@@ -237,94 +236,85 @@ export function RemoteTerminalTab({server, onConnected}: RemoteTerminalTabProps)
     if (!menu.open) {
       return undefined
     }
-    const close = () => setMenu((current) => ({...current, open: false}))
-    window.addEventListener('click', close)
-    window.addEventListener('keydown', close)
+    const close = () => setMenu((current) => ({ ...current, open: false }))
+    window.addEventListener("click", close)
+    window.addEventListener("keydown", close)
     return () => {
-      window.removeEventListener('click', close)
-      window.removeEventListener('keydown', close)
+      window.removeEventListener("click", close)
+      window.removeEventListener("keydown", close)
     }
   }, [menu.open])
 
   return (
-    <Card
-      title={
-        <Space>
-          <CodeOutlined />
-          <span>远程终端</span>
-          <Text type="secondary">{server.host}</Text>
-          {connected && <Text type="success">已连接</Text>}
-          {connecting && <Text type="warning">连接中...</Text>}
-        </Space>
-      }
-      size="small"
-      extra={
-        <Space>
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+        <div className="flex items-center gap-2">
+          <Code className="h-4 w-4" />
+          <CardTitle className="text-lg">远程终端</CardTitle>
+          <span className="text-sm text-muted-foreground">{server.host}</span>
+          {connected && <span className="text-sm text-green-500">已连接</span>}
+          {connecting && <span className="text-sm text-yellow-500">连接中...</span>}
+        </div>
+        <div className="flex gap-2">
           <Button
-            size="small"
-            icon={<ReloadOutlined />}
+            variant="outline"
+            size="sm"
             onClick={() => {
               cleanup()
               void connect()
             }}
-            loading={connecting}
+            disabled={connecting}
           >
-            重新连接
+            <RefreshCw className="mr-1 h-4 w-4" />
+            {connecting ? "连接中..." : "重新连接"}
           </Button>
           <Button
-            size="small"
-            danger
+            variant="destructive"
+            size="sm"
             onClick={cleanup}
             disabled={!connected}
           >
             断开
           </Button>
-        </Space>
-      }
-    >
-      <div
-        ref={containerRef}
-        onMouseDown={focusTerminal}
-        onContextMenu={(event) => {
-          event.preventDefault()
-          focusTerminal()
-          setMenu({open: true, x: event.clientX, y: event.clientY})
-        }}
-        style={{
-          height: '500px',
-          overflow: 'hidden',
-          borderRadius: '4px',
-          border: '1px solid #303030',
-        }}
-      >
+        </div>
+      </CardHeader>
+      <CardContent>
         <div
-          ref={terminalRef}
-          style={{
-            width: '100%',
-            height: '100%',
+          ref={containerRef}
+          onMouseDown={focusTerminal}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            focusTerminal()
+            setMenu({ open: true, x: event.clientX, y: event.clientY })
           }}
-        />
-        {menu.open ? (
+          className="h-[500px] overflow-hidden rounded border border-border"
+        >
           <div
-            className="terminal-context-menu"
-            style={{left: menu.x, top: menu.y}}
-            onMouseDown={(event) => event.preventDefault()}
-          >
-            <button type="button" onClick={() => { setMenu({...menu, open: false}); void copySelection() }}>
-              复制选中内容
-            </button>
-            <button type="button" onClick={() => { setMenu({...menu, open: false}); void pasteFromClipboard() }}>
-              粘贴
-            </button>
-            <button type="button" onClick={() => { xtermRef.current?.selectAll(); setMenu({...menu, open: false}) }}>
-              全选
-            </button>
-            <button type="button" onClick={() => { xtermRef.current?.clear(); setMenu({...menu, open: false}); focusTerminal() }}>
-              清屏
-            </button>
-          </div>
-        ) : null}
-      </div>
+            ref={terminalRef}
+            className="w-full h-full"
+          />
+          {menu.open ? (
+            <div
+              className="terminal-context-menu"
+              style={{ left: menu.x, top: menu.y }}
+              onMouseDown={(event) => event.preventDefault()}
+            >
+              <button type="button" onClick={() => { setMenu({ ...menu, open: false }); void copySelection() }}>
+                复制选中内容
+              </button>
+              <button type="button" onClick={() => { setMenu({ ...menu, open: false }); void pasteFromClipboard() }}>
+                粘贴
+              </button>
+              <button type="button" onClick={() => { xtermRef.current?.selectAll(); setMenu({ ...menu, open: false }) }}>
+                全选
+              </button>
+              <button type="button" onClick={() => { xtermRef.current?.clear(); setMenu({ ...menu, open: false }); focusTerminal() }}>
+                清屏
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </CardContent>
     </Card>
   )
 }

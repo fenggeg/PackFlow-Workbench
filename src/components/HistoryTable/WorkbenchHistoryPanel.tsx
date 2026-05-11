@@ -1,22 +1,20 @@
-import {Tabs} from 'antd'
 import {DeploymentHistoryTable} from '../Deployment/DeploymentHistoryTable'
 import {HistoryTable} from './HistoryTable'
+import {Tabs, TabsContent, TabsList, TabsTrigger} from "@/components/ui/tabs"
 
 export function WorkbenchHistoryPanel() {
   return (
-    <Tabs
-      items={[
-        {
-          key: 'build',
-          label: '构建记录',
-          children: <HistoryTable />,
-        },
-        {
-          key: 'deployment',
-          label: '部署记录',
-          children: <DeploymentHistoryTable />,
-        },
-      ]}
-    />
+    <Tabs defaultValue="build" className="w-full">
+      <TabsList>
+        <TabsTrigger value="build">构建记录</TabsTrigger>
+        <TabsTrigger value="deployment">部署记录</TabsTrigger>
+      </TabsList>
+      <TabsContent value="build">
+        <HistoryTable />
+      </TabsContent>
+      <TabsContent value="deployment">
+        <DeploymentHistoryTable />
+      </TabsContent>
+    </Tabs>
   )
 }

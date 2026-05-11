@@ -1,64 +1,67 @@
-import {Button, Card, Empty, Input, message, Popconfirm, Select, Space, Table, Tag, Tooltip, Typography,} from 'antd'
+import {Button} from "@/components/ui/button"
+import {Card, CardContent, CardHeader, CardTitle} from "@/components/ui/card"
+import {Input} from "@/components/ui/input"
+import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue,} from "@/components/ui/select"
+import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from "@/components/ui/table"
+import {Badge} from "@/components/ui/badge"
 import {
-    CloudServerOutlined,
-    CodeOutlined,
-    DeleteOutlined,
-    EditOutlined,
-    FileOutlined,
-    FolderOutlined,
-    PlusOutlined,
-    ReloadOutlined,
-    SearchOutlined,
-    StarFilled,
-    StarOutlined,
-} from '@ant-design/icons'
-import {useCallback, useEffect, useMemo, useState} from 'react'
-import {api} from '../../services/tauri-api'
-import {useNavigationStore} from '../../store/navigationStore'
-import {ServerEditorDrawer} from './ServerEditorDrawer'
-import type {ServerPrivilegeMode, ServerProfile} from '../../types/domain'
-
-const {Text} = Typography
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
+import {Tooltip, TooltipContent, TooltipTrigger,} from "@/components/ui/tooltip"
+import {Cloud, Code, Edit, File, Folder, Plus, RefreshCw, Search, Star, Trash2,} from "lucide-react"
+import {useCallback, useEffect, useMemo, useState} from "react"
+import {api} from "../../services/tauri-api"
+import {useNavigationStore} from "../../store/navigationStore"
+import {ServerEditorDrawer} from "./ServerEditorDrawer"
+import type {ServerPrivilegeMode, ServerProfile} from "../../types/domain"
 
 const envTypeOptions = [
-  {label: '开发', value: 'dev', color: 'blue'},
-  {label: '测试', value: 'test', color: 'green'},
-  {label: '预发', value: 'staging', color: 'orange'},
-  {label: '生产', value: 'prod', color: 'red'},
-  {label: '自定义', value: 'custom', color: 'default'},
+  { label: "开发", value: "dev", color: "bg-blue-500" },
+  { label: "测试", value: "test", color: "bg-green-500" },
+  { label: "预发", value: "staging", color: "bg-orange-500" },
+  { label: "生产", value: "prod", color: "bg-red-500" },
+  { label: "自定义", value: "custom", color: "bg-gray-500" },
 ]
 
 const envTypeLabel = (type?: string) =>
-  envTypeOptions.find((opt) => opt.value === type)?.label ?? type ?? ''
+  envTypeOptions.find((opt) => opt.value === type)?.label ?? type ?? ""
 
 const envTypeColor = (type?: string) =>
-  envTypeOptions.find((opt) => opt.value === type)?.color ?? 'default'
+  envTypeOptions.find((opt) => opt.value === type)?.color ?? "bg-gray-500"
 
-const privilegeModeOptions: {label: string; value: ServerPrivilegeMode}[] = [
-  {label: '不提权（普通账号直接执行）', value: 'none'},
-  {label: 'sudo（用指定用户执行）', value: 'sudo'},
-  {label: 'sudo -i（带登录环境执行）', value: 'sudo_i'},
-  {label: 'su（切换到指定用户）', value: 'su'},
-  {label: '自定义命令包装（高级）', value: 'custom'},
+const privilegeModeOptions: { label: string; value: ServerPrivilegeMode }[] = [
+  { label: "不提权（普通账号直接执行）", value: "none" },
+  { label: "sudo（用指定用户执行）", value: "sudo" },
+  { label: "sudo -i（带登录环境执行）", value: "sudo_i" },
+  { label: "su（切换到指定用户）", value: "su" },
+  { label: "自定义命令包装（高级）", value: "custom" },
 ]
 
 const privilegeModeLabel = (mode?: string) =>
-  privilegeModeOptions.find((option) => option.value === mode)?.label ?? mode ?? '不提权'
+  privilegeModeOptions.find((option) => option.value === mode)?.label ?? mode ?? "不提权"
 
 const privilegeModeShortLabel = (mode?: string) => {
   switch (mode) {
-    case 'sudo': return 'sudo'
-    case 'sudo_i': return 'sudo -i'
-    case 'su': return 'su'
-    case 'custom': return '自定义'
-    default: return '不提权'
+    case "sudo": return "sudo"
+    case "sudo_i": return "sudo -i"
+    case "su": return "su"
+    case "custom": return "自定义"
+    default: return "不提权"
   }
 }
 
 export function ServerListPanel() {
   const [servers, setServers] = useState<ServerProfile[]>([])
   const [loading, setLoading] = useState(false)
-  const [keyword, setKeyword] = useState('')
+  const [keyword, setKeyword] = useState("")
   const [envFilter, setEnvFilter] = useState<string>()
   const [groupFilter, setGroupFilter] = useState<string>()
   const [testingId, setTestingId] = useState<string>()
@@ -72,7 +75,7 @@ export function ServerListPanel() {
       const data = await api.listServerProfiles()
       setServers(data)
     } catch (error) {
-      message.error(`加载服务器列表失败：${error}`)
+      console.error(`加载服务器列表失败：${error}`)
     } finally {
       setLoading(false)
     }
@@ -84,7 +87,7 @@ export function ServerListPanel() {
 
   const groups = useMemo(() => {
     const groupSet = new Set(servers.map((s) => s.group).filter(Boolean))
-    return Array.from(groupSet).map((g) => ({label: g!, value: g!}))
+    return Array.from(groupSet).map((g) => ({ label: g!, value: g! }))
   }, [servers])
 
   const filteredServers = useMemo(() => {
@@ -129,10 +132,10 @@ export function ServerListPanel() {
     setTestingId(serverId)
     try {
       const result = await api.testServerConnection(serverId)
-      message.success(result)
+      console.log(result)
       await loadServers()
     } catch (error) {
-      message.error(`连接测试失败：${error}`)
+      console.error(`连接测试失败：${error}`)
     } finally {
       setTestingId(undefined)
     }
@@ -146,213 +149,265 @@ export function ServerListPanel() {
       })
       await loadServers()
     } catch (error) {
-      message.error(`操作失败：${error}`)
+      console.error(`操作失败：${error}`)
     }
   }
 
   const handleDelete = async (serverId: string) => {
     try {
       await api.deleteServerProfile(serverId)
-      message.success('删除成功')
+      console.log("删除成功")
       await loadServers()
     } catch (error) {
-      message.error(`删除失败：${error}`)
+      console.error(`删除失败：${error}`)
     }
   }
 
-  const columns = [
-    {
-      title: '',
-      width: 40,
-      render: (_: unknown, record: ServerProfile) => (
-        <Button
-          type="text"
-          size="small"
-          icon={record.favorite ? <StarFilled style={{color: '#faad14'}} /> : <StarOutlined />}
-          onClick={() => void handleToggleFavorite(record)}
-        />
-      ),
-    },
-    {
-      title: '服务器名称',
-      dataIndex: 'name',
-      key: 'name',
-      render: (name: string, record: ServerProfile) => (
-        <Space>
-          <CloudServerOutlined />
-          <a onClick={() => navigateToServerDetail(record.id)}>{name}</a>
-        </Space>
-      ),
-    },
-    {
-      title: '主机地址',
-      key: 'host',
-      render: (_: unknown, record: ServerProfile) => (
-        <Text copyable>{record.host}:{record.port}</Text>
-      ),
-    },
-    {
-      title: '用户名',
-      dataIndex: 'username',
-      key: 'username',
-    },
-    {
-      title: '连接与权限',
-      key: 'connection',
-      render: (_: unknown, record: ServerProfile) => (
-        <Space size={[0, 4]} wrap>
-          <Tag color={record.authType === 'private_key' ? 'blue' : 'default'}>
-            {record.authType === 'private_key' ? '私钥认证' : '密码认证'}
-          </Tag>
-          {record.passwordConfigured ? <Tag color="gold">已保存登录密码</Tag> : null}
-          {record.privilege?.mode && record.privilege.mode !== 'none' ? (
-            <Tooltip title={privilegeModeLabel(record.privilege.mode)}>
-              <Tag color="purple">
-                {privilegeModeShortLabel(record.privilege.mode)}：{record.privilege.runAsUser}
-              </Tag>
-            </Tooltip>
-          ) : (
-            <Tag>不提权</Tag>
-          )}
-          {record.privilege?.mode !== 'none' && record.privilegePasswordConfigured ? (
-            <Tag color="gold">已保存提权密码</Tag>
-          ) : null}
-        </Space>
-      ),
-    },
-    {
-      title: '环境',
-      key: 'envType',
-      render: (_: unknown, record: ServerProfile) =>
-        record.envType ? <Tag color={envTypeColor(record.envType)}>{envTypeLabel(record.envType)}</Tag> : null,
-    },
-    {
-      title: '分组',
-      dataIndex: 'group',
-      key: 'group',
-      render: (group: string) => group ? <Tag>{group}</Tag> : null,
-    },
-    {
-      title: '标签',
-      key: 'tags',
-      render: (_: unknown, record: ServerProfile) =>
-        record.tags?.map((tag) => <Tag key={tag}>{tag}</Tag>),
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      width: 280,
-      render: (_: unknown, record: ServerProfile) => (
-        <Space size="small">
-          <Tooltip title="终端">
-            <Button
-              size="small"
-              icon={<CodeOutlined />}
-              onClick={() => navigateToServerDetail(record.id, 'terminal')}
-            />
-          </Tooltip>
-          <Tooltip title="文件">
-            <Button
-              size="small"
-              icon={<FolderOutlined />}
-              onClick={() => navigateToServerDetail(record.id, 'files')}
-            />
-          </Tooltip>
-          <Tooltip title="日志">
-            <Button
-              size="small"
-              icon={<FileOutlined />}
-              onClick={() => navigateToServerDetail(record.id, 'logs')}
-            />
-          </Tooltip>
-          <Button
-            size="small"
-            loading={testingId === record.id}
-            onClick={() => void handleTestConnection(record.id)}
-          >
-            测试
-          </Button>
-          <Tooltip title="编辑">
-            <Button
-              size="small"
-              icon={<EditOutlined />}
-              onClick={() => handleEdit(record)}
-            />
-          </Tooltip>
-          <Popconfirm
-            title="确定删除该服务器？"
-            onConfirm={() => void handleDelete(record.id)}
-          >
-            <Button size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ]
-
   return (
     <>
-    <Card
-      className="panel-card"
-      size="small"
-      extra={
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => void loadServers()}>
-            刷新
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-            新增服务器
-          </Button>
-        </Space>
-      }
-    >
-      <Space direction="vertical" size={12} style={{width: '100%'}}>
-        <Space wrap>
-          <Input
-            placeholder="搜索名称、IP、标签、备注"
-            prefix={<SearchOutlined />}
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            style={{width: 280}}
-            allowClear
-          />
-          <Select
-            placeholder="环境"
-            value={envFilter}
-            onChange={setEnvFilter}
-            options={envTypeOptions}
-            allowClear
-            style={{width: 120}}
-          />
-          <Select
-            placeholder="分组"
-            value={groupFilter}
-            onChange={setGroupFilter}
-            options={groups}
-            allowClear
-            style={{width: 150}}
-          />
-        </Space>
+      <Card className="panel-card">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+          <CardTitle className="text-lg">服务器列表</CardTitle>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => void loadServers()}>
+              <RefreshCw className="mr-1 h-4 w-4" />
+              刷新
+            </Button>
+            <Button size="sm" onClick={handleCreate}>
+              <Plus className="mr-1 h-4 w-4" />
+              新增服务器
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap gap-2">
+              <div className="relative w-[280px]">
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="搜索名称、IP、标签、备注"
+                  className="pl-8"
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                />
+              </div>
+              <Select value={envFilter} onValueChange={(v) => setEnvFilter(v === "__all__" ? undefined : v)}>
+                <SelectTrigger className="w-[120px]">
+                  <SelectValue placeholder="环境" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">全部环境</SelectItem>
+                  {envTypeOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={groupFilter} onValueChange={(v) => setGroupFilter(v === "__all__" ? undefined : v)}>
+                <SelectTrigger className="w-[150px]">
+                  <SelectValue placeholder="分组" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">全部分组</SelectItem>
+                  {groups.map((g) => (
+                    <SelectItem key={g.value} value={g.value}>
+                      {g.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-        <Table
-          dataSource={filteredServers}
-          columns={columns}
-          rowKey="id"
-          loading={loading}
-          size="small"
-          pagination={false}
-          locale={{
-            emptyText: <Empty description="暂无服务器配置" />,
-          }}
-        />
-      </Space>
-    </Card>
-    <ServerEditorDrawer
-      open={editorOpen}
-      server={editingServer}
-      onClose={handleEditorClose}
-      onSaved={() => void loadServers()}
-    />
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[40px]"></TableHead>
+                  <TableHead>服务器名称</TableHead>
+                  <TableHead>主机地址</TableHead>
+                  <TableHead>用户名</TableHead>
+                  <TableHead>连接与权限</TableHead>
+                  <TableHead>环境</TableHead>
+                  <TableHead>分组</TableHead>
+                  <TableHead>标签</TableHead>
+                  <TableHead className="w-[280px]">操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                      加载中...
+                    </TableCell>
+                  </TableRow>
+                ) : filteredServers.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                      暂无服务器配置
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredServers.map((record) => (
+                    <TableRow key={record.id}>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => void handleToggleFavorite(record)}
+                        >
+                          <Star
+                            className={`h-4 w-4 ${record.favorite ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground"}`}
+                          />
+                        </Button>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <Cloud className="h-4 w-4" />
+                          <a
+                            className="text-primary hover:underline cursor-pointer"
+                            onClick={() => navigateToServerDetail(record.id)}
+                          >
+                            {record.name}
+                          </a>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className="font-mono text-sm">{record.host}:{record.port}</span>
+                      </TableCell>
+                      <TableCell>{record.username}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          <Badge variant={record.authType === "private_key" ? "default" : "secondary"}>
+                            {record.authType === "private_key" ? "私钥认证" : "密码认证"}
+                          </Badge>
+                          {record.passwordConfigured ? (
+                            <Badge variant="outline" className="border-yellow-500 text-yellow-600">已保存登录密码</Badge>
+                          ) : null}
+                          {record.privilege?.mode && record.privilege.mode !== "none" ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge variant="outline" className="border-purple-500 text-purple-600">
+                                  {privilegeModeShortLabel(record.privilege.mode)}：{record.privilege.runAsUser}
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent>{privilegeModeLabel(record.privilege.mode)}</TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <Badge variant="secondary">不提权</Badge>
+                          )}
+                          {record.privilege?.mode !== "none" && record.privilegePasswordConfigured ? (
+                            <Badge variant="outline" className="border-yellow-500 text-yellow-600">已保存提权密码</Badge>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {record.envType ? (
+                          <Badge className={envTypeColor(record.envType)}>{envTypeLabel(record.envType)}</Badge>
+                        ) : null}
+                      </TableCell>
+                      <TableCell>
+                        {record.group ? <Badge variant="outline">{record.group}</Badge> : null}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {record.tags?.map((tag) => (
+                            <Badge key={tag} variant="secondary">{tag}</Badge>
+                          ))}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-1">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => navigateToServerDetail(record.id, "terminal")}
+                              >
+                                <Code className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>终端</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => navigateToServerDetail(record.id, "files")}
+                              >
+                                <Folder className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>文件</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => navigateToServerDetail(record.id, "logs")}
+                              >
+                                <File className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>日志</TooltipContent>
+                          </Tooltip>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={testingId === record.id}
+                            onClick={() => void handleTestConnection(record.id)}
+                          >
+                            {testingId === record.id ? "测试中..." : "测试"}
+                          </Button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleEdit(record)}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>编辑</TooltipContent>
+                          </Tooltip>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="destructive" size="sm">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>确认删除</AlertDialogTitle>
+                                <AlertDialogDescription>确定删除该服务器？</AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>取消</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => void handleDelete(record.id)}>
+                                  删除
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+      <ServerEditorDrawer
+        open={editorOpen}
+        server={editingServer}
+        onClose={handleEditorClose}
+        onSaved={() => void loadServers()}
+      />
     </>
   )
 }

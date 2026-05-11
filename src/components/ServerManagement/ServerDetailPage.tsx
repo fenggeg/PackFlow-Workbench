@@ -1,5 +1,6 @@
-import {Button, Space, Tabs, Typography} from 'antd'
-import {ArrowLeftOutlined, CloudServerOutlined} from '@ant-design/icons'
+import {Button} from '@/components/ui/button'
+import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs'
+import {ArrowLeft, Server} from 'lucide-react'
 import {useCallback, useEffect, useState} from 'react'
 import {api} from '../../services/tauri-api'
 import {type ServerDetailTab, useNavigationStore} from '../../store/navigationStore'
@@ -10,13 +11,11 @@ import {RemoteFilesTab} from './tabs/RemoteFilesTab'
 import {RemoteLogsTab} from './tabs/RemoteLogsTab'
 import {CommonCommandsTab} from './tabs/CommonCommandsTab'
 
-const {Title, Text} = Typography
-
 interface ServerDetailPageProps {
   serverId: string
 }
 
-export function ServerDetailPage({serverId}: ServerDetailPageProps) {
+export function ServerDetailPage({ serverId }: ServerDetailPageProps) {
   const [server, setServer] = useState<ServerProfile | null>(null)
   const [loading, setLoading] = useState(false)
   const serverDetailTab = useNavigationStore((state) => state.serverDetailTab)
@@ -48,11 +47,12 @@ export function ServerDetailPage({serverId}: ServerDetailPageProps) {
     return (
       <main className="workspace-page">
         <div className="workspace-heading">
-          <Button icon={<ArrowLeftOutlined />} onClick={handleBack}>
+          <Button variant="outline" onClick={handleBack}>
+            <ArrowLeft className="mr-1.5 h-4 w-4" />
             返回列表
           </Button>
         </div>
-        <Text type="secondary">服务器不存在或已被删除。</Text>
+        <p className="text-sm text-muted-foreground">服务器不存在或已被删除。</p>
       </main>
     )
   }
@@ -60,51 +60,45 @@ export function ServerDetailPage({serverId}: ServerDetailPageProps) {
   return (
     <main className="workspace-page">
       <div className="workspace-heading">
-        <Space>
-          <Button icon={<ArrowLeftOutlined />} onClick={handleBack}>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={handleBack}>
+            <ArrowLeft className="mr-1.5 h-4 w-4" />
             返回
           </Button>
-          <CloudServerOutlined />
-          <Title level={4} style={{margin: 0}}>
+          <Server className="h-5 w-5" />
+          <h4 className="text-lg font-semibold m-0">
             {server?.name ?? '加载中...'}
-          </Title>
-          <Text type="secondary">
+          </h4>
+          <span className="text-sm text-muted-foreground">
             {server?.host}:{server?.port}
-          </Text>
-        </Space>
+          </span>
+        </div>
       </div>
 
-      <Tabs
-        activeKey={serverDetailTab}
-        onChange={(key) => setServerDetailTab(key as ServerDetailTab)}
-        items={[
-          {
-            key: 'overview',
-            label: '概览',
-            children: server ? <OverviewTab server={server} onRefresh={loadServer} /> : null,
-          },
-          {
-            key: 'terminal',
-            label: '终端',
-            children: server ? <RemoteTerminalTab server={server} onConnected={loadServer} /> : null,
-          },
-          {
-            key: 'files',
-            label: '文件',
-            children: server ? <RemoteFilesTab server={server} /> : null,
-          },
-          {
-            key: 'logs',
-            label: '日志',
-            children: server ? <RemoteLogsTab server={server} /> : null,
-          },
-          {
-            key: 'commands',
-            label: '命令',
-            children: server ? <CommonCommandsTab server={server} /> : null,
-          },
-        ]}
-      />
+      <Tabs value={serverDetailTab} onValueChange={(key) => setServerDetailTab(key as ServerDetailTab)}>
+        <TabsList>
+          <TabsTrigger value="overview">概览</TabsTrigger>
+          <TabsTrigger value="terminal">终端</TabsTrigger>
+          <TabsTrigger value="files">文件</TabsTrigger>
+          <TabsTrigger value="logs">日志</TabsTrigger>
+          <TabsTrigger value="commands">命令</TabsTrigger>
+        </TabsList>
+        <TabsContent value="overview">
+          {server ? <OverviewTab server={server} onRefresh={loadServer} /> : null}
+        </TabsContent>
+        <TabsContent value="terminal">
+          {server ? <RemoteTerminalTab server={server} onConnected={loadServer} /> : null}
+        </TabsContent>
+        <TabsContent value="files">
+          {server ? <RemoteFilesTab server={server} /> : null}
+        </TabsContent>
+        <TabsContent value="logs">
+          {server ? <RemoteLogsTab server={server} /> : null}
+        </TabsContent>
+        <TabsContent value="commands">
+          {server ? <CommonCommandsTab server={server} /> : null}
+        </TabsContent>
+      </Tabs>
     </main>
   )
 }

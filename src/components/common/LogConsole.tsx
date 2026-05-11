@@ -1,7 +1,4 @@
 import {forwardRef, useMemo} from 'react'
-import {Typography} from 'antd'
-
-const {Text} = Typography
 
 export type LogLineTone = '' | 'success' | 'error' | 'warn' | 'warning'
 
@@ -39,8 +36,8 @@ export const LogConsole = forwardRef<HTMLDivElement, LogConsoleProps>(function L
     <div className={className} ref={ref}>
       {lines.length === 0 ? (
         <div className="log-empty">
-          <Text>{emptyTitle}</Text>
-          {emptyDescription ? <Text type="secondary">{emptyDescription}</Text> : null}
+          <span className="text-sm">{emptyTitle}</span>
+          {emptyDescription ? <span className="text-sm text-muted-foreground">{emptyDescription}</span> : null}
         </div>
       ) : (
         <>

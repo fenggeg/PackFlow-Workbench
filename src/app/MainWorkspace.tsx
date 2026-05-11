@@ -20,8 +20,8 @@ export function MainWorkspace({activePage}: MainWorkspaceProps) {
   const Page = pageComponents[activePage]
 
   return (
-    <section className="main-workspace">
-      <Suspense fallback={<div className="workspace-loading">加载工作区...</div>}>
+    <section className="flex-1 overflow-auto bg-background">
+      <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground">加载工作区...</div>}>
         <Page />
       </Suspense>
     </section>

@@ -1,21 +1,19 @@
-import {
-    CloudServerOutlined,
-    CopyOutlined,
-    DatabaseOutlined,
-    FileTextOutlined,
-    FullscreenOutlined,
-    RocketOutlined,
-    SearchOutlined
-} from '@ant-design/icons'
-import {Button, Card, Descriptions, Empty, Input, Modal, Space, Table, Tag, Tooltip, Typography} from 'antd'
+import {Cloud, Copy, Database, FileText, Maximize2, Rocket} from 'lucide-react'
+import {Button} from "@/components/ui/button"
+import {Card, CardContent, CardHeader, CardTitle} from "@/components/ui/card"
+import {Input} from "@/components/ui/input"
+import {Dialog, DialogContent, DialogHeader, DialogTitle} from "@/components/ui/dialog"
+import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from "@/components/ui/table"
+import {Badge} from "@/components/ui/badge"
+import {Tooltip, TooltipContent, TooltipTrigger} from "@/components/ui/tooltip"
 import {useMemo, useState} from 'react'
 import {LogConsole} from '../components/common/LogConsole'
 import {ServiceOperationButtons} from '../features/service-ops/components/ServiceOperationButtons'
 import {ServiceOperationHistoryList} from '../features/service-ops/components/ServiceOperationHistoryList'
 import {
-    deriveRuntimeConfig,
-    getEnvironmentId,
-    runtimeConfigKey
+  deriveRuntimeConfig,
+  getEnvironmentId,
+  runtimeConfigKey
 } from '../features/service-ops/services/serviceRuntimeConfigService'
 import {useServiceOperationStore} from '../features/service-ops/stores/serviceOperationStore'
 import {belongsToProject, flattenModules, profileModuleLabel} from '../services/deploymentTopologyService'
@@ -25,20 +23,6 @@ import {useNavigationStore} from '../store/navigationStore'
 import {useWorkflowStore} from '../store/useWorkflowStore'
 import type {DeploymentTask} from '../types/domain'
 
-const {Title, Text} = Typography
-
-const statusColor: Record<DeploymentTask['status'], string> = {
-  pending: 'default',
-  uploading: 'processing',
-  stopping: 'orange',
-  starting: 'cyan',
-  checking: 'blue',
-  waiting: 'processing',
-  success: 'green',
-  failed: 'red',
-  timeout: 'red',
-  cancelled: 'orange',
-}
 
 const statusLabel = (status: DeploymentTask['status']) => {
   switch (status) {
@@ -171,249 +155,227 @@ export function ServicePage() {
     <main className="workspace-page">
       <div className="workspace-heading">
         <div>
-          <Title level={3}>服务运维</Title>
-          <Text type="secondary">围绕后端服务映射、部署配置和服务器配置执行重启、日志查看与健康检查。</Text>
+          <h3 className="text-2xl font-semibold">服务运维</h3>
+          <p className="text-muted-foreground">围绕后端服务映射、部署配置和服务器配置执行重启、日志查看与健康检查。</p>
         </div>
       </div>
 
-      <Space size={12} wrap style={{marginBottom: 16}}>
-        <Tag icon={<DatabaseOutlined />} color="blue">服务 {currentProjectDeploymentProfiles.length}</Tag>
-        <Tag icon={<CloudServerOutlined />} color="purple">服务器 {serverProfiles.length}</Tag>
-        <Tag color="processing">运行中 {runningCount}</Tag>
-        <Tag color="green">成功 {successCount}</Tag>
-        <Tag color="red">失败 {failedCount}</Tag>
-      </Space>
+      <div className="flex flex-wrap gap-3 mb-4">
+        <Badge variant="secondary"><Database className="h-3 w-3 mr-1" />服务 {currentProjectDeploymentProfiles.length}</Badge>
+        <Badge variant="secondary"><Cloud className="h-3 w-3 mr-1" />服务器 {serverProfiles.length}</Badge>
+        <Badge variant="default">运行中 {runningCount}</Badge>
+        <Badge variant="default" className="bg-green-500 hover:bg-green-600">成功 {successCount}</Badge>
+        <Badge variant="destructive">失败 {failedCount}</Badge>
+      </div>
 
       {currentProjectDeploymentProfiles.length === 0 ? (
-        <Empty description="暂无后端服务配置，请先在部署中心添加后端发布映射" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+          <p>暂无后端服务配置，请先在部署中心添加后端发布映射</p>
+        </div>
       ) : (
-        <Space direction="vertical" size={16} style={{width: '100%'}}>
+        <div className="flex flex-col gap-4 w-full">
           {currentProjectDeploymentProfiles.map((profile) => {
             const moduleName = profileModuleLabel(modules, profile)
             return (
-              <Card
-                key={profile.id}
-                title={(
-                  <Space size={8}>
-                    <span>{profile.name}</span>
-                    <Tag>{moduleName}</Tag>
-                  </Space>
-                )}
-                className="panel-card"
-                size="small"
-                extra={
-                  <Tooltip title="去部署">
-                    <Button
-                      size="small"
-                      icon={<RocketOutlined />}
-                      onClick={() => navigateToDeployment(profile.id)}
-                    />
-                  </Tooltip>
-                }
-              >
-                <Space direction="vertical" size={12} style={{width: '100%'}}>
-                  <Descriptions size="small" column={3}>
-                    <Descriptions.Item label="产物匹配">{profile.localArtifactPattern}</Descriptions.Item>
-                    <Descriptions.Item label="远程目录">{profile.remoteDeployPath}</Descriptions.Item>
-                    <Descriptions.Item label="部署流程">
-                      {profile.deploymentSteps?.length
-                        ? `${profile.deploymentSteps.filter((step) => step.enabled).length}/${profile.deploymentSteps.length} 个步骤启用`
-                        : `${profile.customCommands.filter((c) => c.enabled).length} 条旧版命令启用`}
-                    </Descriptions.Item>
-                  </Descriptions>
+              <Card key={profile.id} className="panel-card">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="text-base">{profile.name}</CardTitle>
+                      <Badge variant="outline">{moduleName}</Badge>
+                    </div>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button size="sm" variant="ghost" onClick={() => navigateToDeployment(profile.id)}>
+                          <Rocket className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>去部署</TooltipContent>
+                    </Tooltip>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-col gap-3">
+                    <dl className="grid grid-cols-3 gap-2 text-sm">
+                      <div>
+                        <dt className="text-muted-foreground">产物匹配</dt>
+                        <dd>{profile.localArtifactPattern}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">远程目录</dt>
+                        <dd>{profile.remoteDeployPath}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">部署流程</dt>
+                        <dd>
+                          {profile.deploymentSteps?.length
+                            ? `${profile.deploymentSteps.filter((step) => step.enabled).length}/${profile.deploymentSteps.length} 个步骤启用`
+                            : `${profile.customCommands.filter((c) => c.enabled).length} 条旧版命令启用`}
+                        </dd>
+                      </div>
+                    </dl>
                   {serverProfiles.length === 0 ? (
-                    <Text type="secondary">暂无服务器配置</Text>
+                    <span className="text-muted-foreground">暂无服务器配置</span>
                   ) : (
                     <>
                       <Input
-                        allowClear
-                        size="small"
                         placeholder="搜索服务器名称、地址"
-                        prefix={<SearchOutlined />}
-                        style={{width: 260, marginBottom: 8}}
+                        className="w-[260px] mb-2"
                         value={serverKeyword}
                         onChange={(event) => setServerKeyword(event.target.value)}
                       />
-                      <Table
-                        rowKey="serverId"
-                        size="small"
-                        pagination={{pageSize: 5, size: 'small', showSizeChanger: false}}
-                        dataSource={serverProfiles
-                          .filter((server) => {
-                            const keyword = serverKeyword.trim().toLowerCase()
-                            if (!keyword) return true
-                            return [server.name, server.host, server.username, String(server.port)]
-                              .filter(Boolean)
-                              .some((value) => String(value).toLowerCase().includes(keyword))
-                          })
-                          .map((server) => {
-                            const task = getLatestTask(profile.id, server.id)
-                            return {
-                              serverId: server.id,
-                              serverName: server.name,
-                              serverHost: `${server.username}@${server.host}:${server.port}`,
-                              task,
-                            }
-                          })}
-                        columns={[
-                          {
-                            title: '服务器',
-                            dataIndex: 'serverName',
-                            width: 140,
-                          },
-                          {
-                            title: '地址',
-                            dataIndex: 'serverHost',
-                            width: 200,
-                            ellipsis: true,
-                          },
-                          {
-                            title: '状态',
-                            width: 110,
-                            render: (_, record) => {
-                              const task = record.task
-                              if (!task) {
-                                return <Tag>未部署</Tag>
-                              }
-                              return <Tag color={statusColor[task.status]}>{statusLabel(task.status)}</Tag>
-                            },
-                          },
-                          {
-                            title: '最近部署',
-                            width: 170,
-                            render: (_, record) => {
-                              const task = record.task
-                              if (!task) {
-                                return <Text type="secondary">-</Text>
-                              }
-                              return new Date(task.createdAt).toLocaleString()
-                            },
-                          },
-                          {
-                            title: '产物',
-                            width: 160,
-                            ellipsis: true,
-                        render: (_, record) => record.task?.artifactName ?? '-',
-                          },
-                          {
-                            title: '操作',
-                            width: 210,
-                            render: (_, record) => {
-                              const server = serverProfiles.find((item) => item.id === record.serverId)
-                              if (!server) return null
-                              const environmentId = getEnvironmentId(server)
-                              const existingConfig = getRuntimeConfig(profile.id, server.id, environmentId)
-                              const runtimeConfig = deriveRuntimeConfig(profile, server, existingConfig)
+                      <Table className="overflow-x-auto">
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-[140px]">服务器</TableHead>
+                            <TableHead className="w-[200px]">地址</TableHead>
+                            <TableHead className="w-[110px]">状态</TableHead>
+                            <TableHead className="w-[170px]">最近部署</TableHead>
+                            <TableHead className="w-[160px]">产物</TableHead>
+                            <TableHead className="w-[210px]">操作</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {serverProfiles
+                            .filter((server) => {
+                              const keyword = serverKeyword.trim().toLowerCase()
+                              if (!keyword) return true
+                              return [server.name, server.host, server.username, String(server.port)]
+                                .filter(Boolean)
+                                .some((value) => String(value).toLowerCase().includes(keyword))
+                            })
+                            .slice(0, 5)
+                            .map((server) => {
+                              const task = getLatestTask(profile.id, server.id)
                               return (
-                                <Space size={6} wrap>
-                                  <ServiceOperationButtons
-                                    profile={profile}
-                                    server={server}
-                                    config={runtimeConfig}
-                                    onDeploy={() => navigateToDeployment(profile.id)}
-                                  />
-                                  <Tooltip title="查看最近部署日志">
-                                    <Button
-                                      size="small"
-                                      icon={<FileTextOutlined />}
-                                      disabled={!record.task}
-                                      onClick={() => {
-                                        if (record.task) {
-                                          setOpenTask(record.task)
-                                          setLogKeyword('')
-                                        }
-                                      }}
-                                    />
-                                  </Tooltip>
-                                </Space>
+                                <TableRow key={server.id}>
+                                  <TableCell>{server.name}</TableCell>
+                                  <TableCell className="truncate max-w-[200px]">{server.username}@{server.host}:{server.port}</TableCell>
+                                  <TableCell>
+                                    {task ? (
+                                      <Badge variant={task.status === 'success' ? 'default' : task.status === 'failed' ? 'destructive' : 'secondary'}>
+                                        {statusLabel(task.status)}
+                                      </Badge>
+                                    ) : (
+                                      <Badge variant="outline">未部署</Badge>
+                                    )}
+                                  </TableCell>
+                                  <TableCell>{task ? new Date(task.createdAt).toLocaleString() : <span className="text-muted-foreground">-</span>}</TableCell>
+                                  <TableCell className="truncate max-w-[160px]">{task?.artifactName ?? '-'}</TableCell>
+                                  <TableCell>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      <ServiceOperationButtons
+                                        profile={profile}
+                                        server={server}
+                                        config={deriveRuntimeConfig(profile, server, getRuntimeConfig(profile.id, server.id, getEnvironmentId(server)))}
+                                        onDeploy={() => navigateToDeployment(profile.id)}
+                                      />
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            disabled={!task}
+                                            onClick={() => {
+                                              if (task) {
+                                                setOpenTask(task)
+                                                setLogKeyword('')
+                                              }
+                                            }}
+                                          >
+                                            <FileText className="h-4 w-4" />
+                                          </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>查看最近部署日志</TooltipContent>
+                                      </Tooltip>
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
                               )
-                            },
-                          },
-                        ]}
-                        scroll={{x: 1080}}
-                      />
+                            })}
+                        </TableBody>
+                      </Table>
                     </>
                   )}
-                </Space>
+                  </div>
+                </CardContent>
               </Card>
             )
           })}
-        </Space>
+        </div>
       )}
 
-      <Modal
-        title={openTask ? `部署日志 · ${openTask.deploymentProfileName ?? openTask.deploymentProfileId}` : '部署日志'}
-        open={Boolean(openTask)}
-        footer={null}
-        width={900}
-        onCancel={() => setOpenTask(undefined)}
-      >
+      <Dialog open={Boolean(openTask)} onOpenChange={(open) => { if (!open) setOpenTask(undefined) }}>
+        <DialogContent className="max-w-[900px]">
+          <DialogHeader>
+            <DialogTitle>{openTask ? `部署日志 · ${openTask.deploymentProfileName ?? openTask.deploymentProfileId}` : '部署日志'}</DialogTitle>
+          </DialogHeader>
         {openTask ? (
-          <Space direction="vertical" size={16} style={{width: '100%'}}>
-            <Descriptions size="small" bordered column={2}>
-              <Descriptions.Item label="状态">
-                <Tag color={statusColor[openTask.status]}>{statusLabel(openTask.status)}</Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="服务器">
-                {openTask.serverName ?? openTask.serverId}
-              </Descriptions.Item>
-              <Descriptions.Item label="产物" span={2}>
-                {openTask.artifactName}
-              </Descriptions.Item>
-            </Descriptions>
-            <Table
-              style={{marginTop: 8}}
-              rowKey="key"
-              size="small"
-              pagination={false}
-              dataSource={openTask.stages}
-              columns={[
-                {title: '阶段', dataIndex: 'label', width: 140},
-                {
-                  title: '类型',
-                  dataIndex: 'type',
-                  width: 120,
-                  render: (value: string) => stepTypeLabel(value),
-                },
-                {
-                  title: '状态',
-                  dataIndex: 'status',
-                  width: 100,
-                  render: (value: string) => <Tag>{stageStatusLabel(value)}</Tag>,
-                },
-                {
-                  title: '耗时',
-                  dataIndex: 'durationMs',
-                  width: 90,
-                  render: (value: number | undefined) => formatDuration(value),
-                },
-                {
-                  title: '结果',
-                  render: (_, stage) => stage.message ?? '-',
-                },
-              ]}
-            />
-            <Space wrap style={{marginTop: 8, marginBottom: 8}}>
+          <div className="flex flex-col gap-4 w-full">
+            <dl className="grid grid-cols-2 gap-2 text-sm border rounded-md p-3">
+              <div>
+                <dt className="text-muted-foreground">状态</dt>
+                <dd>
+                  <Badge variant={openTask.status === 'success' ? 'default' : openTask.status === 'failed' ? 'destructive' : 'secondary'}>
+                    {statusLabel(openTask.status)}
+                  </Badge>
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">服务器</dt>
+                <dd>{openTask.serverName ?? openTask.serverId}</dd>
+              </div>
+              <div className="col-span-2">
+                <dt className="text-muted-foreground">产物</dt>
+                <dd>{openTask.artifactName}</dd>
+              </div>
+            </dl>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[140px]">阶段</TableHead>
+                  <TableHead className="w-[120px]">类型</TableHead>
+                  <TableHead className="w-[100px]">状态</TableHead>
+                  <TableHead className="w-[90px]">耗时</TableHead>
+                  <TableHead>结果</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {openTask.stages.map((stage) => (
+                  <TableRow key={stage.key}>
+                    <TableCell>{stage.label}</TableCell>
+                    <TableCell>{stepTypeLabel(stage.type)}</TableCell>
+                    <TableCell><Badge variant="outline">{stageStatusLabel(stage.status)}</Badge></TableCell>
+                    <TableCell>{formatDuration(stage.durationMs)}</TableCell>
+                    <TableCell>{stage.message ?? '-'}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <div className="flex flex-wrap gap-2 items-center">
               <Input
-                allowClear
-                size="small"
                 placeholder="搜索日志"
-                style={{width: 200}}
+                className="w-[200px]"
                 value={logKeyword}
                 onChange={(event) => setLogKeyword(event.target.value)}
               />
-              <Tooltip title="复制日志">
-                <Button
-                  size="small"
-                  icon={<CopyOutlined />}
-                  disabled={openTaskLogs.length === 0}
-                  onClick={() => void navigator.clipboard?.writeText(openTaskLogs.join('\n'))}
-                />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button size="sm" variant="ghost" disabled={openTaskLogs.length === 0} onClick={() => void navigator.clipboard?.writeText(openTaskLogs.join('\n'))}>
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>复制日志</TooltipContent>
               </Tooltip>
-              <Tooltip title="放大查看">
-                <Button size="small" icon={<FullscreenOutlined />} onClick={() => setLogExpanded(true)} />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button size="sm" variant="ghost" onClick={() => setLogExpanded(true)}>
+                    <Maximize2 className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>放大查看</TooltipContent>
               </Tooltip>
-            </Space>
+            </div>
             <LogConsole
               className="workflow-log-panel"
               lines={filteredLogs}
@@ -421,26 +383,31 @@ export function ServicePage() {
               emptyTitle="暂无部署日志"
               keyPrefix="service-deployment-log"
             />
-            <Modal
-              title={`部署日志 · ${openTask.deploymentProfileName ?? openTask.id}`}
-              open={logExpanded}
-              footer={null}
-              width="85vw"
-              onCancel={() => setLogExpanded(false)}
-            >
-              <LogConsole
-                className="log-panel log-panel-large"
-                lines={filteredLogs}
-                classifyLine={classifyLine}
-                emptyTitle="暂无部署日志"
-                keyPrefix="service-deployment-log-modal"
-              />
-            </Modal>
-          </Space>
+            <Dialog open={logExpanded} onOpenChange={(open) => { if (!open) setLogExpanded(false) }}>
+              <DialogContent className="max-w-[85vw]">
+                <DialogHeader>
+                  <DialogTitle>部署日志 · {openTask.deploymentProfileName ?? openTask.id}</DialogTitle>
+                </DialogHeader>
+                <LogConsole
+                  className="log-panel log-panel-large"
+                  lines={filteredLogs}
+                  classifyLine={classifyLine}
+                  emptyTitle="暂无部署日志"
+                  keyPrefix="service-deployment-log-modal"
+                />
+              </DialogContent>
+            </Dialog>
+          </div>
         ) : null}
-      </Modal>
-      <Card title="服务操作历史" className="panel-card" size="small" style={{marginTop: 16}}>
-        <ServiceOperationHistoryList items={histories} />
+        </DialogContent>
+      </Dialog>
+      <Card className="panel-card mt-4">
+        <CardHeader>
+          <CardTitle>服务操作历史</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ServiceOperationHistoryList items={histories} />
+        </CardContent>
       </Card>
     </main>
   )

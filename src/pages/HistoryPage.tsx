@@ -1,15 +1,12 @@
-import {Typography} from 'antd'
 import {WorkbenchHistoryPanel} from '../components/HistoryTable/WorkbenchHistoryPanel'
-
-const {Title, Text} = Typography
 
 export function HistoryPage() {
   return (
     <main className="workspace-page">
       <div className="workspace-heading">
         <div>
-          <Title level={3}>历史管理</Title>
-          <Text type="secondary">统一查看构建记录和部署记录。</Text>
+          <h3 className="text-lg font-medium">历史管理</h3>
+          <span className="text-sm text-muted-foreground">统一查看构建记录和部署记录。</span>
         </div>
       </div>
       <WorkbenchHistoryPanel />

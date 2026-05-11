@@ -1,123 +1,115 @@
-import {Alert, Button, Card, Empty, Input, List, Popconfirm, Space, Typography} from 'antd'
-import {DeleteOutlined, FolderOpenOutlined, ReloadOutlined} from '@ant-design/icons'
-import {useState} from 'react'
-import {useAppStore} from '../../store/useAppStore'
-
-const { Text } = Typography
-
-const projectNameFromPath = (path: string) => {
-  const parts = path.split(/[\\/]/).filter(Boolean)
-  return parts.at(-1) ?? path
-}
+import React, {useState} from "react";
+import {Button} from "@/components/ui/button";
+import {Input} from "@/components/ui/input";
+import {ScrollArea} from "@/components/ui/scroll-area";
+import {FolderOpen, RefreshCw, Trash2} from "lucide-react";
+import {useAppStore} from "../../store/useAppStore";
 
 interface ProjectSelectorProps {
-  framed?: boolean
-  onProjectSelected?: () => void
+  framed?: boolean;
+  onProjectSelected?: () => void;
 }
 
-export function ProjectSelector({framed = true, onProjectSelected}: ProjectSelectorProps) {
-  const project = useAppStore((state) => state.project)
-  const savedProjectPaths = useAppStore((state) => state.savedProjectPaths)
-  const error = useAppStore((state) => state.error)
-  const loading = useAppStore((state) => state.loading)
-  const chooseProject = useAppStore((state) => state.chooseProject)
-  const parseProjectPath = useAppStore((state) => state.parseProjectPath)
-  const removeSavedProject = useAppStore((state) => state.removeSavedProject)
-  const [manualPath, setManualPath] = useState('')
+export function ProjectSelector({ framed = true, onProjectSelected }: ProjectSelectorProps) {
+  const project = useAppStore((state) => state.project);
+  const savedProjectPaths = useAppStore((state) => state.savedProjectPaths);
+  const error = useAppStore((state) => state.error);
+  const loading = useAppStore((state) => state.loading);
+  const chooseProject = useAppStore((state) => state.chooseProject);
+  const parseProjectPath = useAppStore((state) => state.parseProjectPath);
+  const removeSavedProject = useAppStore((state) => state.removeSavedProject);
+  const [manualPath, setManualPath] = useState("");
 
-  const currentPath = project?.rootPath ?? ''
+  const currentPath = project?.rootPath ?? "";
 
-  const content = (
-      <Space direction="vertical" size={12} style={{ width: '100%' }}>
-        <Button
-          type="primary"
-          icon={<FolderOpenOutlined />}
-          block
-          loading={loading}
-          onClick={chooseProject}
-        >
-          选择 Maven 项目
-        </Button>
-        <Input.Search
-          placeholder="也可以粘贴项目根目录"
-          enterButton={<ReloadOutlined />}
-          value={manualPath}
-          onChange={(event) => setManualPath(event.target.value)}
-          onSearch={(value) => {
-            if (value.trim()) {
-              void parseProjectPath(value.trim()).then(onProjectSelected)
-              setManualPath('')
-            }
-          }}
-        />
-        {currentPath ? (
-          <Text className="path-text" type="secondary">
-            {currentPath}
-          </Text>
-        ) : (
-          <Text type="secondary">请选择包含 pom.xml 的父工程目录。</Text>
-        )}
-        {error ? <Alert type="error" showIcon message={error} /> : null}
-        <div className="project-list-block">
-          <Text strong>已保存项目</Text>
-          {savedProjectPaths.length === 0 ? (
-            <Empty description="暂无保存项目" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-          ) : (
-            <List
-              className="project-list"
-              dataSource={savedProjectPaths}
-              renderItem={(path) => {
-                const active = path.toLowerCase() === currentPath.toLowerCase()
-                return (
-                  <List.Item
-                    className={`project-list-item ${active ? 'active' : ''}`}
-                    actions={[
-                      <Popconfirm
-                        key="delete"
-                        title="从列表移除该项目？"
-                        okText="移除"
-                        cancelText="取消"
-                        onConfirm={() => void removeSavedProject(path)}
-                      >
-                        <Button
-                          aria-label="移除项目"
-                          danger
-                          icon={<DeleteOutlined />}
-                          size="small"
-                          type="text"
-                        />
-                      </Popconfirm>,
-                    ]}
-                    onClick={() => {
-                      if (!active) {
-                        void parseProjectPath(path).then(onProjectSelected)
-                      }
-                    }}
-                  >
-                    <Space direction="vertical" size={2} className="project-list-content">
-                      <Text strong ellipsis={{ tooltip: projectNameFromPath(path) }}>
-                        {projectNameFromPath(path)}
-                      </Text>
-                      <Text type="secondary" className="project-list-path" ellipsis={{ tooltip: path }}>
-                        {path}
-                      </Text>
-                    </Space>
-                  </List.Item>
-                )
-              }}
-            />
-          )}
-        </div>
-      </Space>
-  )
-
-  if (!framed) {
-    return content
-  }
+  const handleSelect = (path: string) => {
+    void parseProjectPath(path).then(onProjectSelected);
+  };
 
   return (
-    <Card title="项目选择" className="panel-card" size="small">
-      {content}
-    </Card>
-  )
+    <div className={`flex flex-col gap-4 h-full ${framed ? "p-4 border rounded-lg bg-card" : ""}`}>
+      <Button
+        className="w-full gap-2"
+        disabled={loading}
+        onClick={() => chooseProject()}
+      >
+        <FolderOpen className="h-4 w-4" />
+        {loading ? "加载中..." : "选择 Maven 项目"}
+      </Button>
+
+      <div className="flex gap-2">
+        <Input
+          placeholder="粘贴项目根目录..."
+          value={manualPath}
+          onChange={(e) => setManualPath(e.target.value)}
+        />
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={() => {
+            if (manualPath.trim()) {
+              handleSelect(manualPath.trim());
+              setManualPath("");
+            }
+          }}
+        >
+          <RefreshCw className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {currentPath && (
+        <div className="text-xs text-muted-foreground truncate px-1">
+          当前: {currentPath}
+        </div>
+      )}
+
+      {error && (
+        <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-md">
+          {error}
+        </div>
+      )}
+
+      <div className="flex flex-col flex-1 min-h-0">
+        <div className="text-sm font-medium mb-2">已保存项目</div>
+        <ScrollArea className="flex-1 -mx-2">
+          <div className="flex flex-col gap-1 px-2">
+            {savedProjectPaths.length === 0 && (
+              <div className="text-sm text-muted-foreground text-center py-4">
+                暂无保存项目
+              </div>
+            )}
+            {savedProjectPaths.map((path) => {
+              const isActive = path.toLowerCase() === currentPath.toLowerCase();
+              return (
+                <div
+                  key={path}
+                  className={`
+                    flex items-center justify-between p-2 rounded-md text-sm cursor-pointer group
+                    ${isActive ? "bg-primary/10 text-primary" : "hover:bg-muted"}
+                  `}
+                  onClick={() => !isActive && handleSelect(path)}
+                >
+                  <div className="flex flex-col min-w-0 flex-1">
+                    <span className="font-medium truncate">{path.split(/[\\/]/).pop()}</span>
+                    <span className="text-xs text-muted-foreground truncate">{path}</span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void removeSavedProject(path);
+                    }}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </ScrollArea>
+      </div>
+    </div>
+  );
 }

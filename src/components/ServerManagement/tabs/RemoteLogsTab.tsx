@@ -1,53 +1,43 @@
+import {Button} from "@/components/ui/button"
+import {Card, CardContent, CardHeader, CardTitle} from "@/components/ui/card"
+import {Input} from "@/components/ui/input"
+import {Textarea} from "@/components/ui/textarea"
+import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue,} from "@/components/ui/select"
+import {Badge} from "@/components/ui/badge"
 import {
-    Button,
-    Card,
-    Empty,
-    Input,
-    InputNumber,
-    message,
-    Modal,
-    Popconfirm,
-    Select,
-    Space,
-    Switch,
-    Tag,
-    Typography
-} from 'antd'
-import {
-    ClearOutlined,
-    DeleteOutlined,
-    DownloadOutlined,
-    EditOutlined,
-    FileOutlined,
-    PauseOutlined,
-    PlayCircleOutlined,
-    PlusOutlined,
-    ReloadOutlined,
-    SearchOutlined,
-} from '@ant-design/icons'
-import {useCallback, useEffect, useRef, useState} from 'react'
-import {api} from '../../../services/tauri-api'
-import type {LogSource, ServerProfile} from '../../../types/domain'
-
-const {Text} = Typography
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
+import {Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,} from "@/components/ui/dialog"
+import {Delete, Download, Edit, Eraser, File, Pause, Play, Plus, RefreshCw, Search,} from "lucide-react"
+import {useCallback, useEffect, useRef, useState} from "react"
+import {api} from "../../../services/tauri-api"
+import type {LogSource, ServerProfile} from "../../../types/domain"
 
 interface RemoteLogsTabProps {
   server: ServerProfile
 }
 
 const defaultHighlightRules = [
-  {pattern: 'ERROR', color: '#f44747'},
-  {pattern: 'Exception', color: '#f44747'},
-  {pattern: 'WARN', color: '#ffa500'},
-  {pattern: 'INFO', color: '#4ec9b0'},
-  {pattern: 'DEBUG', color: '#6a9955'},
-  {pattern: 'Caused by', color: '#c586c0'},
-  {pattern: 'Timeout', color: '#f44747'},
-  {pattern: 'Connection refused', color: '#f44747'},
-  {pattern: 'OutOfMemoryError', color: '#f44747'},
-  {pattern: 'NullPointerException', color: '#f44747'},
-  {pattern: 'failed', color: '#f44747'},
-  {pattern: 'success', color: '#4ec9b0'},
+  { pattern: "ERROR", color: "#f44747" },
+  { pattern: "Exception", color: "#f44747" },
+  { pattern: "WARN", color: "#ffa500" },
+  { pattern: "INFO", color: "#4ec9b0" },
+  { pattern: "DEBUG", color: "#6a9955" },
+  { pattern: "Caused by", color: "#c586c0" },
+  { pattern: "Timeout", color: "#f44747" },
+  { pattern: "Connection refused", color: "#f44747" },
+  { pattern: "OutOfMemoryError", color: "#f44747" },
+  { pattern: "NullPointerException", color: "#f44747" },
+  { pattern: "failed", color: "#f44747" },
+  { pattern: "success", color: "#4ec9b0" },
 ]
 
 const getHighlightColor = (line: string): string | undefined => {
@@ -60,16 +50,16 @@ const getHighlightColor = (line: string): string | undefined => {
 }
 
 const createEmptyLogSource = (serverId: string): LogSource => ({
-  id: '',
+  id: "",
   serverId,
-  name: '',
-  path: '',
-  encoding: 'UTF-8',
+  name: "",
+  path: "",
+  encoding: "UTF-8",
   defaultTailLines: 500,
   enabled: true,
 })
 
-export function RemoteLogsTab({server}: RemoteLogsTabProps) {
+export function RemoteLogsTab({ server }: RemoteLogsTabProps) {
   const [logSources, setLogSources] = useState<LogSource[]>([])
   const [selectedPath, setSelectedPath] = useState<string>()
   const [logLines, setLogLines] = useState<string[]>([])
@@ -77,7 +67,7 @@ export function RemoteLogsTab({server}: RemoteLogsTabProps) {
   const [tailing, setTailing] = useState(false)
   const [paused, setPaused] = useState(false)
   const [tailLines, setTailLines] = useState(500)
-  const [searchKeyword, setSearchKeyword] = useState('')
+  const [searchKeyword, setSearchKeyword] = useState("")
   const [filterLevel, setFilterLevel] = useState<string>()
   const [sourceModalOpen, setSourceModalOpen] = useState(false)
   const [sourceSaving, setSourceSaving] = useState(false)
@@ -91,7 +81,7 @@ export function RemoteLogsTab({server}: RemoteLogsTabProps) {
       const data = await api.listLogSources(server.id)
       setLogSources(data)
     } catch (error) {
-      console.error('加载日志源失败：', error)
+      console.error("加载日志源失败：", error)
     }
   }, [server.id])
 
@@ -108,7 +98,7 @@ export function RemoteLogsTab({server}: RemoteLogsTabProps) {
 
   const openEditSource = () => {
     if (!selectedSource) {
-      message.warning('请选择要编辑的日志源')
+      alert("请选择要编辑的日志源")
       return
     }
     setSourceDraft(selectedSource)
@@ -119,7 +109,7 @@ export function RemoteLogsTab({server}: RemoteLogsTabProps) {
     const name = sourceDraft.name.trim()
     const path = sourceDraft.path.trim()
     if (!name || !path) {
-      message.warning('请填写日志源名称和路径')
+      alert("请填写日志源名称和路径")
       return
     }
     setSourceSaving(true)
@@ -131,13 +121,13 @@ export function RemoteLogsTab({server}: RemoteLogsTabProps) {
         path,
         defaultTailLines: sourceDraft.defaultTailLines || 500,
       })
-      message.success(sourceDraft.id ? '日志源已更新' : '日志源已新增')
+      console.log(sourceDraft.id ? "日志源已更新" : "日志源已新增")
       setSelectedPath(saved.path)
       setTailLines(saved.defaultTailLines)
       setSourceModalOpen(false)
       await loadLogSources()
     } catch (error) {
-      message.error(`保存日志源失败：${error}`)
+      console.error(`保存日志源失败：${error}`)
     } finally {
       setSourceSaving(false)
     }
@@ -145,18 +135,18 @@ export function RemoteLogsTab({server}: RemoteLogsTabProps) {
 
   const handleDeleteSource = async () => {
     if (!selectedSource) {
-      message.warning('请选择要删除的日志源')
+      alert("请选择要删除的日志源")
       return
     }
     try {
       await api.deleteLogSource(selectedSource.id)
-      message.success('日志源已删除')
+      console.log("日志源已删除")
       if (selectedPath === selectedSource.path) {
         setSelectedPath(undefined)
       }
       await loadLogSources()
     } catch (error) {
-      message.error(`删除日志源失败：${error}`)
+      console.error(`删除日志源失败：${error}`)
     }
   }
 
@@ -168,7 +158,7 @@ export function RemoteLogsTab({server}: RemoteLogsTabProps) {
 
   const handleLoadLog = async () => {
     if (!selectedPath) {
-      message.warning('请选择或输入日志路径')
+      alert("请选择或输入日志路径")
       return
     }
 
@@ -179,7 +169,7 @@ export function RemoteLogsTab({server}: RemoteLogsTabProps) {
       setLogLines(lines)
       setTimeout(scrollToBottom, 100)
     } catch (error) {
-      message.error(`加载日志失败：${error}`)
+      console.error(`加载日志失败：${error}`)
     } finally {
       setLoading(false)
     }
@@ -187,7 +177,7 @@ export function RemoteLogsTab({server}: RemoteLogsTabProps) {
 
   const handleStartTail = () => {
     if (!selectedPath) {
-      message.warning('请选择或输入日志路径')
+      alert("请选择或输入日志路径")
       return
     }
 
@@ -207,7 +197,7 @@ export function RemoteLogsTab({server}: RemoteLogsTabProps) {
         setLogLines(lines)
         setTimeout(scrollToBottom, 100)
       } catch (error) {
-        console.error('Tail 日志失败：', error)
+        console.error("Tail 日志失败：", error)
       }
     }, 3000)
   }
@@ -233,12 +223,12 @@ export function RemoteLogsTab({server}: RemoteLogsTabProps) {
   }
 
   const handleDownload = () => {
-    const content = logLines.join('\n')
-    const blob = new Blob([content], {type: 'text/plain'})
+    const content = logLines.join("\n")
+    const blob = new Blob([content], { type: "text/plain" })
     const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
+    const a = document.createElement("a")
     a.href = url
-    a.download = `${server.name}-${selectedPath?.split('/').pop() ?? 'log'}.txt`
+    a.download = `${server.name}-${selectedPath?.split("/").pop() ?? "log"}.txt`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -256,250 +246,286 @@ export function RemoteLogsTab({server}: RemoteLogsTabProps) {
       return false
     }
     if (filterLevel) {
-      if (filterLevel === 'ERROR' && !line.includes('ERROR') && !line.includes('Exception'))
+      if (filterLevel === "ERROR" && !line.includes("ERROR") && !line.includes("Exception"))
         return false
-      if (filterLevel === 'WARN' && !line.includes('WARN') && !line.includes('ERROR'))
+      if (filterLevel === "WARN" && !line.includes("WARN") && !line.includes("ERROR"))
         return false
     }
     return true
   })
 
   return (
-    <Card
-      title={
-        <Space>
-          <FileOutlined />
-          <span>远程日志</span>
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+        <div className="flex items-center gap-2">
+          <File className="h-4 w-4" />
+          <CardTitle className="text-lg">远程日志</CardTitle>
           {tailing && (
-            <Tag color={paused ? 'warning' : 'processing'}>
-              {paused ? '已暂停' : '实时监听中'}
-            </Tag>
+            <Badge className={paused ? "bg-yellow-500" : "bg-blue-500"}>
+              {paused ? "已暂停" : "实时监听中"}
+            </Badge>
           )}
-        </Space>
-      }
-      size="small"
-      extra={
-        <Space>
+        </div>
+        <div className="flex gap-2">
           {!tailing ? (
             <Button
-              size="small"
-              type="primary"
-              icon={<PlayCircleOutlined />}
+              size="sm"
               onClick={handleStartTail}
               disabled={!selectedPath}
             >
+              <Play className="mr-1 h-4 w-4" />
               实时 Tail
             </Button>
           ) : (
             <>
               <Button
-                size="small"
-                icon={paused ? <PlayCircleOutlined /> : <PauseOutlined />}
+                variant="outline"
+                size="sm"
                 onClick={handleTogglePause}
               >
-                {paused ? '继续' : '暂停'}
+                {paused ? <Play className="mr-1 h-4 w-4" /> : <Pause className="mr-1 h-4 w-4" />}
+                {paused ? "继续" : "暂停"}
               </Button>
-              <Button size="small" danger onClick={handleStopTail}>
+              <Button variant="destructive" size="sm" onClick={handleStopTail}>
                 停止
               </Button>
             </>
           )}
           <Button
-            size="small"
-            icon={<ReloadOutlined />}
+            variant="outline"
+            size="sm"
             onClick={() => void handleLoadLog()}
-            loading={loading}
+            disabled={loading}
           >
+            <RefreshCw className={`mr-1 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             读取
           </Button>
-          <Button size="small" icon={<ClearOutlined />} onClick={handleClear}>
+          <Button variant="outline" size="sm" onClick={handleClear}>
+            <Eraser className="mr-1 h-4 w-4" />
             清空
           </Button>
           <Button
-            size="small"
-            icon={<DownloadOutlined />}
+            variant="outline"
+            size="sm"
             onClick={handleDownload}
             disabled={logLines.length === 0}
           >
+            <Download className="mr-1 h-4 w-4" />
             下载
           </Button>
-        </Space>
-      }
-    >
-      <Space direction="vertical" size={8} style={{width: '100%'}}>
-        <Space wrap>
-          <Select
-            placeholder="选择日志源"
-            style={{width: 200}}
-            value={selectedPath}
-            onChange={(value) => {
-              setSelectedPath(value)
-              const source = logSources.find((item) => item.path === value)
-              if (source) {
-                setTailLines(source.defaultTailLines)
-              }
-            }}
-            options={logSources.map((ls) => ({
-              label: `${ls.name} (${ls.path})`,
-              value: ls.path,
-              disabled: !ls.enabled,
-            }))}
-            showSearch
-          />
-          <Button icon={<PlusOutlined />} onClick={openCreateSource}>
-            新增日志源
-          </Button>
-          <Button icon={<EditOutlined />} disabled={!selectedSource} onClick={openEditSource}>
-            编辑
-          </Button>
-          <Popconfirm
-            title="确定删除该日志源？"
-            onConfirm={() => void handleDeleteSource()}
-            disabled={!selectedSource}
-          >
-            <Button danger icon={<DeleteOutlined />} disabled={!selectedSource}>
-              删除
-            </Button>
-          </Popconfirm>
-          <Input
-            placeholder="或输入日志路径"
-            style={{width: 300}}
-            value={selectedPath}
-            onChange={(e) => setSelectedPath(e.target.value)}
-          />
-          <Select
-            value={tailLines}
-            onChange={setTailLines}
-            options={[
-              {label: '100 行', value: 100},
-              {label: '500 行', value: 500},
-              {label: '1000 行', value: 1000},
-              {label: '5000 行', value: 5000},
-            ]}
-            style={{width: 100}}
-          />
-        </Space>
-
-        <Space wrap>
-          <Input
-            placeholder="搜索关键字"
-            prefix={<SearchOutlined />}
-            value={searchKeyword}
-            onChange={(e) => setSearchKeyword(e.target.value)}
-            style={{width: 200}}
-            allowClear
-          />
-          <Select
-            placeholder="日志级别"
-            value={filterLevel}
-            onChange={setFilterLevel}
-            allowClear
-            style={{width: 120}}
-            options={[
-              {label: 'ERROR', value: 'ERROR'},
-              {label: 'WARN', value: 'WARN'},
-            ]}
-          />
-          <Text type="secondary">
-            {filteredLines.length} / {logLines.length} 行
-          </Text>
-        </Space>
-
-        <div
-          ref={outputRef}
-          style={{
-            backgroundColor: '#1e1e1e',
-            color: '#d4d4d4',
-            padding: '12px',
-            fontFamily: 'Consolas, Monaco, monospace',
-            fontSize: '13px',
-            lineHeight: '1.5',
-            height: '400px',
-            overflowY: 'auto',
-            borderRadius: '4px',
-          }}
-        >
-          {filteredLines.length === 0 ? (
-            <Empty
-              description={
-                <Text style={{color: '#666'}}>
-                  选择日志路径后点击"读取"或"实时 Tail"
-                </Text>
-              }
-              style={{marginTop: '100px'}}
-            />
-          ) : (
-            filteredLines.map((line, index) => (
-              <div
-                key={index}
-                style={{
-                  color: getHighlightColor(line) ?? '#d4d4d4',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-all',
-                }}
-              >
-                {line}
-              </div>
-            ))
-          )}
         </div>
-      </Space>
-      <Modal
-        title={sourceDraft.id ? '编辑日志源' : '新增日志源'}
-        open={sourceModalOpen}
-        okText="保存"
-        cancelText="取消"
-        confirmLoading={sourceSaving}
-        onOk={() => void handleSaveSource()}
-        onCancel={() => setSourceModalOpen(false)}
-      >
-        <Space direction="vertical" size={12} style={{width: '100%'}}>
-          <Input
-            addonBefore="名称"
-            placeholder="例如 应用主日志"
-            value={sourceDraft.name}
-            onChange={(event) => setSourceDraft({...sourceDraft, name: event.target.value})}
-          />
-          <Input
-            addonBefore="路径"
-            placeholder="例如 /home/my-project-test/logs/app.log"
-            value={sourceDraft.path}
-            onChange={(event) => setSourceDraft({...sourceDraft, path: event.target.value})}
-          />
-          <Space wrap>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap gap-2">
             <Select
-              value={sourceDraft.encoding}
-              style={{width: 140}}
-              options={[
-                {label: 'UTF-8', value: 'UTF-8'},
-                {label: 'GBK', value: 'GBK'},
-                {label: '自动', value: 'auto'},
-              ]}
-              onChange={(encoding) => setSourceDraft({...sourceDraft, encoding})}
+              value={selectedPath}
+              onValueChange={(value) => {
+                setSelectedPath(value)
+                const source = logSources.find((item) => item.path === value)
+                if (source) {
+                  setTailLines(source.defaultTailLines)
+                }
+              }}
+            >
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="选择日志源" />
+              </SelectTrigger>
+              <SelectContent>
+                {logSources.map((ls) => (
+                  <SelectItem
+                    key={ls.path}
+                    value={ls.path}
+                    disabled={!ls.enabled}
+                  >
+                    {ls.name} ({ls.path})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" onClick={openCreateSource}>
+              <Plus className="mr-1 h-4 w-4" />
+              新增日志源
+            </Button>
+            <Button variant="outline" disabled={!selectedSource} onClick={openEditSource}>
+              <Edit className="mr-1 h-4 w-4" />
+              编辑
+            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" disabled={!selectedSource}>
+                  <Delete className="mr-1 h-4 w-4" />
+                  删除
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>确认删除</AlertDialogTitle>
+                  <AlertDialogDescription>确定删除该日志源？</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>取消</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => void handleDeleteSource()}>
+                    删除
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+            <Input
+              placeholder="或输入日志路径"
+              className="w-[300px]"
+              value={selectedPath}
+              onChange={(e) => setSelectedPath(e.target.value)}
             />
-            <InputNumber
-              min={50}
-              max={5000}
-              addonBefore="默认行数"
-              value={sourceDraft.defaultTailLines}
-              onChange={(value) => setSourceDraft({...sourceDraft, defaultTailLines: Number(value) || 500})}
-            />
-            <Space>
-              <Switch
-                checked={sourceDraft.enabled}
-                onChange={(enabled) => setSourceDraft({...sourceDraft, enabled})}
+            <Select
+              value={String(tailLines)}
+              onValueChange={(v) => setTailLines(Number(v))}
+            >
+              <SelectTrigger className="w-[100px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="100">100 行</SelectItem>
+                <SelectItem value="500">500 行</SelectItem>
+                <SelectItem value="1000">1000 行</SelectItem>
+                <SelectItem value="5000">5000 行</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <div className="relative w-[200px]">
+              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="搜索关键字"
+                className="pl-8"
+                value={searchKeyword}
+                onChange={(e) => setSearchKeyword(e.target.value)}
               />
-              <Text>启用</Text>
-            </Space>
-          </Space>
-          <Input.TextArea
-            rows={3}
-            placeholder="备注"
-            value={sourceDraft.remark}
-            onChange={(event) => setSourceDraft({...sourceDraft, remark: event.target.value || undefined})}
-          />
-        </Space>
-      </Modal>
+            </div>
+            <Select
+              value={filterLevel}
+              onValueChange={(v) => setFilterLevel(v === "__all__" ? undefined : v)}
+            >
+              <SelectTrigger className="w-[120px]">
+                <SelectValue placeholder="日志级别" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">全部</SelectItem>
+                <SelectItem value="ERROR">ERROR</SelectItem>
+                <SelectItem value="WARN">WARN</SelectItem>
+              </SelectContent>
+            </Select>
+            <span className="text-sm text-muted-foreground flex items-center">
+              {filteredLines.length} / {logLines.length} 行
+            </span>
+          </div>
+
+          <div
+            ref={outputRef}
+            className="bg-[#1e1e1e] text-[#d4d4d4] p-3 font-mono text-[13px] leading-relaxed h-[400px] overflow-y-auto rounded"
+          >
+            {filteredLines.length === 0 ? (
+              <div className="flex flex-col items-center justify-center pt-[100px] text-[#666]">
+                <span>选择日志路径后点击"读取"或"实时 Tail"</span>
+              </div>
+            ) : (
+              filteredLines.map((line, index) => (
+                <div
+                  key={index}
+                  style={{
+                    color: getHighlightColor(line) ?? "#d4d4d4",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-all",
+                  }}
+                >
+                  {line}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <Dialog open={sourceModalOpen} onOpenChange={setSourceModalOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{sourceDraft.id ? "编辑日志源" : "新增日志源"}</DialogTitle>
+            </DialogHeader>
+            <div className="flex flex-col gap-3">
+              <div className="flex gap-1">
+                <span className="flex items-center px-3 border rounded-l bg-muted text-sm">名称</span>
+                <Input
+                  className="rounded-l-none"
+                  placeholder="例如 应用主日志"
+                  value={sourceDraft.name}
+                  onChange={(event) => setSourceDraft({ ...sourceDraft, name: event.target.value })}
+                />
+              </div>
+              <div className="flex gap-1">
+                <span className="flex items-center px-3 border rounded-l bg-muted text-sm">路径</span>
+                <Input
+                  className="rounded-l-none"
+                  placeholder="例如 /home/my-project-test/logs/app.log"
+                  value={sourceDraft.path}
+                  onChange={(event) => setSourceDraft({ ...sourceDraft, path: event.target.value })}
+                />
+              </div>
+              <div className="flex flex-wrap gap-2 items-center">
+                <Select
+                  value={sourceDraft.encoding}
+                  onValueChange={(encoding) => setSourceDraft({ ...sourceDraft, encoding })}
+                >
+                  <SelectTrigger className="w-[140px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="UTF-8">UTF-8</SelectItem>
+                    <SelectItem value="GBK">GBK</SelectItem>
+                    <SelectItem value="auto">自动</SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className="flex gap-1 items-center">
+                  <span className="flex items-center px-3 border rounded-l bg-muted text-sm h-9">默认行数</span>
+                  <Input
+                    type="number"
+                    min={50}
+                    max={5000}
+                    className="w-[100px] rounded-l-none"
+                    value={sourceDraft.defaultTailLines}
+                    onChange={(event) => setSourceDraft({ ...sourceDraft, defaultTailLines: Number(event.target.value) || 500 })}
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={sourceDraft.enabled}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${sourceDraft.enabled ? "bg-primary" : "bg-input"}`}
+                    onClick={() => setSourceDraft({ ...sourceDraft, enabled: !sourceDraft.enabled })}
+                  >
+                    <span
+                      className={`pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform ${sourceDraft.enabled ? "translate-x-4" : "translate-x-0"}`}
+                    />
+                  </button>
+                  <span className="text-sm">启用</span>
+                </div>
+              </div>
+              <Textarea
+                rows={3}
+                placeholder="备注"
+                value={sourceDraft.remark ?? ""}
+                onChange={(event) => setSourceDraft({ ...sourceDraft, remark: event.target.value || undefined })}
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setSourceModalOpen(false)}>取消</Button>
+              <Button disabled={sourceSaving} onClick={() => void handleSaveSource()}>
+                {sourceSaving ? "保存中..." : "保存"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </CardContent>
     </Card>
   )
 }

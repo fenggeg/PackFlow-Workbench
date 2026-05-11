@@ -1,39 +1,36 @@
-import {Collapse, Space, Typography} from 'antd'
 import {AdvancedOptionsPanel} from '../components/AdvancedOptions/AdvancedOptionsPanel'
 import {BuildNextActionsPanel} from '../components/BuildCenter/BuildNextActionsPanel'
 import {BuildOptionsPanel} from '../components/BuildOptions/BuildOptionsPanel'
 import {EnvPanel} from '../components/EnvPanel/EnvPanel'
-
-const {Title, Text} = Typography
+import {Accordion, AccordionContent, AccordionItem, AccordionTrigger} from "@/components/ui/accordion"
 
 export function BuildPage() {
   return (
     <main className="workspace-page">
       <div className="workspace-heading">
         <div>
-          <Title level={3}>构建中心</Title>
-          <Text type="secondary">选模块、配参数、开始构建，构建结果会自然流向产物和部署。</Text>
+          <h3 className="text-lg font-medium">构建中心</h3>
+          <span className="text-sm text-muted-foreground">选模块、配参数、开始构建，构建结果会自然流向产物和部署。</span>
         </div>
       </div>
-      <Space direction="vertical" size={20} style={{width: '100%'}}>
+      <div className="flex flex-col gap-5 w-full">
         <BuildOptionsPanel />
-        <Collapse
-          className="workspace-collapse"
-          items={[
-            {
-              key: 'environment',
-              label: '构建环境摘要',
-              children: <EnvPanel />,
-            },
-            {
-              key: 'advanced',
-              label: '高级参数',
-              children: <AdvancedOptionsPanel />,
-            },
-          ]}
-        />
+        <Accordion type="multiple" className="workspace-collapse">
+          <AccordionItem value="environment">
+            <AccordionTrigger>构建环境摘要</AccordionTrigger>
+            <AccordionContent>
+              <EnvPanel />
+            </AccordionContent>
+          </AccordionItem>
+          <AccordionItem value="advanced">
+            <AccordionTrigger>高级参数</AccordionTrigger>
+            <AccordionContent>
+              <AdvancedOptionsPanel />
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
         <BuildNextActionsPanel />
-      </Space>
+      </div>
     </main>
   )
 }

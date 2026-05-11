@@ -1,11 +1,22 @@
-import {CopyOutlined, DeleteOutlined, FolderOpenOutlined, RocketOutlined} from '@ant-design/icons'
-import {App, Button, Empty, List, Popconfirm, Space, Tag, Tooltip, Typography} from 'antd'
+import {Badge} from '@/components/ui/badge'
+import {Button} from '@/components/ui/button'
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
+import {Tooltip, TooltipContent, TooltipTrigger,} from '@/components/ui/tooltip'
+import {Copy, FolderOpen, Rocket, Trash2} from 'lucide-react'
 import {api} from '../services/tauri-api'
 import {useAppStore} from '../store/useAppStore'
 import {useNavigationStore} from '../store/navigationStore'
 import type {BuildArtifact} from '../types/domain'
-
-const {Title, Text} = Typography
 
 const formatSize = (size: number) => {
   if (size >= 1024 * 1024) {
@@ -29,7 +40,6 @@ const dedupeArtifacts = (artifacts: BuildArtifact[]) => {
 }
 
 export function ArtifactPage() {
-  const {message} = App.useApp()
   const artifacts = useAppStore((state) => state.artifacts)
   const history = useAppStore((state) => state.history)
   const setActivePage = useNavigationStore((state) => state.setActivePage)
@@ -42,15 +52,15 @@ export function ArtifactPage() {
     try {
       await api.openPathInExplorer(artifact.path)
     } catch (error) {
-      void message.error(error instanceof Error ? error.message : String(error))
+      alert(error instanceof Error ? error.message : String(error))
     }
   }
   const deleteArtifact = async (artifact: BuildArtifact) => {
     try {
       await removeArtifact(artifact.path)
-      void message.success(`已清理 ${artifact.fileName}`)
+      alert(`已清理 ${artifact.fileName}`)
     } catch (error) {
-      void message.error(error instanceof Error ? error.message : String(error))
+      alert(error instanceof Error ? error.message : String(error))
     }
   }
 
@@ -58,82 +68,102 @@ export function ArtifactPage() {
     <main className="workspace-page">
       <div className="workspace-heading">
         <div>
-          <Title level={3}>产物管理</Title>
-          <Text type="secondary">集中查看构建产物，复制路径、打开目录，并进入部署。</Text>
+          <h3 className="text-xl font-semibold">产物管理</h3>
+          <p className="text-sm text-muted-foreground">集中查看构建产物，复制路径、打开目录，并进入部署。</p>
         </div>
       </div>
       {allArtifacts.length === 0 ? (
-        <Empty description="暂无构建产物" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+          <p>暂无构建产物</p>
+        </div>
       ) : (
-        <List
-          className="workspace-list"
-          bordered
-          dataSource={allArtifacts}
-          renderItem={(artifact) => (
-            <List.Item
-              style={{ padding: '8px 12px' }}
-              actions={[
-                <Tooltip key="copy" title="复制路径">
-                  <Button
-                    size="small"
-                    type="text"
-                    icon={<CopyOutlined />}
-                    onClick={() => void navigator.clipboard?.writeText(artifact.path)}
-                  />
-                </Tooltip>,
-                <Tooltip key="open" title="打开目录">
-                  <Button
-                    size="small"
-                    type="text"
-                    icon={<FolderOpenOutlined />}
-                    onClick={() => void openArtifactLocation(artifact)}
-                  />
-                </Tooltip>,
-                <Popconfirm
-                  key="delete"
-                  title="删除产物文件？"
-                  description={`确定要删除 ${artifact.fileName} 吗？此操作不可恢复。`}
-                  okText="删除"
-                  okType="danger"
-                  cancelText="取消"
-                  onConfirm={() => void deleteArtifact(artifact)}
-                >
-                  <Tooltip title="删除">
+        <div className="border rounded-md divide-y workspace-list">
+          {allArtifacts.map((artifact) => (
+            <div key={artifact.path} className="flex items-center justify-between gap-2 px-3 py-2">
+              <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-sm font-medium">{artifact.fileName}</span>
+                  <Badge variant="secondary">{artifact.extension}</Badge>
+                  <Badge className="bg-green-500 text-white">{formatSize(artifact.sizeBytes)}</Badge>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {artifact.modulePath || '根项目'}
+                </span>
+                <span className="text-xs text-muted-foreground path-text truncate">
+                  {artifact.path}
+                </span>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <Tooltip>
+                  <TooltipTrigger asChild>
                     <Button
-                      size="small"
-                      type="text"
-                      danger
-                      icon={<DeleteOutlined />}
-                    />
-                  </Tooltip>
-                </Popconfirm>,
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => void navigator.clipboard?.writeText(artifact.path)}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>复制路径</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => void openArtifactLocation(artifact)}
+                    >
+                      <FolderOpen className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>打开目录</TooltipContent>
+                </Tooltip>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>删除</TooltipContent>
+                    </Tooltip>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>删除产物文件？</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        确定要删除 {artifact.fileName} 吗？此操作不可恢复。
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>取消</AlertDialogCancel>
+                      <AlertDialogAction
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        onClick={() => void deleteArtifact(artifact)}
+                      >
+                        删除
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
                 <Button
-                  key="deploy"
-                  size="small"
-                  type="primary"
-                  icon={<RocketOutlined />}
+                  size="sm"
                   onClick={() => setActivePage('deployment')}
                 >
+                  <Rocket className="mr-1 h-3.5 w-3.5" />
                   部署
-                </Button>,
-              ]}
-            >
-              <Space direction="vertical" size={2} style={{maxWidth: '100%'}}>
-                <Space size={6} wrap>
-                  <Text strong style={{fontSize: 14}}>{artifact.fileName}</Text>
-                  <Tag>{artifact.extension}</Tag>
-                  <Tag color="green">{formatSize(artifact.sizeBytes)}</Tag>
-                </Space>
-                <Text type="secondary" style={{fontSize: 12, lineHeight: '16px'}}>
-                  {artifact.modulePath || '根项目'}
-                </Text>
-                <Text type="secondary" className="path-text" style={{fontSize: 11, lineHeight: '14px'}}>
-                  {artifact.path}
-                </Text>
-              </Space>
-            </List.Item>
-          )}
-        />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </main>
   )

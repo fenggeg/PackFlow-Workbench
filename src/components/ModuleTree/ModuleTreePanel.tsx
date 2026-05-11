@@ -1,36 +1,34 @@
-import {Alert, Button, Card, Divider, Empty, Input, Space, Spin, Tag, Tooltip, Tree, Typography} from 'antd'
+﻿import {useCallback, useMemo, useState} from "react";
 import {
-    AppstoreOutlined,
-    CheckSquareOutlined,
-    ClearOutlined,
-    CompressOutlined,
-    ExpandOutlined,
-    FilterOutlined,
-} from '@ant-design/icons'
-import type {DataNode} from 'antd/es/tree'
-import type {Key} from 'react'
-import {useMemo, useState} from 'react'
-import {useAppStore} from '../../store/useAppStore'
-import {useWorkflowStore} from '../../store/useWorkflowStore'
-import type {MavenModule} from '../../types/domain'
-
-const { Text } = Typography
+    AlertTriangle,
+    CheckSquare,
+    ChevronDown,
+    ChevronRight,
+    Folder,
+    FolderOpen,
+    Info,
+    Loader2,
+    Search,
+    Trash2
+} from "lucide-react";
+import {Button} from "@/components/ui/button";
+import {Input} from "@/components/ui/input";
+import {Badge} from "@/components/ui/badge";
+import {Checkbox} from "@/components/ui/checkbox";
+import {Tooltip, TooltipContent, TooltipTrigger} from "@/components/ui/tooltip";
+import {ScrollArea} from "@/components/ui/scroll-area";
+import {useAppStore} from "../../store/useAppStore";
+import {useWorkflowStore} from "../../store/useWorkflowStore";
+import type {MavenModule} from "../../types/domain";
 
 const shortenArtifactId = (artifactId: string) =>
-  artifactId.replace(/^(scs|wip|maven|mp)-/i, '')
+  artifactId.replace(/^(scs|wip|maven|mp)-/i, "");
 
-const moduleToTreeNode = (moduleItem: MavenModule): DataNode => ({
-  key: moduleItem.id,
-  title: (
-    <Tooltip title={moduleItem.artifactId}>
-      <div className="module-tree-title">
-        <strong>{shortenArtifactId(moduleItem.artifactId)}</strong>
-        <div className="module-meta">{moduleItem.relativePath || '根项目'}</div>
-      </div>
-    </Tooltip>
-  ),
-  children: moduleItem.children?.map(moduleToTreeNode),
-})
+const flattenModuleIds = (modules: MavenModule[]): string[] =>
+  modules.flatMap((m) => [m.id, ...flattenModuleIds(m.children ?? [])]);
+
+const flattenModules = (modules: MavenModule[]): MavenModule[] =>
+  modules.flatMap((m) => [m, ...flattenModules(m.children ?? [])]);
 
 const filterModules = (
   modules: MavenModule[],
@@ -38,245 +36,433 @@ const filterModules = (
   selectedIds: string[],
   checkedOnly: boolean,
 ): MavenModule[] => {
-  const normalized = keyword.trim().toLowerCase()
-  if (!normalized && !checkedOnly) {
-    return modules
-  }
-
-  const result: MavenModule[] = []
-  for (const moduleItem of modules) {
-    const children = filterModules(moduleItem.children ?? [], normalized, selectedIds, checkedOnly)
+  const normalized = keyword.trim().toLowerCase();
+  if (!normalized && !checkedOnly) return modules;
+  const result: MavenModule[] = [];
+  for (const mod of modules) {
+    const children = filterModules(mod.children ?? [], normalized, selectedIds, checkedOnly);
     const matched =
       !normalized ||
-      moduleItem.artifactId.toLowerCase().includes(normalized) ||
-      moduleItem.relativePath.toLowerCase().includes(normalized)
-    const selected = !checkedOnly || selectedIds.includes(moduleItem.id)
+      mod.artifactId.toLowerCase().includes(normalized) ||
+      mod.relativePath.toLowerCase().includes(normalized);
+    const selected = !checkedOnly || selectedIds.includes(mod.id);
     if ((matched && selected) || children.length > 0) {
-      result.push({ ...moduleItem, children })
+      result.push({ ...mod, children });
     }
   }
-  return result
+  return result;
+};
+
+interface TreeNodeProps {
+  module: MavenModule;
+  depth: number;
+  expandedKeys: Set<string>;
+  selectedModuleIds: string[];
+  selectedModuleId?: string;
+  onToggleExpand: (id: string) => void;
+  onToggleCheck: (id: string) => void;
+  onSelect: (id: string) => void;
 }
 
-const flattenModuleIds = (modules: MavenModule[]): string[] =>
-  modules.flatMap((moduleItem) => [
-    moduleItem.id,
-    ...flattenModuleIds(moduleItem.children ?? []),
-  ])
+function TreeNode({
+  module,
+  depth,
+  expandedKeys,
+  selectedModuleIds,
+  selectedModuleId,
+  onToggleExpand,
+  onToggleCheck,
+  onSelect,
+}: TreeNodeProps) {
+  const hasChildren = module.children && module.children.length > 0;
+  const isExpanded = expandedKeys.has(module.id);
+  const isChecked = selectedModuleIds.includes(module.id);
+  const isSelected = selectedModuleId === module.id;
 
-const flattenModules = (modules: MavenModule[]): MavenModule[] =>
-  modules.flatMap((moduleItem) => [
-    moduleItem,
-    ...flattenModules(moduleItem.children ?? []),
-  ])
+  return (
+    <div>
+      <div
+        className={`flex items-center gap-1.5 py-1 px-2 rounded-md cursor-pointer group text-sm transition-colors ${
+          isChecked
+            ? "bg-primary/5 hover:bg-primary/10"
+            : "hover:bg-accent"
+        } ${isSelected ? "border-l-2 border-l-primary" : "border-l-2 border-l-transparent"}`}
+        style={{ paddingLeft: `${depth * 16 + 8}px` }}
+        onClick={() => onToggleCheck(module.id)}
+      >
+        {hasChildren ? (
+          <button
+            className="p-0.5 hover:bg-muted rounded shrink-0"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleExpand(module.id);
+            }}
+          >
+            {isExpanded ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+          </button>
+        ) : (
+          <span className="w-5 shrink-0" />
+        )}
+        <Checkbox
+          checked={isChecked}
+          className="shrink-0"
+          onClick={(e) => e.stopPropagation()}
+          onCheckedChange={() => onToggleCheck(module.id)}
+        />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className={`truncate flex-1 ${isChecked ? "font-medium text-foreground" : "text-foreground/80"}`}>
+              {shortenArtifactId(module.artifactId)}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{module.artifactId}</TooltipContent>
+        </Tooltip>
+        <span className="text-xs text-muted-foreground truncate max-w-[80px]">
+          {module.relativePath || "root"}
+        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className={`p-0.5 rounded shrink-0 opacity-0 group-hover:opacity-100 transition-opacity ${
+                isSelected ? "opacity-100 text-primary" : "hover:bg-muted text-muted-foreground"
+              }`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect(module.id);
+              }}
+            >
+              <Info className="h-3.5 w-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>查看依赖洞察</TooltipContent>
+        </Tooltip>
+      </div>
+      {hasChildren && isExpanded && (
+        <div>
+          {module.children!.map((child) => (
+            <TreeNode
+              key={child.id}
+              module={child}
+              depth={depth + 1}
+              expandedKeys={expandedKeys}
+              selectedModuleIds={selectedModuleIds}
+              selectedModuleId={selectedModuleId}
+              onToggleExpand={onToggleExpand}
+              onToggleCheck={onToggleCheck}
+              onSelect={onSelect}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function ModuleTreePanel() {
-  const project = useAppStore((state) => state.project)
-  const loading = useAppStore((state) => state.loading)
-  const selectedModule = useAppStore((state) => state.selectedModule)
-  const selectedModules = useAppStore((state) => state.selectedModules)
-  const selectedModuleIds = useAppStore((state) => state.selectedModuleIds)
-  const setSelectedModule = useAppStore((state) => state.setSelectedModule)
-  const setSelectedModules = useAppStore((state) => state.setSelectedModules)
-  const selectAllProject = useAppStore((state) => state.selectAllProject)
-  const dependencyGraph = useWorkflowStore((state) => state.dependencyGraph)
-  const dependencyLoading = useWorkflowStore((state) => state.dependencyLoading)
-  const [keyword, setKeyword] = useState('')
-  const [showCheckedOnly, setShowCheckedOnly] = useState(false)
-  const [expandedKeys, setExpandedKeys] = useState<Key[]>([])
+  const project = useAppStore((s) => s.project);
+  const loading = useAppStore((s) => s.loading);
+  const selectedModule = useAppStore((s) => s.selectedModule);
+  const selectedModules = useAppStore((s) => s.selectedModules);
+  const selectedModuleIds = useAppStore((s) => s.selectedModuleIds);
+  const setSelectedModule = useAppStore((s) => s.setSelectedModule);
+  const setSelectedModules = useAppStore((s) => s.setSelectedModules);
+  const selectAllProject = useAppStore((s) => s.selectAllProject);
+  const dependencyGraph = useWorkflowStore((s) => s.dependencyGraph);
+  const dependencyLoading = useWorkflowStore((s) => s.dependencyLoading);
+
+  const [keyword, setKeyword] = useState("");
+  const [showCheckedOnly, setShowCheckedOnly] = useState(false);
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
   const filteredModules = useMemo(
     () => filterModules(project?.modules ?? [], keyword, selectedModuleIds, showCheckedOnly),
     [keyword, project?.modules, selectedModuleIds, showCheckedOnly],
-  )
-  const treeData = useMemo(
-    () => filteredModules.map(moduleToTreeNode),
-    [filteredModules],
-  )
+  );
+
   const allModuleIds = useMemo(
     () => flattenModuleIds(project?.modules ?? []),
     [project?.modules],
-  )
+  );
+
   const allModulesChecked =
-    allModuleIds.length > 0 && selectedModuleIds.length === allModuleIds.length
+    allModuleIds.length > 0 && selectedModuleIds.length === allModuleIds.length;
+
   const filteredModuleIds = useMemo(
-    () => flattenModuleIds(filteredModules),
+    () => new Set(flattenModuleIds(filteredModules)),
     [filteredModules],
-  )
-  const shouldExpandSearch = Boolean(keyword.trim()) || showCheckedOnly
-  const selectedSummary = dependencyGraph?.summaries.find((item) => item.moduleId === selectedModule?.id)
+  );
+
+  const shouldExpandSearch = Boolean(keyword.trim()) || showCheckedOnly;
+  const effectiveExpanded = shouldExpandSearch ? filteredModuleIds : expandedKeys;
+
+  const selectedSummary = dependencyGraph?.summaries.find(
+    (item) => item.moduleId === selectedModule?.id,
+  );
+
   const idToModule = useMemo(
-    () => Object.fromEntries(flattenModules(project?.modules ?? []).map((module) => [module.id, module])),
+    () => Object.fromEntries(flattenModules(project?.modules ?? []).map((m) => [m.id, m])),
     [project?.modules],
-  )
+  );
+
+  const handleToggleExpand = useCallback((id: string) => {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const handleToggleCheck = useCallback(
+    (id: string) => {
+      const next = selectedModuleIds.includes(id)
+        ? selectedModuleIds.filter((x) => x !== id)
+        : [...selectedModuleIds, id];
+      setSelectedModules(next);
+    },
+    [selectedModuleIds, setSelectedModules],
+  );
+
+  const handleSelect = useCallback(
+    (id: string) => setSelectedModule(id),
+    [setSelectedModule],
+  );
 
   const renderModuleTags = (moduleIds: string[], color: string) =>
     moduleIds.length > 0 ? (
-      <Space wrap>
-        {moduleIds.map((moduleId) => (
-          <Tag key={moduleId} color={color}>
-            {idToModule[moduleId]?.artifactId ?? moduleId}
-          </Tag>
+      <div className="flex flex-wrap gap-1">
+        {moduleIds.map((id) => (
+          <Badge key={id} variant="secondary" className="text-xs">
+            {idToModule[id]?.artifactId ?? id}
+          </Badge>
         ))}
-      </Space>
+      </div>
     ) : (
-      <Text type="secondary">暂无</Text>
-    )
+      <span className="text-xs text-muted-foreground">暂无</span>
+    );
 
   return (
-    <Card title="模块列表" className="panel-card module-tree-card" size="small">
-      <Space direction="vertical" size={12} style={{ width: '100%' }}>
-        <Input
-          placeholder="搜索 artifactId 或路径"
-          value={keyword}
-          onChange={(event) => setKeyword(event.target.value)}
-        />
-        {project ? (
-          <Space wrap>
-            <Tooltip title="全部项目打包">
-              <Button size="small" icon={<AppstoreOutlined />} type={selectedModules.length === 0 ? 'primary' : 'default'} onClick={selectAllProject} />
-            </Tooltip>
-            <Tooltip title={allModulesChecked ? '取消全选' : '全选模块'}>
+    <div className="flex flex-col gap-3 h-full">
+      <Input
+        placeholder="搜索 artifactId 或路径"
+        value={keyword}
+        onChange={(e) => setKeyword(e.target.value)}
+        className="h-8 text-sm"
+      />
+
+      {project && (
+        <div className="flex flex-wrap gap-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
               <Button
-                size="small"
-                icon={<CheckSquareOutlined />}
+                size="sm"
+                variant={selectedModules.length === 0 ? "default" : "outline"}
+                className="h-7 px-2"
+                onClick={selectAllProject}
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>全部项目打包</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-2"
                 onClick={() => setSelectedModules(allModulesChecked ? [] : allModuleIds)}
-              />
-            </Tooltip>
-            <Tooltip title="清空选择">
-              <Button size="small" icon={<ClearOutlined />} onClick={() => setSelectedModules([])} />
-            </Tooltip>
-            <Tooltip title="展开全部">
-              <Button size="small" icon={<ExpandOutlined />} onClick={() => setExpandedKeys(allModuleIds)} />
-            </Tooltip>
-            <Tooltip title="收起全部">
-              <Button size="small" icon={<CompressOutlined />} onClick={() => setExpandedKeys([])} />
-            </Tooltip>
-            <Tooltip title="仅显示已选">
+              >
+                <CheckSquare className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{allModulesChecked ? "取消全选" : "全选模块"}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
               <Button
-                size="small"
-                icon={<FilterOutlined />}
-                type={showCheckedOnly ? 'primary' : 'default'}
-                onClick={() => setShowCheckedOnly((value) => !value)}
+                size="sm"
+                variant="outline"
+                className="h-7 px-2"
+                onClick={() => setSelectedModules([])}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>清空选择</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-2"
+                onClick={() => setExpandedKeys(new Set(allModuleIds))}
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>展开全部</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-2"
+                onClick={() => setExpandedKeys(new Set())}
+              >
+                <Folder className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>收起全部</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="sm"
+                variant={showCheckedOnly ? "default" : "outline"}
+                className="h-7 px-2"
+                onClick={() => setShowCheckedOnly((v) => !v)}
+              >
+                <Search className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>仅显示已选</TooltipContent>
+          </Tooltip>
+        </div>
+      )}
+
+      {loading && (
+        <div className="flex items-center justify-center gap-2 py-8">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span className="text-sm text-muted-foreground">正在解析项目模块...</span>
+        </div>
+      )}
+
+      {!loading && !project && (
+        <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+          <Folder className="h-8 w-8 mb-2" />
+          <span className="text-sm">等待选择项目</span>
+        </div>
+      )}
+
+      {project && filteredModules.length === 0 && !loading && (
+        <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+          <Search className="h-8 w-8 mb-2" />
+          <span className="text-sm">没有匹配模块</span>
+        </div>
+      )}
+
+      {!loading && filteredModules.length > 0 && (
+        <ScrollArea className="flex-1 min-h-0">
+          <div className="pr-2">
+            {filteredModules.map((mod) => (
+              <TreeNode
+                key={mod.id}
+                module={mod}
+                depth={0}
+                expandedKeys={effectiveExpanded}
+                selectedModuleIds={selectedModuleIds}
+                selectedModuleId={selectedModule?.id}
+                onToggleExpand={handleToggleExpand}
+                onToggleCheck={handleToggleCheck}
+                onSelect={handleSelect}
               />
-            </Tooltip>
-          </Space>
-        ) : null}
-        {loading ? (
-          <div className="module-loading-state">
-            <Spin />
-            <Text type="secondary">正在解析项目模块...</Text>
+            ))}
           </div>
-        ) : null}
-        {!loading && !project ? <Empty description="等待选择项目" image={Empty.PRESENTED_IMAGE_SIMPLE} /> : null}
-        {project && treeData.length === 0 ? (
-          <Empty description="没有匹配模块" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-        ) : null}
-        {!loading && treeData.length > 0 ? (
-          <Tree
-            className="module-tree"
-            checkable
-            virtual={false}
-            expandedKeys={shouldExpandSearch ? filteredModuleIds : expandedKeys}
-            checkedKeys={selectedModuleIds}
-            selectedKeys={selectedModule ? [selectedModule.id] : []}
-            treeData={treeData}
-            onExpand={(keys) => setExpandedKeys(keys)}
-            onCheck={(checked) => {
-              const keys = Array.isArray(checked) ? checked : checked.checked
-              setSelectedModules(keys.map(String))
-            }}
-            onSelect={(keys) => {
-              const key = keys[0]
-              if (typeof key === 'string') {
-                setSelectedModule(key)
-              }
-            }}
-          />
-        ) : null}
-        {selectedModule?.errorMessage ? (
-          <Alert type="warning" showIcon message={selectedModule.errorMessage} />
-        ) : null}
-        {selectedModules.length === 0 && project ? (
-          <Text type="secondary">当前选择：全部项目</Text>
-        ) : null}
-        {selectedModules.length > 0 ? (
-          <Text type="secondary">
-            当前选择：{selectedModules.length === 1
-              ? `${selectedModules[0].artifactId} (${selectedModules[0].packaging ?? 'unknown'})`
-              : `${selectedModules.length} 个模块`}
-          </Text>
-        ) : null}
-        {selectedModule ? <Divider style={{ margin: '8px 0' }} /> : null}
-        {selectedModule ? (
-          <Space direction="vertical" size={10} style={{ width: '100%' }}>
-            <Space wrap>
-              <Text strong>依赖洞察</Text>
-              {dependencyLoading ? <Spin size="small" /> : null}
-              {selectedSummary?.hasCycle ? <Tag color="red">检测到循环依赖</Tag> : null}
-            </Space>
-            <Text type="secondary">
-              当前模块：{selectedModule.artifactId}
-            </Text>
-            <div className="dependency-info-block">
-              <Text strong>依赖模块</Text>
-              {renderModuleTags(selectedSummary?.dependencies ?? [], 'blue')}
-            </div>
-            <div className="dependency-info-block">
-              <Text strong>被依赖模块</Text>
-              {renderModuleTags(selectedSummary?.dependents ?? [], 'gold')}
-            </div>
-            <Alert
-              type="info"
-              showIcon
-              message="实用打包逻辑：当前模块构建交给 Maven -am，发布范围看发布候选模块"
-              description="上游依赖由“同时构建依赖模块 (-am)”自动补齐；这里重点展示最终更值得打包发布的模块范围。"
-            />
-            <div className="dependency-info-block">
-              <Text strong>发布候选模块</Text>
-              <Text type="secondary">如果当前改动需要形成可发布产物，优先关注这些最终受影响模块。</Text>
-              {renderModuleTags(selectedSummary?.releaseCandidateModuleIds ?? [], 'green')}
-            </div>
-            {(selectedSummary?.releaseCandidateModuleIds.length ?? 0) > 0 ? (
-              <Button
-                size="small"
-                type="primary"
-                onClick={() => setSelectedModules([
+        </ScrollArea>
+      )}
+
+      {selectedModule?.errorMessage && (
+        <div className="flex items-start gap-2 p-2 rounded-md bg-yellow-500/10 text-yellow-600 text-xs">
+          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <span>{selectedModule.errorMessage}</span>
+        </div>
+      )}
+
+      <div className="text-xs text-muted-foreground">
+        {selectedModules.length === 0 && project
+          ? "当前选择：全部项目"
+          : selectedModules.length > 0
+            ? `当前选择：${selectedModules.length === 1 ? `${selectedModules[0].artifactId} (${selectedModules[0].packaging ?? "unknown"})` : `${selectedModules.length} 个模块`}`
+            : null}
+      </div>
+
+      {selectedModule && (
+        <div className="border-t pt-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">依赖洞察</span>
+            {dependencyLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {selectedSummary?.hasCycle && (
+              <Badge variant="destructive" className="text-xs">检测到循环依赖</Badge>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            当前模块：{selectedModule.artifactId}
+          </p>
+          <div className="space-y-1">
+            <span className="text-xs font-medium">依赖模块</span>
+            {renderModuleTags(selectedSummary?.dependencies ?? [], "blue")}
+          </div>
+          <div className="space-y-1">
+            <span className="text-xs font-medium">被依赖模块</span>
+            {renderModuleTags(selectedSummary?.dependents ?? [], "gold")}
+          </div>
+          <div className="p-2 rounded-md bg-blue-500/10 text-xs text-blue-600">
+            实用打包逻辑：当前模块构建交给 Maven -am，发布范围看发布候选模块
+          </div>
+          <div className="space-y-1">
+            <span className="text-xs font-medium">发布候选模块</span>
+            {renderModuleTags(selectedSummary?.releaseCandidateModuleIds ?? [], "green")}
+          </div>
+          {(selectedSummary?.releaseCandidateModuleIds.length ?? 0) > 0 && (
+            <Button
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() =>
+                setSelectedModules([
                   ...new Set([
                     selectedModule.id,
                     ...(selectedSummary?.releaseCandidateModuleIds ?? []),
                   ]),
-                ])}
-              >
-                一键选中发布候选模块
-              </Button>
-            ) : null}
-            <div className="dependency-info-block">
-              <Text strong>验证建议模块</Text>
-              <Text type="secondary">更适合联调或回归时一起关注的直接下游模块。</Text>
-              {renderModuleTags(selectedSummary?.suggestedValidationModuleIds ?? [], 'gold')}
-            </div>
-            <div className="dependency-info-block">
-              <Text strong>聚合关联模块</Text>
-              <Text type="secondary">同父聚合或父子聚合关系，默认仅展示，不自动建议打包。</Text>
-              {renderModuleTags(selectedSummary?.relatedAggregationModuleIds ?? [], 'cyan')}
-            </div>
-            {(selectedSummary?.suggestedValidationModuleIds.length ?? 0) > 0 ? (
-              <Button
-                size="small"
-                onClick={() => setSelectedModules([
+                ])
+              }
+            >
+              一键选中发布候选模块
+            </Button>
+          )}
+          <div className="space-y-1">
+            <span className="text-xs font-medium">验证建议模块</span>
+            {renderModuleTags(selectedSummary?.suggestedValidationModuleIds ?? [], "gold")}
+          </div>
+          {(selectedSummary?.suggestedValidationModuleIds.length ?? 0) > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={() =>
+                setSelectedModules([
                   ...new Set([
-                    ...(selectedModuleIds ?? []),
+                    ...selectedModuleIds,
                     ...(selectedSummary?.suggestedValidationModuleIds ?? []),
                   ]),
-                ])}
-              >
-                一键加入验证建议模块
-              </Button>
-            ) : null}
-          </Space>
-        ) : null}
-      </Space>
-    </Card>
-  )
+                ])
+              }
+            >
+              一键加入验证建议模块
+            </Button>
+          )}
+          <div className="space-y-1">
+            <span className="text-xs font-medium">聚合关联模块</span>
+            {renderModuleTags(selectedSummary?.relatedAggregationModuleIds ?? [], "cyan")}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }

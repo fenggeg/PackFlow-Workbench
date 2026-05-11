@@ -1,41 +1,28 @@
+import {Button} from "@/components/ui/button"
+import {Input} from "@/components/ui/input"
+import {Dialog, DialogContent, DialogHeader, DialogTitle} from "@/components/ui/dialog"
+import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from "@/components/ui/select"
+import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from "@/components/ui/table"
+import {Badge} from "@/components/ui/badge"
+import {Tooltip, TooltipContent, TooltipTrigger} from "@/components/ui/tooltip"
 import {
-  Button,
-  Descriptions,
-  Empty,
-  Input,
-  Modal,
-  Popconfirm,
-  Progress,
-  Select,
-  Space,
-  Table,
-  Tag,
-  Tooltip,
-  Typography
-} from 'antd'
-import {CopyOutlined, DeleteOutlined, DownloadOutlined, FullscreenOutlined, PlayCircleOutlined} from '@ant-design/icons'
-import type {ColumnsType} from 'antd/es/table'
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
+import {Copy, Delete, Download, Maximize2, Play} from 'lucide-react'
 import {useMemo, useRef, useState} from 'react'
 import {LogConsole} from '../common/LogConsole'
 import {summarizeDeploymentPipeline} from '../../services/deploymentRuntime'
 import {useDeploymentLogStore} from '../../store/useDeploymentLogStore'
 import {useWorkflowStore} from '../../store/useWorkflowStore'
 import type {DeploymentStage, DeploymentTask, ProbeStatus} from '../../types/domain'
-
-const {Text} = Typography
-
-const statusColor: Record<DeploymentTask['status'], string> = {
-  pending: 'default',
-  uploading: 'processing',
-  stopping: 'orange',
-  starting: 'cyan',
-  checking: 'blue',
-  waiting: 'processing',
-  success: 'green',
-  failed: 'red',
-  timeout: 'red',
-  cancelled: 'orange',
-}
 
 const statusLabel = (status: DeploymentTask['status']) => {
   switch (status) {
@@ -53,19 +40,29 @@ const statusLabel = (status: DeploymentTask['status']) => {
   }
 }
 
-const stageStatusColor = (status: DeploymentStage['status']) => {
+const statusBadgeVariant = (status: DeploymentTask['status']): "default" | "secondary" | "destructive" | "outline" => {
   switch (status) {
-    case 'success': return 'green'
-    case 'failed': return 'red'
-    case 'timeout': return 'red'
-    case 'cancelled': return 'orange'
-    case 'skipped': return 'default'
+    case 'success': return 'default'
+    case 'failed':
+    case 'timeout': return 'destructive'
+    case 'cancelled': return 'secondary'
+    default: return 'secondary'
+  }
+}
+
+const stageStatusColor = (status: DeploymentStage['status']): "default" | "secondary" | "destructive" | "outline" => {
+  switch (status) {
+    case 'success': return 'default'
+    case 'failed':
+    case 'timeout': return 'destructive'
+    case 'cancelled': return 'secondary'
+    case 'skipped': return 'outline'
     case 'running':
     case 'checking':
     case 'waiting':
-      return 'processing'
+      return 'secondary'
     default:
-      return 'default'
+      return 'outline'
   }
 }
 
@@ -108,13 +105,13 @@ const probeTypeLabel = (type: string) => {
   }
 }
 
-const probeStatusTag = (status: string) => {
+const probeStatusBadge = (status: string) => {
   switch (status) {
-    case 'success': return <Tag color="green">成功</Tag>
-    case 'failed': return <Tag color="red">失败</Tag>
-    case 'warning': return <Tag color="gold">告警</Tag>
-    case 'checking': return <Tag color="processing">检测中</Tag>
-    default: return <Tag>{status}</Tag>
+    case 'success': return <Badge variant="default" className="bg-green-500 hover:bg-green-600">成功</Badge>
+    case 'failed': return <Badge variant="destructive">失败</Badge>
+    case 'warning': return <Badge variant="secondary" className="bg-yellow-500 hover:bg-yellow-600 text-white">告警</Badge>
+    case 'checking': return <Badge variant="secondary">检测中</Badge>
+    default: return <Badge variant="outline">{status}</Badge>
   }
 }
 
@@ -158,89 +155,6 @@ export function DeploymentHistoryTable() {
     (state) => openTask ? state.logsByTaskId[openTask.id] : undefined,
   )
 
-  const columns: ColumnsType<DeploymentTask> = useMemo(() => [
-    {
-      title: '时间',
-      dataIndex: 'createdAt',
-      width: 150,
-      render: (value: string) => new Date(value).toLocaleString(),
-    },
-    {
-      title: '部署对象',
-      width: 280,
-      render: (_, record) => (
-        <Space direction="vertical" size={0} className="artifact-item deployment-history-object">
-          <Text strong ellipsis title={record.deploymentProfileName ?? record.deploymentProfileId}>
-            {record.deploymentProfileName ?? record.deploymentProfileId}
-          </Text>
-          <Text type="secondary" className="artifact-meta" ellipsis title={record.artifactName}>
-            {record.serverName ?? record.serverId} · {record.artifactName}
-          </Text>
-          {record.status === 'failed' || record.status === 'timeout' || record.status === 'cancelled' ? (
-            <Text type="danger" className="artifact-meta" ellipsis title={getFailureReason(record)}>
-              {getFailureReason(record)}
-            </Text>
-          ) : null}
-        </Space>
-      ),
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      width: 96,
-      render: (value: DeploymentTask['status']) => <Tag color={statusColor[value]}>{statusLabel(value)}</Tag>,
-    },
-    {
-      title: '流程进度',
-      width: 138,
-      render: (_, record) => {
-        const progress = summarizeDeploymentPipeline(record.stages)
-        return (
-          <Space direction="vertical" size={2} style={{width: '100%'}}>
-            <Progress percent={progress.percent} size="small" showInfo={false} />
-            <Text type="secondary">{progress.done}/{progress.total} 个步骤完成</Text>
-          </Space>
-        )
-      },
-    },
-    {
-      title: '操作',
-      width: 132,
-      fixed: 'right',
-      render: (_, record) => (
-        <Space className="deployment-history-actions">
-          <Tooltip title="重跑部署">
-            <Button
-              size="small"
-              type="primary"
-              icon={<PlayCircleOutlined />}
-              onClick={() => void rerunDeployment(record)}
-            />
-          </Tooltip>
-          <Tooltip title="详情">
-            <Button
-              size="small"
-              icon={<FullscreenOutlined />}
-              onClick={() => { setOpenTask(record); setLogKeyword('') }}
-            />
-          </Tooltip>
-          <Popconfirm
-            title="删除部署记录？"
-            description="确定要删除这条部署记录吗？"
-            okText="删除"
-            okType="danger"
-            cancelText="取消"
-            onConfirm={() => void deleteDeploymentTask(record.id)}
-          >
-            <Tooltip title="删除">
-              <Button size="small" danger type="text" icon={<DeleteOutlined />} />
-            </Tooltip>
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ], [deleteDeploymentTask, rerunDeployment])
-
   const openTaskLogs = useMemo(
     () => openTask ? (openTaskBufferedLogs ?? openTask.log ?? []) : [],
     [openTask, openTaskBufferedLogs],
@@ -253,231 +167,304 @@ export function DeploymentHistoryTable() {
   }), [logFilter, logKeywordValue, openTaskLogs])
 
   const table = (large = false) => (
-    <Table
-      className="deployment-history-table"
-      rowKey="id"
-      size={large ? 'middle' : 'small'}
-      tableLayout="fixed"
-      columns={columns}
-      dataSource={deploymentTasks}
-      locale={{emptyText: <Empty description="暂无部署记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />}}
-      pagination={{pageSize: large ? 12 : 6}}
-      scroll={{x: 820}}
-    />
+    <Table className="deployment-history-table">
+      <TableHeader>
+        <TableRow>
+          <TableHead className="w-[150px]">时间</TableHead>
+          <TableHead className="w-[280px]">部署对象</TableHead>
+          <TableHead className="w-[96px]">状态</TableHead>
+          <TableHead className="w-[138px]">流程进度</TableHead>
+          <TableHead className="w-[132px]">操作</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {deploymentTasks.length === 0 ? (
+          <TableRow>
+            <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+              暂无部署记录
+            </TableCell>
+          </TableRow>
+        ) : (
+          deploymentTasks.slice(0, large ? 12 : 6).map((task) => {
+            const progress = summarizeDeploymentPipeline(task.stages)
+            return (
+              <TableRow key={task.id}>
+                <TableCell>{new Date(task.createdAt).toLocaleString()}</TableCell>
+                <TableCell>
+                  <div className="artifact-item deployment-history-object">
+                    <span className="font-medium truncate block" title={task.deploymentProfileName ?? task.deploymentProfileId}>
+                      {task.deploymentProfileName ?? task.deploymentProfileId}
+                    </span>
+                    <span className="text-muted-foreground text-sm truncate block" title={task.artifactName}>
+                      {task.serverName ?? task.serverId} · {task.artifactName}
+                    </span>
+                    {task.status === 'failed' || task.status === 'timeout' || task.status === 'cancelled' ? (
+                      <span className="text-destructive text-sm truncate block" title={getFailureReason(task)}>
+                        {getFailureReason(task)}
+                      </span>
+                    ) : null}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <Badge variant={statusBadgeVariant(task.status)}>{statusLabel(task.status)}</Badge>
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-col gap-0.5 w-full">
+                    <div className="w-full bg-secondary rounded-full h-1.5">
+                      <div className="bg-primary h-1.5 rounded-full transition-all" style={{ width: `${progress.percent}%` }} />
+                    </div>
+                    <span className="text-muted-foreground text-xs">{progress.done}/{progress.total} 个步骤完成</span>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex gap-1 deployment-history-actions">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button size="sm" variant="default" onClick={() => void rerunDeployment(task)}>
+                          <Play className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>重跑部署</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button size="sm" variant="ghost" onClick={() => { setOpenTask(task); setLogKeyword('') }}>
+                          <Maximize2 className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>详情</TooltipContent>
+                    </Tooltip>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive">
+                              <Delete className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>删除</TooltipContent>
+                        </Tooltip>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>删除部署记录？</AlertDialogTitle>
+                          <AlertDialogDescription>确定要删除这条部署记录吗？</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>取消</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => void deleteDeploymentTask(task.id)}>删除</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </TableCell>
+              </TableRow>
+            )
+          })
+        )}
+      </TableBody>
+    </Table>
   )
 
   return (
     <>
       <div className="table-toolbar">
-        <Tooltip title="放大查看">
-          <Button
-            aria-label="放大查看部署记录"
-            icon={<FullscreenOutlined />}
-            size="small"
-            onClick={() => setExpanded(true)}
-          />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button aria-label="放大查看部署记录" variant="ghost" size="sm" onClick={() => setExpanded(true)}>
+              <Maximize2 className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>放大查看</TooltipContent>
         </Tooltip>
       </div>
       {table()}
-      <Modal
-        title="部署记录"
-        open={expanded}
-        footer={null}
-        width="88vw"
-        onCancel={() => setExpanded(false)}
-      >
-        {table(true)}
-      </Modal>
-      <Modal
-        title={openTask ? `部署详情 · ${openTask.deploymentProfileName ?? openTask.id}` : '部署详情'}
-        open={Boolean(openTask)}
-        footer={null}
-        width={900}
-        onCancel={() => setOpenTask(undefined)}
-      >
-        {openTask ? (
-          <>
-            <Descriptions size="small" bordered column={2}>
-              <Descriptions.Item label="状态">
-                <Tag color={statusColor[openTask.status]}>{statusLabel(openTask.status)}</Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="服务器">
-                {openTask.serverName ?? '-'}
-              </Descriptions.Item>
-              <Descriptions.Item label="部署配置">
-                {openTask.deploymentProfileName ?? '-'}
-              </Descriptions.Item>
-              <Descriptions.Item label="模块">
-                {openTask.moduleId}
-              </Descriptions.Item>
-              <Descriptions.Item label="产物" span={2}>
-                {openTask.artifactPath}
-              </Descriptions.Item>
-              <Descriptions.Item label="失败原因" span={2}>
-                {['failed', 'timeout', 'cancelled'].includes(openTask.status) ? getFailureReason(openTask) : '-'}
-              </Descriptions.Item>
-              {openTask.probeResult ? (
-                <Descriptions.Item label="探针结果" span={2}>
-                  <Tag color={openTask.status === 'success' ? 'green' : 'red'}>{openTask.probeResult}</Tag>
-                </Descriptions.Item>
-              ) : null}
-              {openTask.backupPath ? (
-                <Descriptions.Item label="备份路径" span={2}>
-                  {openTask.backupPath}
-                </Descriptions.Item>
-              ) : null}
-              {openTask.rollbackResult ? (
-                <Descriptions.Item label="回滚结果" span={2}>
-                  <Space>
-                    <Tag color={openTask.rollbackResult.success ? 'green' : 'red'}>
-                      {openTask.rollbackResult.success ? '回滚成功' : '回滚失败'}
-                    </Tag>
-                    {openTask.rollbackResult.message ? <Text type="secondary">{openTask.rollbackResult.message}</Text> : null}
-                    {openTask.rollbackResult.restoredBackupPath ? <Text type="secondary">恢复自: {openTask.rollbackResult.restoredBackupPath}</Text> : null}
-                    {openTask.rollbackResult.restartedOldVersion ? <Tag color="blue">已重启旧版本</Tag> : null}
-                  </Space>
-                </Descriptions.Item>
-              ) : null}
-            </Descriptions>
-            <Table
-              className="deployment-history-table"
-              style={{marginTop: 16}}
-              rowKey="key"
-              size="small"
-              tableLayout="fixed"
-              scroll={{x: 840}}
-              pagination={false}
-              dataSource={openTask.stages}
-              columns={[
-                {title: '阶段', dataIndex: 'label', width: 140},
-                {
-                  title: '类型',
-                  dataIndex: 'type',
-                  width: 130,
-                  render: (value: string) => stepTypeLabel(value),
-                },
-                {
-                  title: '状态',
-                  dataIndex: 'status',
-                  width: 100,
-                  render: (value: DeploymentStage['status']) => (
-                    <Tag color={stageStatusColor(value)}>{stageStatusLabel(value)}</Tag>
-                  ),
-                },
-                {
-                  title: '耗时',
-                  dataIndex: 'durationMs',
-                  width: 90,
-                  render: (value: number | undefined) => formatDuration(value),
-                },
-                {
-                  title: '重试',
-                  width: 90,
-                  render: (_, stage) => stage.retryCount ? `${stage.currentRetry ?? 0}/${stage.retryCount}` : '-',
-                },
-                {
-                  title: '结果',
-                  width: 290,
-                  render: (_, stage) => (
-                    <Space direction="vertical" size={2} className="deployment-history-result">
-                      <span>{stage.message ?? '-'}</span>
-                      {stage.probeStatuses && stage.probeStatuses.length > 0 ? (
-                        <div style={{marginTop: 4}}>
-                          {stage.probeStatuses.map((ps: ProbeStatus, idx: number) => (
-                            <div key={idx} style={{fontSize: 12, lineHeight: '18px'}}>
-                              {probeStatusTag(ps.status)} {probeTypeLabel(ps.probeType)}
-                              {ps.message ? `：${ps.message}` : ''}
-                              {ps.checkCount ? ` (${ps.checkCount}次)` : ''}
+      <Dialog open={expanded} onOpenChange={(open) => { if (!open) setExpanded(false) }}>
+        <DialogContent className="max-w-[88vw]">
+          <DialogHeader>
+            <DialogTitle>部署记录</DialogTitle>
+          </DialogHeader>
+          {table(true)}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(openTask)} onOpenChange={(open) => { if (!open) setOpenTask(undefined) }}>
+        <DialogContent className="max-w-[900px]">
+          <DialogHeader>
+            <DialogTitle>{openTask ? `部署详情 · ${openTask.deploymentProfileName ?? openTask.id}` : '部署详情'}</DialogTitle>
+          </DialogHeader>
+          {openTask ? (
+            <>
+              <dl className="grid grid-cols-2 gap-2 text-sm border rounded-md p-3">
+                <div>
+                  <dt className="text-muted-foreground">状态</dt>
+                  <dd><Badge variant={statusBadgeVariant(openTask.status)}>{statusLabel(openTask.status)}</Badge></dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">服务器</dt>
+                  <dd>{openTask.serverName ?? '-'}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">部署配置</dt>
+                  <dd>{openTask.deploymentProfileName ?? '-'}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">模块</dt>
+                  <dd>{openTask.moduleId}</dd>
+                </div>
+                <div className="col-span-2">
+                  <dt className="text-muted-foreground">产物</dt>
+                  <dd>{openTask.artifactPath}</dd>
+                </div>
+                <div className="col-span-2">
+                  <dt className="text-muted-foreground">失败原因</dt>
+                  <dd>{['failed', 'timeout', 'cancelled'].includes(openTask.status) ? getFailureReason(openTask) : '-'}</dd>
+                </div>
+                {openTask.probeResult ? (
+                  <div className="col-span-2">
+                    <dt className="text-muted-foreground">探针结果</dt>
+                    <dd><Badge variant={openTask.status === 'success' ? 'default' : 'destructive'}>{openTask.probeResult}</Badge></dd>
+                  </div>
+                ) : null}
+                {openTask.backupPath ? (
+                  <div className="col-span-2">
+                    <dt className="text-muted-foreground">备份路径</dt>
+                    <dd>{openTask.backupPath}</dd>
+                  </div>
+                ) : null}
+                {openTask.rollbackResult ? (
+                  <div className="col-span-2">
+                    <dt className="text-muted-foreground">回滚结果</dt>
+                    <dd className="flex flex-wrap gap-2 items-center">
+                      <Badge variant={openTask.rollbackResult.success ? 'default' : 'destructive'}>
+                        {openTask.rollbackResult.success ? '回滚成功' : '回滚失败'}
+                      </Badge>
+                      {openTask.rollbackResult.message ? <span className="text-muted-foreground">{openTask.rollbackResult.message}</span> : null}
+                      {openTask.rollbackResult.restoredBackupPath ? <span className="text-muted-foreground">恢复自: {openTask.rollbackResult.restoredBackupPath}</span> : null}
+                      {openTask.rollbackResult.restartedOldVersion ? <Badge variant="secondary">已重启旧版本</Badge> : null}
+                    </dd>
+                  </div>
+                ) : null}
+              </dl>
+              <Table className="deployment-history-table">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[140px]">阶段</TableHead>
+                    <TableHead className="w-[130px]">类型</TableHead>
+                    <TableHead className="w-[100px]">状态</TableHead>
+                    <TableHead className="w-[90px]">耗时</TableHead>
+                    <TableHead className="w-[90px]">重试</TableHead>
+                    <TableHead className="w-[290px]">结果</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {openTask.stages.map((stage) => (
+                    <TableRow key={stage.key}>
+                      <TableCell>{stage.label}</TableCell>
+                      <TableCell>{stepTypeLabel(stage.type)}</TableCell>
+                      <TableCell>
+                        <Badge variant={stageStatusColor(stage.status)}>{stageStatusLabel(stage.status)}</Badge>
+                      </TableCell>
+                      <TableCell>{formatDuration(stage.durationMs)}</TableCell>
+                      <TableCell>{stage.retryCount ? `${stage.currentRetry ?? 0}/${stage.retryCount}` : '-'}</TableCell>
+                      <TableCell>
+                        <div className="deployment-history-result">
+                          <span>{stage.message ?? '-'}</span>
+                          {stage.probeStatuses && stage.probeStatuses.length > 0 ? (
+                            <div className="mt-1">
+                              {stage.probeStatuses.map((ps: ProbeStatus, idx: number) => (
+                                <div key={idx} className="text-xs leading-[18px]">
+                                  {probeStatusBadge(ps.status)} {probeTypeLabel(ps.probeType)}
+                                  {ps.message ? `：${ps.message}` : ''}
+                                  {ps.checkCount ? ` (${ps.checkCount}次)` : ''}
+                                </div>
+                              ))}
                             </div>
-                          ))}
+                          ) : null}
                         </div>
-                      ) : null}
-                    </Space>
-                  ),
-                },
-              ]}
-            />
-            <Space wrap style={{marginTop: 16, marginBottom: 8}}>
-              <Select
-                size="small"
-                value={logFilter}
-                onChange={setLogFilter}
-                style={{ width: 100 }}
-                options={[
-                  { value: 'all', label: '全部' },
-                  { value: 'error', label: '错误' },
-                  { value: 'warn', label: '告警' },
-                  { value: 'success', label: '成功' },
-                ]}
-              />
-              <Input
-                allowClear
-                size="small"
-                placeholder="搜索日志"
-                style={{width: 200}}
-                value={logKeyword}
-                onChange={(event) => setLogKeyword(event.target.value)}
-              />
-              <Tooltip title="复制日志">
-                <Button
-                  size="small"
-                  disabled={openTaskLogs.length === 0}
-                  icon={<CopyOutlined />}
-                  onClick={() => void navigator.clipboard?.writeText(openTaskLogs.join('\n'))}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <div className="flex flex-wrap gap-2 items-center mt-4 mb-2">
+                <Select value={logFilter} onValueChange={(value) => setLogFilter(value as 'all' | 'error' | 'warn' | 'success')}>
+                  <SelectTrigger className="w-[100px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部</SelectItem>
+                    <SelectItem value="error">错误</SelectItem>
+                    <SelectItem value="warn">告警</SelectItem>
+                    <SelectItem value="success">成功</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Input
+                  placeholder="搜索日志"
+                  className="w-[200px]"
+                  value={logKeyword}
+                  onChange={(event) => setLogKeyword(event.target.value)}
                 />
-              </Tooltip>
-              <Tooltip title="下载日志">
-                <Button
-                  size="small"
-                  disabled={openTaskLogs.length === 0}
-                  icon={<DownloadOutlined />}
-                  onClick={() => {
-                    const text = openTaskLogs.join('\n')
-                    if (!text) return
-                    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
-                    const url = URL.createObjectURL(blob)
-                    const a = document.createElement('a')
-                    a.href = url
-                    a.download = `deployment-${openTask?.id ?? 'log'}.txt`
-                    a.click()
-                    URL.revokeObjectURL(url)
-                  }}
-                />
-              </Tooltip>
-              <Tooltip title="放大查看">
-                <Button
-                  size="small"
-                  icon={<FullscreenOutlined />}
-                  onClick={() => setLogExpanded(true)}
-                />
-              </Tooltip>
-            </Space>
-            <LogConsole
-              className="workflow-log-panel"
-              lines={filteredLogs}
-              classifyLine={classifyLine}
-              emptyTitle="暂无部署日志"
-              keyPrefix="history-deployment-log"
-            />
-            <Modal
-              title={`部署日志 · ${openTask.deploymentProfileName ?? openTask.id}`}
-              open={logExpanded}
-              footer={null}
-              width="85vw"
-              onCancel={() => setLogExpanded(false)}
-            >
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button size="sm" variant="ghost" disabled={openTaskLogs.length === 0} onClick={() => void navigator.clipboard?.writeText(openTaskLogs.join('\n'))}>
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>复制日志</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button size="sm" variant="ghost" disabled={openTaskLogs.length === 0} onClick={() => {
+                      const text = openTaskLogs.join('\n')
+                      if (!text) return
+                      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+                      const url = URL.createObjectURL(blob)
+                      const a = document.createElement('a')
+                      a.href = url
+                      a.download = `deployment-${openTask?.id ?? 'log'}.txt`
+                      a.click()
+                      URL.revokeObjectURL(url)
+                    }}>
+                      <Download className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>下载日志</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button size="sm" variant="ghost" onClick={() => setLogExpanded(true)}>
+                      <Maximize2 className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>放大查看</TooltipContent>
+                </Tooltip>
+              </div>
               <LogConsole
-                ref={logModalPanelRef}
-                className="log-panel log-panel-large"
+                className="workflow-log-panel"
                 lines={filteredLogs}
                 classifyLine={classifyLine}
                 emptyTitle="暂无部署日志"
-                keyPrefix="history-deployment-log-modal"
+                keyPrefix="history-deployment-log"
               />
-            </Modal>
-          </>
-        ) : null}
-      </Modal>
+              <Dialog open={logExpanded} onOpenChange={(open) => { if (!open) setLogExpanded(false) }}>
+                <DialogContent className="max-w-[85vw]">
+                  <DialogHeader>
+                    <DialogTitle>部署日志 · {openTask.deploymentProfileName ?? openTask.id}</DialogTitle>
+                  </DialogHeader>
+                  <LogConsole
+                    ref={logModalPanelRef}
+                    className="log-panel log-panel-large"
+                    lines={filteredLogs}
+                    classifyLine={classifyLine}
+                    emptyTitle="暂无部署日志"
+                    keyPrefix="history-deployment-log-modal"
+                  />
+                </DialogContent>
+              </Dialog>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

@@ -1,19 +1,14 @@
-import {Button, Input, List, Modal, Space, Tag, Tooltip, Typography} from 'antd'
-import {
-    CopyOutlined,
-    FolderOpenOutlined,
-    PlayCircleOutlined,
-    ReloadOutlined,
-    SaveOutlined,
-    StopOutlined
-} from '@ant-design/icons'
+import {Badge} from '@/components/ui/badge'
+import {Button} from '@/components/ui/button'
+import {Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,} from '@/components/ui/dialog'
+import {Input} from '@/components/ui/input'
+import {Textarea} from '@/components/ui/textarea'
+import {Tooltip, TooltipContent, TooltipTrigger,} from '@/components/ui/tooltip'
+import {Copy, FolderOpen, Play, RefreshCw, Save, Square} from 'lucide-react'
 import {useState} from 'react'
 import {api} from '../../services/tauri-api'
 import {useAppStore} from '../../store/useAppStore'
 import type {BuildStatus} from '../../types/domain'
-
-const { TextArea } = Input
-const { Text } = Typography
 
 const statusText: Record<BuildStatus, string> = {
   IDLE: '未开始',
@@ -23,12 +18,12 @@ const statusText: Record<BuildStatus, string> = {
   CANCELLED: '已取消',
 }
 
-const statusColor: Record<BuildStatus, string> = {
-  IDLE: 'default',
-  RUNNING: 'processing',
-  SUCCESS: 'success',
-  FAILED: 'error',
-  CANCELLED: 'warning',
+const statusBadgeClass: Record<BuildStatus, string> = {
+  IDLE: 'bg-secondary text-secondary-foreground',
+  RUNNING: 'bg-blue-500 text-white animate-pulse',
+  SUCCESS: 'bg-green-500 text-white',
+  FAILED: 'bg-destructive text-destructive-foreground',
+  CANCELLED: 'bg-amber-500 text-white',
 }
 
 const formatSize = (size: number) => {
@@ -74,105 +69,124 @@ export function CommandPreview() {
       ? '全部项目'
       : '未选择'
 
+  const badgeClass = buildCancelling
+    ? 'bg-amber-500 text-white'
+    : displayStatus === 'READY'
+      ? 'bg-blue-500 text-white'
+      : statusBadgeClass[buildStatus]
+
   return (
     <div className="command-dock">
       <div className="command-dock-main">
         <div className="command-dock-status">
-          <Tag
-            color={buildCancelling ? 'warning' : displayStatus === 'READY' ? 'blue' : statusColor[buildStatus]}
-            className="status-tag"
-          >
+          <Badge className={badgeClass}>
             {statusLabel}
-          </Tag>
-          <Text type="secondary" ellipsis={{ tooltip: moduleSummary }}>
+          </Badge>
+          <span className="text-sm text-muted-foreground truncate" title={moduleSummary}>
             目标：{moduleSummary}
-          </Text>
-          <Text type="secondary">耗时：{durationText}</Text>
+          </span>
+          <span className="text-sm text-muted-foreground">耗时：{durationText}</span>
         </div>
         <div className="command-actions">
           <Button
-            type="primary"
-            icon={<PlayCircleOutlined />}
             disabled={!buildOptions.projectRoot || !buildOptions.editableCommand.trim() || running}
             onClick={() => void startBuild()}
           >
+            <Play className="mr-1.5 h-4 w-4" />
             开始打包
           </Button>
           <Button
-            danger
-            icon={<StopOutlined />}
+            variant="destructive"
             disabled={!running || buildCancelling}
             onClick={() => void cancelBuild()}
           >
+            <Square className="mr-1.5 h-4 w-4" />
             停止
           </Button>
-          <Button icon={<ReloadOutlined />} onClick={() => void refreshCommandPreview()} />
+          <Button variant="outline" size="icon" onClick={() => void refreshCommandPreview()}>
+            <RefreshCw className="h-4 w-4" />
+          </Button>
           <Button
-            icon={<CopyOutlined />}
+            variant="outline"
+            size="icon"
             disabled={!buildOptions.editableCommand.trim()}
             onClick={() => void navigator.clipboard?.writeText(buildOptions.editableCommand)}
-          />
-          <Button icon={<SaveOutlined />} disabled={!buildOptions.projectRoot} onClick={() => setTemplateOpen(true)} />
+          >
+            <Copy className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" size="icon" disabled={!buildOptions.projectRoot} onClick={() => setTemplateOpen(true)}>
+            <Save className="h-4 w-4" />
+          </Button>
         </div>
       </div>
-      <TextArea
-        className="command-textarea command-dock-command"
-        autoSize={{ minRows: 2, maxRows: 3 }}
+      <Textarea
+        className="command-textarea command-dock-command resize-none min-h-[3rem] max-h-[5rem]"
         value={buildOptions.editableCommand}
         onChange={(event) => setEditableCommand(event.target.value)}
       />
       {(buildStatus === 'SUCCESS' || artifacts.length > 0) ? (
         <div className="artifact-section artifact-section-compact">
-          <Text type="secondary">{artifacts.length > 0 ? `构建产物 · ${artifacts.length} 个 jar/war` : '未扫描到 jar/war 产物'}</Text>
+          <span className="text-sm text-muted-foreground">
+            {artifacts.length > 0 ? `构建产物 · ${artifacts.length} 个 jar/war` : '未扫描到 jar/war 产物'}
+          </span>
           {artifacts.length > 0 ? (
-            <List
-              size="small"
-              dataSource={artifacts.slice(0, 2)}
-              renderItem={(artifact) => (
-                <List.Item
-                  actions={[
-                    <Tooltip key="open" title="定位产物">
-                      <Button
-                        icon={<FolderOpenOutlined />}
-                        size="small"
-                        onClick={() => void api.openPathInExplorer(artifact.path)}
-                      />
-                    </Tooltip>,
-                  ]}
-                >
-                  <Space direction="vertical" size={2} className="artifact-item">
-                    <Text strong ellipsis={{ tooltip: artifact.path }}>{artifact.fileName}</Text>
-                    <Text type="secondary" className="artifact-meta">
+            <div className="flex flex-col gap-1">
+              {artifacts.slice(0, 2).map((artifact) => (
+                <div key={artifact.path} className="flex items-center justify-between py-1">
+                  <div className="flex flex-col gap-0.5 min-w-0">
+                    <span className="text-sm font-medium truncate" title={artifact.path}>
+                      {artifact.fileName}
+                    </span>
+                    <span className="text-xs text-muted-foreground artifact-meta">
                       {formatSize(artifact.sizeBytes)}
                       {artifact.modulePath ? ` · ${artifact.modulePath}` : ''}
-                    </Text>
-                  </Space>
-                </List.Item>
-              )}
-            />
+                    </span>
+                  </div>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-7 w-7 shrink-0"
+                        onClick={() => void api.openPathInExplorer(artifact.path)}
+                      >
+                        <FolderOpen className="h-3.5 w-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>定位产物</TooltipContent>
+                  </Tooltip>
+                </div>
+              ))}
+            </div>
           ) : null}
         </div>
       ) : null}
-      <Modal
-        title="保存常用模板"
-        open={templateOpen}
-        okText="保存"
-        cancelText="取消"
-        onCancel={() => setTemplateOpen(false)}
-        onOk={() => {
-          if (templateName.trim()) {
-            void saveTemplate(templateName.trim())
-            setTemplateName('')
-            setTemplateOpen(false)
-          }
-        }}
-      >
-        <Input
-          placeholder="模板名称"
-          value={templateName}
-          onChange={(event) => setTemplateName(event.target.value)}
-        />
-      </Modal>
+      <Dialog open={templateOpen} onOpenChange={setTemplateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>保存常用模板</DialogTitle>
+          </DialogHeader>
+          <Input
+            placeholder="模板名称"
+            value={templateName}
+            onChange={(event) => setTemplateName(event.target.value)}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTemplateOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={() => {
+              if (templateName.trim()) {
+                void saveTemplate(templateName.trim())
+                setTemplateName('')
+                setTemplateOpen(false)
+              }
+            }}>
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
