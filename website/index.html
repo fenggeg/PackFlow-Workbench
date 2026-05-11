@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="PackFlow Workbench 是面向 Windows 的 Maven 多模块打包、产物管理和部署流水线桌面工作台。"
+    />
+    <title>PackFlow Workbench - Maven 打包部署工作台</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script defer src="./app.js"></script>
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="site-nav">
+        <a class="brand" href="#top" aria-label="PackFlow Workbench 首页">
+          <span class="brand-mark">PF</span>
+          <span>PackFlow Workbench</span>
+        </a>
+        <nav>
+          <a href="#why">能力</a>
+          <a href="#preview">预览</a>
+          <a href="#install">安装</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+        <a class="nav-cta" href="#install">下载</a>
+      </header>
+
+      <main id="top">
+        <section class="hero-section">
+          <div class="hero-copy">
+            <p class="eyebrow">Desktop Control Surface For Maven Packaging & Deployment</p>
+            <h1>一个界面，接管 Maven 打包、产物和部署。</h1>
+            <p class="hero-lead">
+              PackFlow Workbench 把 Maven 多模块解析、环境检测、命令预览、构建日志、产物筛选、服务器管理和部署流水线收进同一个 Windows 桌面工作台。
+            </p>
+            <div class="hero-actions">
+              <a class="primary-button" data-download-link href="https://github.com/fenggeg/PackFlow-Workbench/releases/latest">获取 Windows 版本</a>
+              <a class="secondary-button" href="#preview">查看界面预览</a>
+            </div>
+            <div class="hero-tags" aria-label="核心支持">
+              <span>Maven 多模块</span>
+              <span>Tauri 2</span>
+              <span>SSH 部署</span>
+              <span>SQLite 持久化</span>
+            </div>
+          </div>
+
+          <div class="product-preview" aria-label="打包部署工作台界面预览">
+            <div class="preview-topbar">
+              <span></span><span></span><span></span><strong>PackFlow Workbench</strong>
+            </div>
+            <div class="preview-layout">
+              <aside class="preview-sidebar">
+                <div class="preview-nav">项目</div>
+                <div class="preview-nav active">构建</div>
+                <div class="preview-nav">产物</div>
+                <div class="preview-nav">部署</div>
+                <div class="preview-nav">服务</div>
+              </aside>
+              <main class="preview-main">
+                <div class="preview-heading">
+                  <div>
+                    <p>Build Center</p>
+                    <h3>order-service</h3>
+                  </div>
+                  <button>开始构建</button>
+                </div>
+                <div class="module-tree">
+                  <div class="module-row"><span>•</span><b>parent-pom</b><em>skip</em></div>
+                  <div class="module-row"><span>•</span><b>common-lib</b><em>skip</em></div>
+                  <div class="module-row selected"><span>✓</span><b>order-service</b><em>package</em></div>
+                  <div class="module-row"><span>•</span><b>gateway-web</b><em>skip</em></div>
+                </div>
+                <div class="command-card">
+                  <div class="command-line">$ mvnw clean package -pl order-service -am -P prod</div>
+                  <div class="log-line success">[INFO] BUILD SUCCESS</div>
+                  <div class="log-line">target/order-service-2.0.2.jar ready</div>
+                </div>
+              </main>
+            </div>
+          </div>
+        </section>
+
+        <section class="metric-strip" aria-label="产品摘要">
+          <div><strong>7</strong><span>核心工作区</span></div>
+          <div><strong>100</strong><span>构建历史保留</span></div>
+          <div><strong>6</strong><span>部署步骤类型</span></div>
+          <div><strong>1</strong><span>项目级隔离模型</span></div>
+        </section>
+
+        <section class="section" id="why">
+          <div class="section-heading">
+            <p class="eyebrow">Why PackFlow</p>
+            <h2>把零散的打包部署动作，收束成一条清晰流程。</h2>
+            <p>多模块项目的痛点通常不是单个命令，而是环境、模块、产物、服务器和验证步骤散落在不同工具里。PackFlow 把它们放到同一个操作闭环中。</p>
+          </div>
+          <div class="capability-grid">
+            <article class="capability-card"><p>Project Intelligence</p><h3>自动理解 Maven 多模块工程</h3><span>解析父工程、模块关系和 artifact 信息，把选择模块、依赖构建、产物定位收进一个连续工作台。</span></article>
+            <article class="capability-card"><p>Build Center</p><h3>构建命令可视化编排</h3><span>集中管理 JDK、Maven、Profile、settings.xml 和常用参数，执行前可预览并微调最终命令。</span></article>
+            <article class="capability-card"><p>Deployment Flow</p><h3>从产物到服务器的部署流水线</h3><span>支持 SSH 上传、远程命令、等待、端口探测、HTTP 检查和日志关键字检测，部署状态一屏追踪。</span></article>
+            <article class="capability-card"><p>Ops Console</p><h3>服务器、服务和历史记录统一管理</h3><span>服务器凭据、服务映射、部署模板和执行记录按项目隔离，减少切换项目时的误操作。</span></article>
+            <article class="capability-card"><p>Diagnostics</p><h3>实时日志与构建诊断</h3><span>构建和部署过程持续回传日志，关键错误可直接定位，失败原因不再散落在多个终端窗口里。</span></article>
+            <article class="capability-card"><p>Windows Native</p><h3>为本地桌面场景打磨</h3><span>基于 Tauri 2 与 Rust 后端，结合 SQLite、DPAPI、ssh.exe 和 Job Objects，贴近 Windows 运维习惯。</span></article>
+          </div>
+        </section>
+
+        <section class="section install-section" id="install">
+          <div class="install-copy">
+            <p class="eyebrow">Install</p>
+            <h2>下载路径保持直接，不把安装变成文档迷宫。</h2>
+            <p>面向 Windows 桌面环境使用，安装后选择 Maven 父工程即可开始构建、定位产物并配置部署流水线。</p>
+          </div>
+          <div class="install-grid">
+            <div class="terminal-card">
+              <span>Windows</span>
+              <a class="download-card-link" data-download-link href="https://github.com/fenggeg/PackFlow-Workbench/releases/latest">
+                正在获取 GitHub 最新版本下载地址...
+              </a>
+              <small data-release-note>如果自动获取失败，会打开 GitHub 最新 Release 页面。</small>
+            </div>
+            <div class="terminal-card">
+              <span>开发者构建</span>
+              <code>npm install</code>
+              <code>npm run tauri:build</code>
+            </div>
+          </div>
+        </section>
+
+        <section class="section faq-section" id="faq">
+          <div class="section-heading">
+            <p class="eyebrow">FAQ</p>
+            <h2>首页只回答安装前最关键的问题。</h2>
+          </div>
+          <div class="faq-list">
+            <details><summary>它是 Web 系统还是桌面应用？</summary><p>它是面向 Windows 的本地桌面应用，用来管理本地 Maven 项目的打包、产物和部署流程。</p></details>
+            <details><summary>支持哪些部署步骤？</summary><p>当前支持文件上传、SSH 命令、等待、端口检测、HTTP 检查和日志关键字检测。</p></details>
+            <details><summary>数据存在哪里？</summary><p>项目、构建历史、服务器、服务映射和部署记录保存在应用数据目录中的 SQLite 数据库。</p></details>
+            <details><summary>服务器密码如何保存？</summary><p>Windows 下会通过 DPAPI 加密保存，避免以明文形式落盘。</p></details>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <div>
+          <strong>PackFlow Workbench</strong>
+          <p>让 Maven 打包、产物管理和服务器部署回到同一张工作台。</p>
+        </div>
+        <a class="primary-button" data-download-link href="https://github.com/fenggeg/PackFlow-Workbench/releases/latest">开始安装</a>
+      </footer>
+    </div>
+  </body>
+</html>
