@@ -1,16 +1,23 @@
 import {Alert, App, Button, Card, Empty, Input, List, Modal, Select, Space, Tag, Tooltip, Typography} from 'antd'
-import {CheckOutlined, FileTextOutlined, FolderOpenOutlined, RocketOutlined, SettingOutlined} from '@ant-design/icons'
+import {
+  CheckOutlined,
+  CopyOutlined,
+  FileTextOutlined,
+  FolderOpenOutlined,
+  RocketOutlined,
+  SettingOutlined
+} from '@ant-design/icons'
 import {useMemo, useState} from 'react'
 import {deriveRuntimeConfig} from '../../features/service-ops/services/serviceRuntimeConfigService'
 import {useRemoteLogSessionStore} from '../../features/service-ops/stores/remoteLogSessionStore'
 import {useServiceOperationStore} from '../../features/service-ops/stores/serviceOperationStore'
 import {api} from '../../services/tauri-api'
 import {
-    belongsToProject,
-    findDeployableArtifacts,
-    flattenModules,
-    normalizeProjectRoot,
-    pickDefaultTestServer,
+  belongsToProject,
+  findDeployableArtifacts,
+  flattenModules,
+  normalizeProjectRoot,
+  pickDefaultTestServer,
 } from '../../services/deploymentTopologyService'
 import {useAppStore} from '../../store/useAppStore'
 import {useNavigationStore} from '../../store/navigationStore'
@@ -201,6 +208,18 @@ export function BuildNextActionsPanel() {
             renderItem={(artifact) => (
               <List.Item
                 actions={[
+                  <Tooltip key="copy" title="复制文件">
+                    <Button
+                      size="small"
+                      icon={<CopyOutlined />}
+                      onClick={() => {
+                        void api.copyFileToClipboard(artifact.path).then(
+                          () => message.success('已复制到剪贴板'),
+                          (error) => message.error(error instanceof Error ? error.message : String(error)),
+                        )
+                      }}
+                    />
+                  </Tooltip>,
                   <Tooltip key="open" title="定位产物">
                     <Button
                       size="small"

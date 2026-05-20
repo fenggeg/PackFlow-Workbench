@@ -44,6 +44,7 @@ pub fn run() {
             commands::filesystem::open_path_in_explorer,
             commands::filesystem::scan_build_artifacts,
             commands::filesystem::delete_build_artifact,
+            commands::filesystem::copy_file_to_clipboard,
             commands::git::check_git_status,
             commands::git::fetch_git_updates,
             commands::git::pull_git_updates,
