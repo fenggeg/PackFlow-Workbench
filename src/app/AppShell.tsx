@@ -1,10 +1,11 @@
 import {BranchesOutlined, FolderOutlined} from '@ant-design/icons'
 import {Modal, Space, Tag, Typography} from 'antd'
-import {useMemo, useState} from 'react'
+import {useEffect, useMemo, useState} from 'react'
 import {ProjectSelector} from '../components/ProjectSelector/ProjectSelector'
 import {UpdateChecker} from '../components/UpdateChecker/UpdateChecker'
 import {useAppStore} from '../store/useAppStore'
 import {useNavigationStore} from '../store/navigationStore'
+import {useNavigationConfigStore} from '../store/useNavigationConfigStore'
 import {ActivityBar} from './ActivityBar'
 import {BottomActionBar} from './BottomActionBar'
 import {InspectorDrawer} from './InspectorDrawer'
@@ -27,9 +28,15 @@ const branchStatusColor = (hasLocalChanges?: boolean, hasRemoteUpdates?: boolean
 
 export function AppShell() {
   const activePage = useNavigationStore((state) => state.activePage)
+  const setActivePage = useNavigationStore((state) => state.setActivePage)
   const project = useAppStore((state) => state.project)
   const gitStatus = useAppStore((state) => state.gitStatus)
+  const defaultPage = useNavigationConfigStore((state) => state.defaultPage)
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false)
+
+  useEffect(() => {
+    setActivePage(defaultPage)
+  }, [defaultPage, setActivePage])
 
   const sidebarHidden = noSidebarPages.has(activePage)
   const bodyStyle = useMemo(

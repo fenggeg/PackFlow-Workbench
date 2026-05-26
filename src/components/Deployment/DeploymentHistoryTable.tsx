@@ -1,21 +1,21 @@
 import {
-  Button,
-  Descriptions,
-  Empty,
-  Input,
-  Modal,
-  Popconfirm,
-  Progress,
-  Select,
-  Space,
-  Table,
-  Tag,
-  Tooltip,
-  Typography
+    Button,
+    Descriptions,
+    Empty,
+    Input,
+    Modal,
+    Popconfirm,
+    Progress,
+    Select,
+    Space,
+    Table,
+    Tag,
+    Tooltip,
+    Typography
 } from 'antd'
 import {CopyOutlined, DeleteOutlined, DownloadOutlined, FullscreenOutlined, PlayCircleOutlined} from '@ant-design/icons'
 import type {ColumnsType} from 'antd/es/table'
-import {useMemo, useRef, useState} from 'react'
+import {useEffect, useMemo, useRef, useState} from 'react'
 import {LogConsole} from '../common/LogConsole'
 import {summarizeDeploymentPipeline} from '../../services/deploymentRuntime'
 import {useDeploymentLogStore} from '../../store/useDeploymentLogStore'
@@ -157,6 +157,17 @@ export function DeploymentHistoryTable() {
   const openTaskBufferedLogs = useDeploymentLogStore(
     (state) => openTask ? state.logsByTaskId[openTask.id] : undefined,
   )
+
+  // Scroll to bottom when modal opens
+  useEffect(() => {
+    if (logExpanded) {
+      requestAnimationFrame(() => {
+        if (logModalPanelRef.current) {
+          logModalPanelRef.current.scrollTop = logModalPanelRef.current.scrollHeight
+        }
+      })
+    }
+  }, [logExpanded])
 
   const columns: ColumnsType<DeploymentTask> = useMemo(() => [
     {

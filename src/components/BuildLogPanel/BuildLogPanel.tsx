@@ -174,6 +174,17 @@ export function BuildLogPanel() {
     }
   }, [autoScroll, currentLogCount])
 
+  // Scroll to bottom when modal opens
+  useEffect(() => {
+    if (expanded && autoScroll) {
+      requestAnimationFrame(() => {
+        if (modalPanelRef.current) {
+          modalPanelRef.current.scrollTop = modalPanelRef.current.scrollHeight
+        }
+      })
+    }
+  }, [expanded, autoScroll])
+
   // Filter by keyword
   const keywordValue = keyword.trim().toLowerCase()
   const visibleBuildLogs = useMemo(() => logs.filter((event) => {

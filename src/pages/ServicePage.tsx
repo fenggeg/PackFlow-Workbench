@@ -8,7 +8,7 @@ import {
     SearchOutlined
 } from '@ant-design/icons'
 import {Button, Card, Descriptions, Empty, Input, Modal, Space, Table, Tag, Tooltip, Typography} from 'antd'
-import {useMemo, useState} from 'react'
+import {useEffect, useMemo, useRef, useState} from 'react'
 import {LogConsole} from '../components/common/LogConsole'
 import {ServiceOperationButtons} from '../features/service-ops/components/ServiceOperationButtons'
 import {ServiceOperationHistoryList} from '../features/service-ops/components/ServiceOperationHistoryList'
@@ -124,6 +124,18 @@ export function ServicePage() {
   const [logKeyword, setLogKeyword] = useState('')
   const [logExpanded, setLogExpanded] = useState(false)
   const [serverKeyword, setServerKeyword] = useState('')
+  const modalPanelRef = useRef<HTMLDivElement>(null)
+
+  // Scroll to bottom when modal opens
+  useEffect(() => {
+    if (logExpanded) {
+      requestAnimationFrame(() => {
+        if (modalPanelRef.current) {
+          modalPanelRef.current.scrollTop = modalPanelRef.current.scrollHeight
+        }
+      })
+    }
+  }, [logExpanded])
   const openTaskBufferedLogs = useDeploymentLogStore(
     (state) => openTask ? state.logsByTaskId[openTask.id] : undefined,
   )
@@ -429,6 +441,7 @@ export function ServicePage() {
               onCancel={() => setLogExpanded(false)}
             >
               <LogConsole
+                ref={modalPanelRef}
                 className="log-panel log-panel-large"
                 lines={filteredLogs}
                 classifyLine={classifyLine}

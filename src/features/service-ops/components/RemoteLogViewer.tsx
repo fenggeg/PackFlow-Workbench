@@ -32,6 +32,7 @@ export function RemoteLogViewer() {
   const [errorOnly, setErrorOnly] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
+  const modalPanelRef = useRef<HTMLDivElement>(null)
 
   const session = activeSessionId ? sessionsById[activeSessionId] : undefined
   const lines = useMemo(
@@ -55,6 +56,17 @@ export function RemoteLogViewer() {
       node.scrollTop = node.scrollHeight
     }
   }, [autoScroll, filteredLines.length])
+
+  // Scroll to bottom when modal opens
+  useEffect(() => {
+    if (expanded && autoScroll) {
+      requestAnimationFrame(() => {
+        if (modalPanelRef.current) {
+          modalPanelRef.current.scrollTop = modalPanelRef.current.scrollHeight
+        }
+      })
+    }
+  }, [expanded, autoScroll])
 
   if (!session || !activeSessionId) {
     return (
@@ -129,6 +141,7 @@ export function RemoteLogViewer() {
         onCancel={() => setExpanded(false)}
       >
         <LogConsole
+          ref={modalPanelRef}
           className="log-panel log-panel-large"
           lines={filteredLines}
           classifyLine={classifyRemoteLine}
