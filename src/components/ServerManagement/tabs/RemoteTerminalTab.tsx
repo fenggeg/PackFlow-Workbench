@@ -26,7 +26,7 @@ export function RemoteTerminalTab({server, onConnected}: RemoteTerminalTabProps)
   const xtermRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const sessionIdRef = useRef<string | null>(null)
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const unlistenOutputRef = useRef<(() => void) | null>(null)
   const [connecting, setConnecting] = useState(false)
   const [connected, setConnected] = useState(false)
   const [menu, setMenu] = useState<TerminalMenuState>({open: false, x: 0, y: 0})
@@ -73,9 +73,9 @@ export function RemoteTerminalTab({server, onConnected}: RemoteTerminalTabProps)
   }, [])
 
   const cleanup = useCallback(() => {
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current)
-      pollIntervalRef.current = null
+    if (unlistenOutputRef.current) {
+      unlistenOutputRef.current()
+      unlistenOutputRef.current = null
     }
     if (sessionIdRef.current) {
       void api.closeTerminalSession(sessionIdRef.current)
@@ -91,19 +91,21 @@ export function RemoteTerminalTab({server, onConnected}: RemoteTerminalTabProps)
     initializedRef.current = false
   }, [])
 
-  const startPolling = useCallback((sessionId: string, terminal: Terminal) => {
-    pollIntervalRef.current = setInterval(async () => {
-      try {
-        const output = await api.readTerminalOutput(sessionId)
-        if (output.length > 0) {
-          const text = new TextDecoder().decode(new Uint8Array(output))
-          terminal.write(text)
-        }
-      } catch (error) {
-        console.error('读取终端输出失败：', error)
-      }
-    }, 50)
+  const writeRemoteOutput = useCallback((terminal: Terminal, output: number[]) => {
+    if (output.length > 0) {
+      terminal.write(new Uint8Array(output))
+    }
   }, [])
+
+  const startOutputListener = useCallback(async (sessionId: string, terminal: Terminal) => {
+    unlistenOutputRef.current = await api.onTerminalOutput(sessionId, (output) => {
+      try {
+        writeRemoteOutput(terminal, output)
+      } catch (error) {
+        console.error('写入终端输出失败：', error)
+      }
+    })
+  }, [writeRemoteOutput])
 
   const connect = useCallback(async () => {
     if (!terminalRef.current || initializedRef.current) return
@@ -186,7 +188,10 @@ export function RemoteTerminalTab({server, onConnected}: RemoteTerminalTabProps)
       terminal.onData((data) => {
         if (sessionIdRef.current) {
           const bytes = Array.from(new TextEncoder().encode(data))
-          void api.writeTerminalInput(sessionIdRef.current, bytes)
+          console.log('terminal onData input bytes:', bytes.length)
+          void api.writeTerminalInput(sessionIdRef.current, bytes).catch((error) => {
+            console.error('写入终端输入失败：', error)
+          })
         }
       })
 
@@ -196,7 +201,7 @@ export function RemoteTerminalTab({server, onConnected}: RemoteTerminalTabProps)
         }
       })
 
-      startPolling(sessionId, terminal)
+      await startOutputListener(sessionId, terminal)
 
       setConnected(true)
       message.success('终端连接成功')
@@ -208,7 +213,7 @@ export function RemoteTerminalTab({server, onConnected}: RemoteTerminalTabProps)
     } finally {
       setConnecting(false)
     }
-  }, [server.id, cleanup, copySelection, focusTerminal, onConnected, pasteFromClipboard, startPolling])
+  }, [server.id, cleanup, copySelection, focusTerminal, onConnected, pasteFromClipboard, startOutputListener])
 
   useEffect(() => {
     queueMicrotask(() => void connect())

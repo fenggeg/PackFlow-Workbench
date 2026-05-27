@@ -351,11 +351,26 @@ pub async fn create_terminal_session(
     let manager = terminal_manager.inner().clone();
     blocking::run(move || {
         let profile = deployment_repo::get_server_profile_for_execution(&task_app, &server_id)?;
-        let session_id = manager.create_session(&server_id, &profile, cols, rows)?;
+        let session_id =
+            manager.create_session(task_app.clone(), &server_id, &profile, cols, rows)?;
         deployment_repo::update_server_last_connected(&task_app, &server_id)?;
         Ok(session_id)
     })
     .await
+}
+
+#[tauri::command]
+pub async fn terminal_write(
+    session_id: String,
+    data: Vec<u8>,
+    terminal_manager: State<'_, terminal_session_service::TerminalManager>,
+) -> AppResult<()> {
+    log::info!(
+        "terminal_write received sessionId={} bytes={}",
+        session_id,
+        data.len()
+    );
+    terminal_manager.write_input(&session_id, &data)
 }
 
 #[tauri::command]
@@ -364,7 +379,7 @@ pub async fn write_terminal_input(
     data: Vec<u8>,
     terminal_manager: State<'_, terminal_session_service::TerminalManager>,
 ) -> AppResult<()> {
-    terminal_manager.write_input(&session_id, &data)
+    terminal_write(session_id, data, terminal_manager).await
 }
 
 #[tauri::command]

@@ -2,6 +2,22 @@
 
 本文件用于记录每个正式版本的更新内容。GitHub Actions 发布 `v*` 标签时，会读取对应版本小节并写入 GitHub Release 和 `latest.json.notes`，应用内"检查更新"弹窗也会展示这里的内容。
 
+## [2.0.5] - 2026-05-27
+
+### 优化
+
+- 远程终端输出链路改为后端事件推送，前端监听 `terminal-output:{sessionId}` 并仅使用 xterm.js `term.write` 渲染远程输出，降低轮询开销。
+- 远程终端创建时使用交互式 SSH Shell PTY，并按 xterm.js 当前列数和行数初始化终端尺寸。
+- 远程终端支持 resize 事件透传，前端窗口尺寸变化后会将最新列数和行数同步到后端终端会话线程。
+- 增加远程终端调试日志，记录前端输入字节长度、后端 `terminal_write` 接收长度以及 SSH shell 写入成功或失败信息。
+
+### 修复
+
+- 修复远程终端连接成功但无法输入命令的问题，用户输入现在通过 xterm.js `onData` 原样发送到 Tauri 后端，不再用 `term.write` 模拟输入。
+- 修复 SSH shell 读循环阻塞导致写入永远无法执行的问题，终端会话现在通过独立 `input_tx` 队列把输入交给会话线程统一写入远程 PTY，避免 read/write 竞争同一个 shell 对象。
+- 修复 Enter、Backspace、Tab、方向键、Ctrl+C、Ctrl+D、Ctrl+L 等特殊按键无法可靠透传的问题。
+- 修复远程终端空闲时后台持续打印 `ssh::model::timeout` 超时日志的问题，保留短超时读取以保障输入响应，同时过滤第三方库的轮询噪声。
+
 ## [2.0.4] - 2026-05-27
 
 ### 优化

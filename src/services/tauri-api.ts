@@ -471,7 +471,10 @@ export const api = {
     invoke<string>('create_terminal_session', { serverId, cols, rows }),
 
   writeTerminalInput: (sessionId: string, data: number[]) =>
-    invoke<void>('write_terminal_input', { sessionId, data }),
+    invoke<void>('terminal_write', { sessionId, data }),
+
+  onTerminalOutput: (sessionId: string, onOutput: (data: number[]) => void) =>
+    listen<number[]>(`terminal-output:${sessionId}`, (event) => onOutput(event.payload)),
 
   readTerminalOutput: (sessionId: string) =>
     invoke<number[]>('read_terminal_output', { sessionId }),

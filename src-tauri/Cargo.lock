@@ -120,6 +120,7 @@ dependencies = [
  "tauri-plugin-log",
  "tauri-plugin-process",
  "tauri-plugin-updater",
+ "tokio",
  "uuid",
  "windows-sys 0.59.0",
 ]

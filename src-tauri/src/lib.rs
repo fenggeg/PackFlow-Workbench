@@ -21,6 +21,7 @@ pub fn run() {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
                         .level(log::LevelFilter::Info)
+                        .filter(|metadata| metadata.target() != "ssh::model::timeout")
                         .build(),
                 )?;
             }
@@ -102,6 +103,7 @@ pub fn run() {
             commands::server_ops::create_remote_directory,
             commands::server_ops::read_remote_log_lines,
             commands::server_ops::create_terminal_session,
+            commands::server_ops::terminal_write,
             commands::server_ops::write_terminal_input,
             commands::server_ops::read_terminal_output,
             commands::server_ops::resize_terminal,
