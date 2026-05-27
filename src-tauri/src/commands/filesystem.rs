@@ -2,19 +2,28 @@ use crate::error::{to_user_error, AppResult};
 use crate::models::build::BuildArtifact;
 use crate::services::{app_logger, blocking};
 use chrono::{DateTime, Utc};
+use reqwest::blocking::Client;
+use reqwest::header::{ACCEPT, USER_AGENT};
+use serde::Serialize;
 use std::fs;
+use std::io::{Read, Write};
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tauri::AppHandle;
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, Window};
 use windows_sys::Win32::Foundation::{GlobalFree, HWND};
-use windows_sys::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData};
+use windows_sys::Win32::System::DataExchange::{
+    CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+};
 use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
 use windows_sys::Win32::System::Ole::CF_HDROP;
 use windows_sys::Win32::System::WindowsProgramming::GMEM_SHARE;
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+const UPDATE_DOWNLOAD_EVENT: &str = "app-update-download-event";
+const UPDATE_USER_AGENT: &str = "PackFlow-Workbench-Updater";
 
 #[tauri::command]
 pub fn open_path_in_explorer(app: AppHandle, path: String) -> AppResult<()> {
@@ -295,7 +304,11 @@ pub fn copy_file_to_clipboard(app: AppHandle, path: String) -> AppResult<()> {
 
         EmptyClipboard();
 
-        let wide_path: Vec<u16> = target.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+        let wide_path: Vec<u16> = target
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
         let drop_size = std::mem::size_of::<DropFiles>();
         let path_size = wide_path.len() * 2;
         let total = drop_size + path_size + 2;
@@ -356,14 +369,291 @@ fn is_ignored_dir(path: &Path) -> bool {
     )
 }
 
+#[derive(Clone, Serialize)]
+struct UpdateDownloadStartedData {
+    #[serde(rename = "contentLength", skip_serializing_if = "Option::is_none")]
+    content_length: Option<u64>,
+}
+
+#[derive(Clone, Serialize)]
+struct UpdateDownloadProgressData {
+    #[serde(rename = "chunkLength")]
+    chunk_length: u64,
+}
+
+#[derive(Clone, Serialize)]
+struct UpdateDownloadStartedEvent {
+    event: &'static str,
+    data: UpdateDownloadStartedData,
+}
+
+#[derive(Clone, Serialize)]
+struct UpdateDownloadProgressEvent {
+    event: &'static str,
+    data: UpdateDownloadProgressData,
+}
+
+#[derive(Clone, Serialize)]
+struct UpdateDownloadFinishedEvent {
+    event: &'static str,
+}
+
+#[tauri::command]
+pub async fn download_and_install_app_update(
+    app: AppHandle,
+    window: Window,
+    download_url: String,
+    file_name: String,
+) -> AppResult<()> {
+    blocking::run(move || {
+        download_and_install_app_update_sync(&app, &window, &download_url, &file_name)
+    })
+    .await
+}
+
+fn download_and_install_app_update_sync(
+    app: &AppHandle,
+    window: &Window,
+    download_url: &str,
+    file_name: &str,
+) -> AppResult<()> {
+    app_logger::log_info(
+        app,
+        "updater.download.start",
+        format!("file_name={}, url={}", file_name, download_url),
+    );
+
+    if !download_url.starts_with("https://") {
+        app_logger::log_error(
+            app,
+            "updater.download.invalid_url",
+            format!("url={}", download_url),
+        );
+        return Err(to_user_error("更新包下载地址不是安全的 HTTPS 地址。"));
+    }
+
+    let safe_file_name = Path::new(file_name)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.trim().is_empty())
+        .ok_or_else(|| to_user_error("更新包文件名无效。"))?;
+
+    if !safe_file_name.to_lowercase().ends_with(".exe") {
+        return Err(to_user_error("更新包格式无效。"));
+    }
+
+    let temp_dir = std::env::temp_dir().join("packflow-updater");
+    fs::create_dir_all(&temp_dir).map_err(|error| {
+        app_logger::log_error(
+            app,
+            "updater.download.temp_dir_failed",
+            format!("error={}", error),
+        );
+        to_user_error(format!("无法创建临时目录：{}", error))
+    })?;
+
+    let installer_path = temp_dir.join(safe_file_name);
+    if installer_path.exists() {
+        fs::remove_file(&installer_path).map_err(|error| {
+            app_logger::log_error(
+                app,
+                "updater.download.remove_old_failed",
+                format!("path={}, error={}", installer_path.display(), error),
+            );
+            to_user_error(format!("无法清理旧安装文件：{}", error))
+        })?;
+    }
+
+    let client = Client::builder()
+        .connect_timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(300))
+        .build()
+        .map_err(|error| to_user_error(format!("无法创建更新下载客户端：{}", error)))?;
+
+    let mut response = client
+        .get(download_url)
+        .header(USER_AGENT, UPDATE_USER_AGENT)
+        .header(
+            ACCEPT,
+            "application/octet-stream, application/x-msdownload, */*",
+        )
+        .send()
+        .map_err(|error| {
+            app_logger::log_error(
+                app,
+                "updater.download.request_failed",
+                format!("url={}, error={}", download_url, error),
+            );
+            to_user_error(format!("更新包下载请求失败：{}", error))
+        })?;
+
+    let status = response.status();
+    if !status.is_success() {
+        app_logger::log_error(
+            app,
+            "updater.download.bad_status",
+            format!("url={}, status={}", download_url, status),
+        );
+        return Err(to_user_error(format!("更新包下载失败：HTTP {}", status)));
+    }
+
+    let total = response.content_length();
+    let _ = window.emit(
+        UPDATE_DOWNLOAD_EVENT,
+        UpdateDownloadStartedEvent {
+            event: "Started",
+            data: UpdateDownloadStartedData {
+                content_length: total,
+            },
+        },
+    );
+
+    let mut file = fs::File::create(&installer_path).map_err(|error| {
+        app_logger::log_error(
+            app,
+            "updater.download.file_create_failed",
+            format!("path={}, error={}", installer_path.display(), error),
+        );
+        to_user_error(format!("无法创建安装文件：{}", error))
+    })?;
+
+    let mut downloaded = 0_u64;
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = response.read(&mut buffer).map_err(|error| {
+            app_logger::log_error(
+                app,
+                "updater.download.read_failed",
+                format!("path={}, error={}", installer_path.display(), error),
+            );
+            to_user_error(format!("更新包下载中断：{}", error))
+        })?;
+
+        if read == 0 {
+            break;
+        }
+
+        file.write_all(&buffer[..read]).map_err(|error| {
+            app_logger::log_error(
+                app,
+                "updater.download.file_write_failed",
+                format!("path={}, error={}", installer_path.display(), error),
+            );
+            to_user_error(format!("无法写入安装文件：{}", error))
+        })?;
+
+        downloaded += read as u64;
+        let _ = window.emit(
+            UPDATE_DOWNLOAD_EVENT,
+            UpdateDownloadProgressEvent {
+                event: "Progress",
+                data: UpdateDownloadProgressData {
+                    chunk_length: read as u64,
+                },
+            },
+        );
+    }
+
+    file.flush().map_err(|error| {
+        app_logger::log_error(
+            app,
+            "updater.download.file_flush_failed",
+            format!("path={}, error={}", installer_path.display(), error),
+        );
+        to_user_error(format!("无法保存安装文件：{}", error))
+    })?;
+    drop(file);
+
+    if let Some(total) = total {
+        if downloaded != total {
+            app_logger::log_error(
+                app,
+                "updater.download.incomplete",
+                format!(
+                    "path={}, downloaded={}, total={}",
+                    installer_path.display(),
+                    downloaded,
+                    total
+                ),
+            );
+            return Err(to_user_error("更新包下载中断或内容不完整。"));
+        }
+    }
+
+    let _ = window.emit(
+        UPDATE_DOWNLOAD_EVENT,
+        UpdateDownloadFinishedEvent { event: "Finished" },
+    );
+
+    app_logger::log_info(
+        app,
+        "updater.download.success",
+        format!("path={}, size={}", installer_path.display(), downloaded),
+    );
+
+    execute_app_installer(app, &installer_path, safe_file_name)
+}
+
+fn execute_app_installer(app: &AppHandle, installer_path: &Path, file_name: &str) -> AppResult<()> {
+    app_logger::log_info(
+        app,
+        "updater.install.saved",
+        format!("path={}", installer_path.display()),
+    );
+
+    let is_nsis = file_name.to_lowercase().contains("setup") || file_name.ends_with(".exe");
+    let args = if is_nsis { vec!["/S"] } else { vec![] };
+
+    app_logger::log_info(
+        app,
+        "updater.install.executing",
+        format!("path={}, args={:?}", installer_path.display(), args),
+    );
+
+    let status = Command::new(installer_path)
+        .args(&args)
+        .creation_flags(CREATE_NO_WINDOW)
+        .status()
+        .map_err(|error| {
+            app_logger::log_error(
+                app,
+                "updater.install.exec_failed",
+                format!("path={}, error={}", installer_path.display(), error),
+            );
+            to_user_error(format!("无法执行安装程序：{}", error))
+        })?;
+
+    if !status.success() {
+        app_logger::log_error(
+            app,
+            "updater.install.failed",
+            format!(
+                "path={}, exit_code={}",
+                installer_path.display(),
+                status.code().unwrap_or(-1)
+            ),
+        );
+        return Err(to_user_error(format!(
+            "安装程序退出码异常：{}",
+            status.code().unwrap_or(-1)
+        )));
+    }
+
+    app_logger::log_info(
+        app,
+        "updater.install.success",
+        format!("path={}", installer_path.display()),
+    );
+
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn install_app_update(
     app: AppHandle,
     installer_bytes: Vec<u8>,
     file_name: String,
 ) -> AppResult<()> {
-    use std::io::Write;
-
     app_logger::log_info(
         &app,
         "updater.install.start",
@@ -401,63 +691,5 @@ pub async fn install_app_update(
 
     drop(file);
 
-    app_logger::log_info(
-        &app,
-        "updater.install.saved",
-        format!("path={}", installer_path.display()),
-    );
-
-    let is_nsis = file_name.to_lowercase().contains("setup") || file_name.ends_with(".exe");
-    let args = if is_nsis {
-        vec!["/S"]
-    } else {
-        vec![]
-    };
-
-    app_logger::log_info(
-        &app,
-        "updater.install.executing",
-        format!(
-            "path={}, args={:?}",
-            installer_path.display(),
-            args
-        ),
-    );
-
-    let status = Command::new(&installer_path)
-        .args(&args)
-        .creation_flags(CREATE_NO_WINDOW)
-        .status()
-        .map_err(|error| {
-            app_logger::log_error(
-                &app,
-                "updater.install.exec_failed",
-                format!("path={}, error={}", installer_path.display(), error),
-            );
-            to_user_error(format!("无法执行安装程序：{}", error))
-        })?;
-
-    if !status.success() {
-        app_logger::log_error(
-            &app,
-            "updater.install.failed",
-            format!(
-                "path={}, exit_code={}",
-                installer_path.display(),
-                status.code().unwrap_or(-1)
-            ),
-        );
-        return Err(to_user_error(format!(
-            "安装程序退出码异常：{}",
-            status.code().unwrap_or(-1)
-        )));
-    }
-
-    app_logger::log_info(
-        &app,
-        "updater.install.success",
-        format!("path={}", installer_path.display()),
-    );
-
-    Ok(())
+    execute_app_installer(&app, &installer_path, &file_name)
 }

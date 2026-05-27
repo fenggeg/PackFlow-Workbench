@@ -109,6 +109,7 @@ pub fn run() {
             commands::server_ops::resize_terminal,
             commands::server_ops::close_terminal_session,
             commands::server_ops::check_terminal_alive,
+            commands::filesystem::download_and_install_app_update,
             commands::filesystem::install_app_update,
         ])
         .run(tauri::generate_context!())

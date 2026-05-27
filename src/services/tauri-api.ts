@@ -198,51 +198,24 @@ export async function installAppUpdate(
 ): Promise<void> {
   requireTauri()
 
-  const response = await fetch(update.downloadUrl, {
-    signal: AbortSignal.timeout(300000),
-  })
+  const unlisten = await listen<AppUpdateDownloadEvent>(
+    'app-update-download-event',
+    (event) => {
+      onEvent(event.payload)
+      if (event.payload.event === 'Finished') {
+        onDownloaded?.()
+      }
+    },
+  )
 
-  if (!response.ok) {
-    throw new Error(`下载失败: HTTP ${response.status}`)
+  try {
+    await invoke('download_and_install_app_update', {
+      downloadUrl: update.downloadUrl,
+      fileName: update.fileName,
+    })
+  } finally {
+    unlisten()
   }
-
-  const contentLength = response.headers.get('content-length')
-  const total = contentLength ? parseInt(contentLength, 10) : undefined
-
-  onEvent({ event: 'Started', data: { contentLength: total } })
-
-  const reader = response.body?.getReader()
-  if (!reader) {
-    throw new Error('无法读取响应流')
-  }
-
-  const chunks: Uint8Array[] = []
-  let downloaded = 0
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    chunks.push(value)
-    downloaded += value.length
-    onEvent({ event: 'Progress', data: { chunkLength: value.length } })
-  }
-
-  onEvent({ event: 'Finished' })
-  onDownloaded?.()
-
-  const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0)
-  const bytes = new Uint8Array(totalLength)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.length
-  }
-
-  await invoke('install_app_update', {
-    installerBytes: Array.from(bytes),
-    fileName: update.fileName,
-  })
 
   await relaunch()
 }
