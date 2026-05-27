@@ -2,7 +2,6 @@ import {invoke} from '@tauri-apps/api/core'
 import {listen} from '@tauri-apps/api/event'
 import {getVersion} from '@tauri-apps/api/app'
 import {open} from '@tauri-apps/plugin-dialog'
-import {relaunch} from '@tauri-apps/plugin-process'
 import type {
   BuildArtifact,
   BuildCommandPayload,
@@ -47,15 +46,16 @@ import type {
 
 type TauriWindow = Window & { __TAURI_INTERNALS__?: unknown }
 
-const UPDATE_CHECK_URL = 'https://node-red.gyfwork.cc.cd/api/latest'
-
 export interface AppUpdateInfo {
   currentVersion: string
   version: string
   date?: string
   body?: string
   downloadUrl: string
+  apiDownloadUrl?: string
+  fileSize?: number
   fileName: string
+  downloaded: boolean
 }
 
 export type AppUpdateDownloadEvent =
@@ -73,117 +73,10 @@ const requireTauri = () => {
   }
 }
 
-interface GitHubReleaseAsset {
-  name: string
-  browser_download_url: string
-  content_type?: string
-}
-
-interface GitHubReleaseResponse {
-  tag_name: string
-  name?: string
-  body?: string
-  published_at?: string
-  assets?: GitHubReleaseAsset[]
-  draft?: boolean
-  prerelease?: boolean
-}
-
-function getAssetScore(asset: GitHubReleaseAsset): number {
-  const name = asset.name.toLowerCase()
-
-  if (!name.endsWith('.exe') || name.endsWith('.sig')) {
-    return 0
-  }
-
-  if (name === 'packflow.workbench_x64-setup.exe') {
-    return 100
-  }
-
-  if (name.includes('x64-setup')) {
-    return 90
-  }
-
-  if (name.endsWith('-setup.exe')) {
-    return 80
-  }
-
-  return 10
-}
-
-function parseVersion(version: string): number[] {
-  return version
-    .replace(/^v/, '')
-    .split('.')
-    .map((v) => parseInt(v, 10) || 0)
-}
-
-function isNewerVersion(current: string, latest: string): boolean {
-  const currentParts = parseVersion(current)
-  const latestParts = parseVersion(latest)
-  const maxLength = Math.max(currentParts.length, latestParts.length)
-
-  for (let i = 0; i < maxLength; i++) {
-    const currentPart = currentParts[i] || 0
-    const latestPart = latestParts[i] || 0
-
-    if (latestPart > currentPart) return true
-    if (latestPart < currentPart) return false
-  }
-
-  return false
-}
-
 export async function checkForAppUpdate(): Promise<AppUpdateInfo | null> {
   requireTauri()
   const currentVersion = await getVersion()
-
-  const url = new URL(UPDATE_CHECK_URL)
-  url.searchParams.set('_t', Date.now().toString())
-
-  const response = await fetch(url.toString(), {
-    method: 'GET',
-    headers: {
-      'Accept': 'application/json',
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-      'Pragma': 'no-cache',
-    },
-    cache: 'no-store',
-    signal: AbortSignal.timeout(30000),
-  })
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-  }
-
-  const release: GitHubReleaseResponse = await response.json()
-
-  if (release.draft || release.prerelease) {
-    return null
-  }
-
-  const latestVersion = release.tag_name.replace(/^v/, '')
-
-  if (!isNewerVersion(currentVersion, latestVersion)) {
-    return null
-  }
-
-  const exeAsset = release.assets
-    ?.filter((asset) => getAssetScore(asset) > 0)
-    .sort((left, right) => getAssetScore(right) - getAssetScore(left))[0]
-
-  if (!exeAsset) {
-    throw new Error('未找到安装包下载链接')
-  }
-
-  return {
-    currentVersion,
-    version: latestVersion,
-    date: release.published_at,
-    body: release.body,
-    downloadUrl: exeAsset.browser_download_url,
-    fileName: exeAsset.name,
-  }
+  return invoke<AppUpdateInfo | null>('check_for_app_update', { currentVersion })
 }
 
 export async function getCurrentAppVersion(): Promise<string> {
@@ -191,7 +84,7 @@ export async function getCurrentAppVersion(): Promise<string> {
   return getVersion()
 }
 
-export async function installAppUpdate(
+export async function downloadAppUpdate(
   update: AppUpdateInfo,
   onEvent: (event: AppUpdateDownloadEvent) => void,
   onDownloaded?: () => void,
@@ -209,15 +102,23 @@ export async function installAppUpdate(
   )
 
   try {
-    await invoke('download_and_install_app_update', {
+    await invoke('download_app_update', {
       downloadUrl: update.downloadUrl,
+      apiDownloadUrl: update.apiDownloadUrl,
+      expectedSize: update.fileSize,
       fileName: update.fileName,
     })
   } finally {
     unlisten()
   }
+}
 
-  await relaunch()
+export async function installCachedAppUpdate(update: AppUpdateInfo): Promise<void> {
+  requireTauri()
+  await invoke('install_cached_app_update', {
+    fileName: update.fileName,
+    expectedSize: update.fileSize,
+  })
 }
 
 export async function selectProjectDirectory(): Promise<string | null> {

@@ -2,12 +2,13 @@ import {useCallback, useEffect, useMemo, useState} from 'react'
 import {App, Button, Modal, Progress, Space, Typography} from 'antd'
 import ReactMarkdown from 'react-markdown'
 import {
-  type AppUpdateDownloadEvent,
-  type AppUpdateInfo,
-  checkForAppUpdate,
-  getCurrentAppVersion,
-  installAppUpdate,
-  isTauriRuntime,
+    type AppUpdateDownloadEvent,
+    type AppUpdateInfo,
+    checkForAppUpdate,
+    downloadAppUpdate,
+    getCurrentAppVersion,
+    installCachedAppUpdate,
+    isTauriRuntime,
 } from '../../services/tauri-api'
 
 const { Text } = Typography
@@ -15,6 +16,8 @@ const { Text } = Typography
 type DownloadProgress = {
   downloaded: number
   total?: number
+  startedAt?: number
+  speed?: number
   finished: boolean
 }
 
@@ -141,7 +144,7 @@ const getFriendlyUpdateErrorMessage = (error: unknown, phase: UpdatePhase) => {
 }
 
 export function UpdateChecker() {
-  const { message } = App.useApp()
+  const { message, modal } = App.useApp()
   const [checking, setChecking] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [updatePhase, setUpdatePhase] = useState<Exclude<UpdatePhase, 'check'> | null>(null)
@@ -161,6 +164,14 @@ export function UpdateChecker() {
 
     return Math.min(100, Math.round((progress.downloaded / progress.total) * 100))
   }, [progress.downloaded, progress.total])
+
+  const downloadSpeedText = useMemo(() => {
+    if (!progress.speed || progress.finished) {
+      return ''
+    }
+
+    return `${formatBytes(progress.speed)}/s`
+  }, [progress.finished, progress.speed])
 
   const resetProgress = () => {
     setProgress({ downloaded: 0, finished: false })
@@ -191,6 +202,9 @@ export function UpdateChecker() {
 
         resetProgress()
         setUpdate(nextUpdate)
+        if (!silent && nextUpdate.downloaded) {
+          void message.info('安装包已下载，可直接安装更新。')
+        }
       } catch (error) {
         if (!silent) {
           void message.error(getFriendlyUpdateErrorMessage(error, 'check'))
@@ -239,16 +253,25 @@ export function UpdateChecker() {
       setProgress({
         downloaded: 0,
         total: event.data.contentLength,
+        startedAt: Date.now(),
         finished: false,
       })
       return
     }
 
     if (event.event === 'Progress') {
-      setProgress((current) => ({
-        ...current,
-        downloaded: current.downloaded + event.data.chunkLength,
-      }))
+      setProgress((current) => {
+        const startedAt = current.startedAt ?? Date.now()
+        const downloaded = current.downloaded + event.data.chunkLength
+        const elapsedSeconds = Math.max((Date.now() - startedAt) / 1000, 1)
+
+        return {
+          ...current,
+          startedAt,
+          downloaded,
+          speed: downloaded / elapsedSeconds,
+        }
+      })
       return
     }
 
@@ -258,25 +281,62 @@ export function UpdateChecker() {
     }))
   }
 
-  const installUpdate = async () => {
+  const downloadUpdate = async () => {
     if (!update) {
       return
     }
 
     setInstalling(true)
-    let phase: Exclude<UpdatePhase, 'check'> = 'download'
     setUpdatePhase('download')
     try {
-      await installAppUpdate(update, handleDownloadEvent, () => {
-        phase = 'install'
-        setUpdatePhase('install')
+      await downloadAppUpdate(update, handleDownloadEvent, () => {
+        setUpdate((current) => current ? { ...current, downloaded: true } : current)
       })
-      void message.success('更新已安装，正在重启应用。')
+      setUpdate((current) => current ? { ...current, downloaded: true } : current)
+      void message.success('安装包已下载，确认后即可安装。')
     } catch (error) {
-      void message.error(getFriendlyUpdateErrorMessage(error, phase))
+      void message.error(getFriendlyUpdateErrorMessage(error, 'download'))
+    } finally {
       setInstalling(false)
       setUpdatePhase(null)
     }
+  }
+
+  const confirmInstallUpdate = () => {
+    if (!update) {
+      return
+    }
+
+    modal.confirm({
+      title: '安装更新',
+      content: '安装会关闭当前应用，完成后将自动重新打开。',
+      okText: '安装',
+      cancelText: '取消',
+      onOk: async () => {
+        setInstalling(true)
+        setUpdatePhase('install')
+        try {
+          await installCachedAppUpdate(update)
+        } catch (error) {
+          void message.error(getFriendlyUpdateErrorMessage(error, 'install'))
+          setInstalling(false)
+          setUpdatePhase(null)
+        }
+      },
+    })
+  }
+
+  const handlePrimaryAction = () => {
+    if (!update || installing) {
+      return
+    }
+
+    if (update.downloaded) {
+      confirmInstallUpdate()
+      return
+    }
+
+    void downloadUpdate()
   }
 
   const closeModal = () => {
@@ -313,9 +373,15 @@ export function UpdateChecker() {
             key="install"
             type="primary"
             loading={installing}
-            onClick={() => void installUpdate()}
+            onClick={handlePrimaryAction}
           >
-            {updatePhase === 'download' ? '下载中' : updatePhase === 'install' ? '安装中' : '立即更新'}
+            {updatePhase === 'download'
+              ? '下载中'
+              : updatePhase === 'install'
+                ? '安装中'
+                : update?.downloaded
+                  ? '安装更新'
+                  : '下载更新'}
           </Button>,
         ]}
       >
@@ -324,6 +390,9 @@ export function UpdateChecker() {
             <Text>
               当前版本 {update.currentVersion || currentVersion}，最新版本 {update.version}
             </Text>
+            {update.downloaded && !installing && (
+              <Text type="success">安装包已下载，点击“安装更新”完成安装。</Text>
+            )}
             {update.date && (
               <Text type="secondary">发布时间：{formatReleaseDate(update.date)}</Text>
             )}
@@ -340,7 +409,7 @@ export function UpdateChecker() {
                 {formatUpdateNotes(update)}
               </ReactMarkdown>
             </div>
-            {installing && (
+            {(installing || progress.downloaded > 0 || progress.finished) && (
               <div className="update-progress">
                 <Progress
                   percent={progress.finished ? 100 : progressPercent}
@@ -348,10 +417,12 @@ export function UpdateChecker() {
                 />
                 <Text type="secondary">
                   {progress.finished
-                    ? '下载完成，正在安装'
+                    ? updatePhase === 'install'
+                      ? '下载完成，正在安装'
+                      : '下载完成，等待安装'
                     : progress.total
-                      ? `${formatBytes(progress.downloaded)} / ${formatBytes(progress.total)}`
-                      : `${formatBytes(progress.downloaded)} 已下载`}
+                      ? `${formatBytes(progress.downloaded)} / ${formatBytes(progress.total)}${downloadSpeedText ? ` · ${downloadSpeedText}` : ''}`
+                      : `${formatBytes(progress.downloaded)} 已下载${downloadSpeedText ? ` · ${downloadSpeedText}` : ''}`}
                 </Text>
               </div>
             )}
