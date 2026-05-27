@@ -138,9 +138,17 @@ export async function checkForAppUpdate(): Promise<AppUpdateInfo | null> {
   requireTauri()
   const currentVersion = await getVersion()
 
-  const response = await fetch(UPDATE_CHECK_URL, {
+  const url = new URL(UPDATE_CHECK_URL)
+  url.searchParams.set('_t', Date.now().toString())
+
+  const response = await fetch(url.toString(), {
     method: 'GET',
-    headers: { 'Accept': 'application/json' },
+    headers: {
+      'Accept': 'application/json',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+    },
+    cache: 'no-store',
     signal: AbortSignal.timeout(30000),
   })
 
