@@ -355,3 +355,109 @@ fn is_ignored_dir(path: &Path) -> bool {
         Some(".git") | Some("node_modules") | Some("dist") | Some(".idea")
     )
 }
+
+#[tauri::command]
+pub async fn install_app_update(
+    app: AppHandle,
+    installer_bytes: Vec<u8>,
+    file_name: String,
+) -> AppResult<()> {
+    use std::io::Write;
+
+    app_logger::log_info(
+        &app,
+        "updater.install.start",
+        format!("file_name={}, size={}", file_name, installer_bytes.len()),
+    );
+
+    let temp_dir = std::env::temp_dir().join("packflow-updater");
+    fs::create_dir_all(&temp_dir).map_err(|error| {
+        app_logger::log_error(
+            &app,
+            "updater.install.temp_dir_failed",
+            format!("error={}", error),
+        );
+        to_user_error(format!("无法创建临时目录：{}", error))
+    })?;
+
+    let installer_path = temp_dir.join(&file_name);
+    let mut file = fs::File::create(&installer_path).map_err(|error| {
+        app_logger::log_error(
+            &app,
+            "updater.install.file_create_failed",
+            format!("path={}, error={}", installer_path.display(), error),
+        );
+        to_user_error(format!("无法创建安装文件：{}", error))
+    })?;
+
+    file.write_all(&installer_bytes).map_err(|error| {
+        app_logger::log_error(
+            &app,
+            "updater.install.file_write_failed",
+            format!("path={}, error={}", installer_path.display(), error),
+        );
+        to_user_error(format!("无法写入安装文件：{}", error))
+    })?;
+
+    drop(file);
+
+    app_logger::log_info(
+        &app,
+        "updater.install.saved",
+        format!("path={}", installer_path.display()),
+    );
+
+    let is_nsis = file_name.to_lowercase().contains("setup") || file_name.ends_with(".exe");
+    let args = if is_nsis {
+        vec!["/S"]
+    } else {
+        vec![]
+    };
+
+    app_logger::log_info(
+        &app,
+        "updater.install.executing",
+        format!(
+            "path={}, args={:?}",
+            installer_path.display(),
+            args
+        ),
+    );
+
+    let status = Command::new(&installer_path)
+        .args(&args)
+        .creation_flags(CREATE_NO_WINDOW)
+        .status()
+        .map_err(|error| {
+            app_logger::log_error(
+                &app,
+                "updater.install.exec_failed",
+                format!("path={}, error={}", installer_path.display(), error),
+            );
+            to_user_error(format!("无法执行安装程序：{}", error))
+        })?;
+
+    if !status.success() {
+        app_logger::log_error(
+            &app,
+            "updater.install.failed",
+            format!(
+                "path={}, exit_code={}",
+                installer_path.display(),
+                status.code().unwrap_or(-1)
+            ),
+        );
+        return Err(to_user_error(format!(
+            "安装程序退出码异常：{}",
+            status.code().unwrap_or(-1)
+        )));
+    }
+
+    app_logger::log_info(
+        &app,
+        "updater.install.success",
+        format!("path={}", installer_path.display()),
+    );
+
+    Ok(())
+}

@@ -1,13 +1,13 @@
 import {useCallback, useEffect, useMemo, useState} from 'react'
 import {App, Button, Modal, Progress, Space, Typography} from 'antd'
-import type {Update} from '@tauri-apps/plugin-updater'
 import ReactMarkdown from 'react-markdown'
 import {
-    type AppUpdateDownloadEvent,
-    checkForAppUpdate,
-    getCurrentAppVersion,
-    installAppUpdate,
-    isTauriRuntime,
+  type AppUpdateDownloadEvent,
+  type AppUpdateInfo,
+  checkForAppUpdate,
+  getCurrentAppVersion,
+  installAppUpdate,
+  isTauriRuntime,
 } from '../../services/tauri-api'
 
 const { Text } = Typography
@@ -35,25 +35,15 @@ const formatBytes = (bytes: number) => {
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error)
 
-const getRawUpdateNotes = (update: Update) => {
-  const notes = update.rawJson.notes
-
+const getRawUpdateNotes = (update: AppUpdateInfo) => {
   if (typeof update.body === 'string' && update.body.trim()) {
     return update.body
-  }
-
-  if (typeof notes === 'string') {
-    return notes
-  }
-
-  if (Array.isArray(notes)) {
-    return notes.filter((item) => typeof item === 'string').join('\n')
   }
 
   return ''
 }
 
-const formatUpdateNotes = (update: Update) => {
+const formatUpdateNotes = (update: AppUpdateInfo) => {
   const notes = getRawUpdateNotes(update).trim()
 
   return notes || '本次更新未提供更新日志。'
@@ -158,7 +148,7 @@ export function UpdateChecker() {
   const [currentVersion, setCurrentVersion] = useState(() =>
     isTauriRuntime() ? '' : '开发预览',
   )
-  const [update, setUpdate] = useState<Update | null>(null)
+  const [update, setUpdate] = useState<AppUpdateInfo | null>(null)
   const [progress, setProgress] = useState<DownloadProgress>({
     downloaded: 0,
     finished: false,

@@ -1,9 +1,8 @@
 import {invoke} from '@tauri-apps/api/core'
 import {listen} from '@tauri-apps/api/event'
-import {BundleType, getBundleType, getVersion} from '@tauri-apps/api/app'
+import {getVersion} from '@tauri-apps/api/app'
 import {open} from '@tauri-apps/plugin-dialog'
 import {relaunch} from '@tauri-apps/plugin-process'
-import {check, type DownloadEvent, type Update} from '@tauri-apps/plugin-updater'
 import type {
   BuildArtifact,
   BuildCommandPayload,
@@ -48,7 +47,21 @@ import type {
 
 type TauriWindow = Window & { __TAURI_INTERNALS__?: unknown }
 
-export type AppUpdateDownloadEvent = DownloadEvent
+const UPDATE_CHECK_URL = 'https://node-red.gyfwork.cc.cd/api/latest'
+
+export interface AppUpdateInfo {
+  currentVersion: string
+  version: string
+  date?: string
+  body?: string
+  downloadUrl: string
+  fileName: string
+}
+
+export type AppUpdateDownloadEvent =
+  | { event: 'Started'; data: { contentLength?: number } }
+  | { event: 'Progress'; data: { chunkLength: number } }
+  | { event: 'Finished' }
 
 export const isTauriRuntime = () =>
   typeof window !== 'undefined' &&
@@ -60,32 +73,90 @@ const requireTauri = () => {
   }
 }
 
-const getWindowsUpdaterTarget = async () => {
-  try {
-    const bundleType = await getBundleType()
-
-    if (bundleType === BundleType.Nsis) {
-      return 'windows-x86_64-nsis'
-    }
-
-    if (bundleType === BundleType.Msi) {
-      return 'windows-x86_64-msi'
-    }
-  } catch {
-    return undefined
-  }
-
-  return undefined
+interface GitHubReleaseAsset {
+  name: string
+  browser_download_url: string
+  content_type?: string
 }
 
-export async function checkForAppUpdate(): Promise<Update | null> {
-  requireTauri()
-  const target = await getWindowsUpdaterTarget()
+interface GitHubReleaseResponse {
+  tag_name: string
+  name?: string
+  body?: string
+  published_at?: string
+  assets?: GitHubReleaseAsset[]
+  draft?: boolean
+  prerelease?: boolean
+}
 
-  return check({
-    timeout: 30000,
-    ...(target ? { target } : {}),
+function parseVersion(version: string): number[] {
+  return version
+    .replace(/^v/, '')
+    .split('.')
+    .map((v) => parseInt(v, 10) || 0)
+}
+
+function isNewerVersion(current: string, latest: string): boolean {
+  const currentParts = parseVersion(current)
+  const latestParts = parseVersion(latest)
+  const maxLength = Math.max(currentParts.length, latestParts.length)
+
+  for (let i = 0; i < maxLength; i++) {
+    const currentPart = currentParts[i] || 0
+    const latestPart = latestParts[i] || 0
+
+    if (latestPart > currentPart) return true
+    if (latestPart < currentPart) return false
+  }
+
+  return false
+}
+
+export async function checkForAppUpdate(): Promise<AppUpdateInfo | null> {
+  requireTauri()
+  const currentVersion = await getVersion()
+
+  const response = await fetch(UPDATE_CHECK_URL, {
+    method: 'GET',
+    headers: { 'Accept': 'application/json' },
+    signal: AbortSignal.timeout(30000),
   })
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+  }
+
+  const release: GitHubReleaseResponse = await response.json()
+
+  if (release.draft || release.prerelease) {
+    return null
+  }
+
+  const latestVersion = release.tag_name.replace(/^v/, '')
+
+  if (!isNewerVersion(currentVersion, latestVersion)) {
+    return null
+  }
+
+  const exeAsset = release.assets?.find(
+    (a) =>
+      a.name.endsWith('-setup.exe') &&
+      a.content_type !== 'application/x-msdos-program' &&
+      !a.name.endsWith('_x64-setup.exe'),
+  )
+
+  if (!exeAsset) {
+    throw new Error('未找到安装包下载链接')
+  }
+
+  return {
+    currentVersion,
+    version: latestVersion,
+    date: release.published_at,
+    body: release.body,
+    downloadUrl: exeAsset.browser_download_url,
+    fileName: exeAsset.name,
+  }
 }
 
 export async function getCurrentAppVersion(): Promise<string> {
@@ -94,14 +165,58 @@ export async function getCurrentAppVersion(): Promise<string> {
 }
 
 export async function installAppUpdate(
-  update: Update,
-  onEvent: (event: DownloadEvent) => void,
+  update: AppUpdateInfo,
+  onEvent: (event: AppUpdateDownloadEvent) => void,
   onDownloaded?: () => void,
 ): Promise<void> {
   requireTauri()
-  await update.download(onEvent, { timeout: 300000 })
+
+  const response = await fetch(update.downloadUrl, {
+    signal: AbortSignal.timeout(300000),
+  })
+
+  if (!response.ok) {
+    throw new Error(`下载失败: HTTP ${response.status}`)
+  }
+
+  const contentLength = response.headers.get('content-length')
+  const total = contentLength ? parseInt(contentLength, 10) : undefined
+
+  onEvent({ event: 'Started', data: { contentLength: total } })
+
+  const reader = response.body?.getReader()
+  if (!reader) {
+    throw new Error('无法读取响应流')
+  }
+
+  const chunks: Uint8Array[] = []
+  let downloaded = 0
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    chunks.push(value)
+    downloaded += value.length
+    onEvent({ event: 'Progress', data: { chunkLength: value.length } })
+  }
+
+  onEvent({ event: 'Finished' })
   onDownloaded?.()
-  await update.install()
+
+  const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0)
+  const bytes = new Uint8Array(totalLength)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.length
+  }
+
+  await invoke('install_app_update', {
+    installerBytes: Array.from(bytes),
+    fileName: update.fileName,
+  })
+
   await relaunch()
 }
 

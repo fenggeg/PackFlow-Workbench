@@ -1,4 +1,4 @@
-const releaseApi = 'https://api.github.com/repos/fenggeg/PackFlow-Workbench/releases/latest'
+const releaseApi = 'https://node-red.gyfwork.cc.cd/api/latest'
 const fallbackReleaseUrl = 'https://github.com/fenggeg/PackFlow-Workbench/releases/latest'
 
 const downloadLinks = document.querySelectorAll('[data-download-link]')
