@@ -89,6 +89,28 @@ interface GitHubReleaseResponse {
   prerelease?: boolean
 }
 
+function getAssetScore(asset: GitHubReleaseAsset): number {
+  const name = asset.name.toLowerCase()
+
+  if (!name.endsWith('.exe') || name.endsWith('.sig')) {
+    return 0
+  }
+
+  if (name === 'packflow.workbench_x64-setup.exe') {
+    return 100
+  }
+
+  if (name.includes('x64-setup')) {
+    return 90
+  }
+
+  if (name.endsWith('-setup.exe')) {
+    return 80
+  }
+
+  return 10
+}
+
 function parseVersion(version: string): number[] {
   return version
     .replace(/^v/, '')
@@ -138,12 +160,9 @@ export async function checkForAppUpdate(): Promise<AppUpdateInfo | null> {
     return null
   }
 
-  const exeAsset = release.assets?.find(
-    (a) =>
-      a.name.endsWith('-setup.exe') &&
-      a.content_type !== 'application/x-msdos-program' &&
-      !a.name.endsWith('_x64-setup.exe'),
-  )
+  const exeAsset = release.assets
+    ?.filter((asset) => getAssetScore(asset) > 0)
+    .sort((left, right) => getAssetScore(right) - getAssetScore(left))[0]
 
   if (!exeAsset) {
     throw new Error('未找到安装包下载链接')
