@@ -197,6 +197,27 @@ fn non_empty_option(value: Option<String>) -> Option<String> {
     })
 }
 
+fn normalize_java_bin_path(value: Option<String>) -> Option<String> {
+    let path = non_empty_option(value)?;
+    if !path.contains('/') && !path.contains('\\') {
+        return Some(path);
+    }
+
+    let trimmed = path.trim_end_matches(|c| c == '/' || c == '\\').to_string();
+    let name = trimmed
+        .rsplit(|c| c == '/' || c == '\\')
+        .next()
+        .unwrap_or(&trimmed)
+        .to_ascii_lowercase();
+    if matches!(name.as_str(), "java" | "java.exe") {
+        Some(trimmed)
+    } else if name == "bin" {
+        Some(format!("{}/java", trimmed))
+    } else {
+        Some(format!("{}/bin/java", trimmed))
+    }
+}
+
 fn deployment_port(profile: &DeploymentProfile) -> Option<u16> {
     profile
         .startup_probe
@@ -550,7 +571,7 @@ fn execute_deployment(
         privilege_password: server.privilege_password.clone(),
         _service_description: profile.service_description.clone(),
         _service_alias: profile.service_alias.clone(),
-        java_bin_path: non_empty_option(profile.java_bin_path.clone()),
+        java_bin_path: normalize_java_bin_path(profile.java_bin_path.clone()),
         jvm_options: non_empty_option(profile.jvm_options.clone()),
         spring_profile: non_empty_option(profile.spring_profile.clone()),
         extra_args: non_empty_option(profile.extra_args.clone()),
@@ -1054,6 +1075,7 @@ fn execute_ssh_step(
     let command_template = normalize_legacy_builtin_command(&step.name, &config.command);
     let mut command = expand_tokens(&command_template, context);
     command = ensure_replace_target_dir(&step.name, command, context);
+    command = ensure_start_runtime_dirs(command, context);
     if let Some(timeout) = step.timeout_seconds.filter(|value| *value > 0) {
         command = format!("timeout {} sh -lc {}", timeout, shell_quote(&command));
     }
@@ -1107,6 +1129,34 @@ fn ensure_replace_target_dir(
     format!(
         "mkdir -p {deploy_dir} && {command}",
         deploy_dir = shell_quote(&context.remote_deploy_path),
+        command = command
+    )
+}
+
+fn ensure_start_runtime_dirs(command: String, context: &DeploymentContext) -> String {
+    let lower = command.to_ascii_lowercase();
+    if !lower.contains("nohup") || !lower.contains("-jar") {
+        return command;
+    }
+
+    let base_name = context
+        .remote_artifact_name
+        .rsplit_once('.')
+        .map(|(n, _)| n)
+        .unwrap_or(&context.remote_artifact_name);
+    let today = chrono::Local::now().format("%Y%m%d").to_string();
+    let timestamp = chrono::Local::now().format("%Y%m%d%H%M%S").to_string();
+    let log_file = resolve_log_file(context, base_name, &today, &timestamp);
+    let log_dir = log_file
+        .rsplit_once('/')
+        .map(|(dir, _)| dir)
+        .unwrap_or(&context.remote_deploy_path);
+    let log_path_dir = format!("{}/.packflow", context.remote_deploy_path);
+
+    format!(
+        "mkdir -p {log_dir} {log_path_dir} && {command}",
+        log_dir = shell_quote(log_dir),
+        log_path_dir = shell_quote(&log_path_dir),
         command = command
     )
 }
@@ -2634,5 +2684,78 @@ fn format_speed(bytes_per_sec: f64) -> String {
         format!("{:.1} KB/s", bytes_per_sec / KB)
     } else {
         format!("{:.0} B/s", bytes_per_sec)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_context() -> DeploymentContext {
+        DeploymentContext {
+            deployment_id: "deploy-1".to_string(),
+            artifact_path: "/tmp/scs-gateway.jar".to_string(),
+            artifact_size: 1,
+            artifact_name: "scs-gateway.jar".to_string(),
+            remote_artifact_name: "scs-gateway.jar".to_string(),
+            remote_deploy_path: "/home/test/backend".to_string(),
+            publish_type: "backend_service".to_string(),
+            frontend_remote_temp_dir: None,
+            frontend_entry_file: None,
+            frontend_reload_command: None,
+            frontend_verify_url: None,
+            frontend_verify_expected_status_codes: vec![200],
+            frontend_verify_expected_body_contains: None,
+            frontend_release_dir: None,
+            frontend_releases_dir: None,
+            frontend_current_link_path: None,
+            frontend_keep_releases: None,
+            frontend_backup_dir: None,
+            remote_upload_dir: "/tmp/deploy".to_string(),
+            remote_upload_path: "/tmp/deploy/scs-gateway.jar".to_string(),
+            login_user: "gyf".to_string(),
+            privilege: ServerPrivilegeConfig::default(),
+            privilege_password: None,
+            _service_description: None,
+            _service_alias: None,
+            java_bin_path: Some("/home/test/java/jdk1.8.0_202/bin/java".to_string()),
+            jvm_options: None,
+            spring_profile: None,
+            extra_args: None,
+            working_dir: None,
+            log_path: None,
+            log_naming_mode: "date".to_string(),
+            log_name: None,
+            log_encoding: "UTF-8".to_string(),
+            enable_deploy_log: true,
+            port_probe_port: None,
+            backup_config: BackupConfig::default(),
+        }
+    }
+
+    #[test]
+    fn normalizes_jdk_root_to_java_executable() {
+        assert_eq!(
+            normalize_java_bin_path(Some("/home/test/java/jdk1.8.0_202".to_string())),
+            Some("/home/test/java/jdk1.8.0_202/bin/java".to_string())
+        );
+        assert_eq!(
+            normalize_java_bin_path(Some("/usr/bin/java".to_string())),
+            Some("/usr/bin/java".to_string())
+        );
+        assert_eq!(
+            normalize_java_bin_path(Some("java".to_string())),
+            Some("java".to_string())
+        );
+    }
+
+    #[test]
+    fn start_command_creates_log_pointer_directory() {
+        let command =
+            "cd /home/test/backend || exit 1; nohup java -jar /home/test/backend/scs-gateway.jar > /home/test/backend/logs/scs-gateway.log 2>&1 &".to_string();
+        let ensured = ensure_start_runtime_dirs(command, &test_context());
+        assert!(ensured.starts_with(
+            "mkdir -p '/home/test/backend/logs' '/home/test/backend/.packflow' && "
+        ));
     }
 }

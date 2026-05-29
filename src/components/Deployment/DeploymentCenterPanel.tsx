@@ -1590,11 +1590,11 @@ export function DeploymentCenterPanel() {
                     <Space direction="vertical" size={8} style={{width: '100%'}}>
                       <Input
                         addonBefore={(
-                          <AddonHelp help="远端服务器上的 java 可执行文件路径；留空时直接使用 java，依赖服务器 PATH。">
+                          <AddonHelp help="远端服务器上的 java 可执行文件路径；也可填写 JDK/JRE 根目录，部署时会自动使用其 bin/java；留空时直接使用 java，依赖服务器 PATH。">
                             Java 路径
                           </AddonHelp>
                         )}
-                        placeholder="/path/to/java 或留空"
+                        placeholder="/path/to/java、/path/to/jdk 或留空"
                         value={deploymentDraft.javaBinPath ?? ''}
                         onChange={(event) => setDeploymentDraft((state) => ({...state, javaBinPath: event.target.value || undefined}))}
                       />
