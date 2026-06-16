@@ -1,5 +1,7 @@
-import {Empty, List, Tag, Typography} from 'antd'
+import {DeleteOutlined} from '@ant-design/icons'
+import {Button, Empty, List, Popconfirm, Tag, Tooltip, Typography} from 'antd'
 import type {ServiceOperationHistory} from '../../../types/domain'
+import {useServiceOperationStore} from '../stores/serviceOperationStore'
 
 const {Text} = Typography
 
@@ -16,6 +18,8 @@ const operationLabel = (type: ServiceOperationHistory['operationType']) => {
 }
 
 export function ServiceOperationHistoryList({items}: {items: ServiceOperationHistory[]}) {
+  const deleteHistory = useServiceOperationStore((state) => state.deleteHistory)
+
   if (items.length === 0) {
     return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无服务操作历史" />
   }
@@ -25,7 +29,22 @@ export function ServiceOperationHistoryList({items}: {items: ServiceOperationHis
       size="small"
       dataSource={items.slice(0, 8)}
       renderItem={(item) => (
-        <List.Item>
+        <List.Item
+          actions={[
+            <Popconfirm
+              key="delete"
+              title="确认删除"
+              description="删除后无法恢复，确认删除此操作记录？"
+              okText="删除"
+              cancelText="取消"
+              onConfirm={() => void deleteHistory(item.id)}
+            >
+              <Tooltip title="删除">
+                <Button icon={<DeleteOutlined />} size="small" danger type="text" />
+              </Tooltip>
+            </Popconfirm>,
+          ]}
+        >
           <List.Item.Meta
             title={(
               <>

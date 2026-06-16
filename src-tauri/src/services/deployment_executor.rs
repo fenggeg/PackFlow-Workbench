@@ -1,16 +1,30 @@
 use crate::error::{to_user_error, AppResult};
 use crate::models::deployment::{
-    BackupConfig, DeployStep, DeploymentProfile, DeploymentStage, DeploymentTask,
+    DeployStep, DeploymentProfile, DeploymentStage, DeploymentTask,
     FrontendStaticDeployConfig, ProbeStatus, ProbeStatusEvent, RollbackResult,
-    ServerPrivilegeConfig, StartDeploymentPayload, StartupProbeConfig, UploadProgressEvent,
+    StartDeploymentPayload, StartupProbeConfig, UploadProgressEvent,
 };
 use crate::repositories::deployment_repo;
+use crate::services::process_utils::shell_quote;
 use crate::services::ssh_transport_service::SshConnection;
 use crate::services::startup_probe_service::{self, ProbeContext};
-use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use crate::services::deployment_common::{
+    DeploymentContext, DeploymentControlState, SshCommandConfig, WaitConfig, PortCheckConfig,
+    HttpCheckConfig, LogCheckConfig, UploadFileConfig,
+    TYPE_SSH_COMMAND, TYPE_WAIT, TYPE_PORT_CHECK, TYPE_HTTP_CHECK, TYPE_LOG_CHECK, TYPE_UPLOAD_FILE,
+    STRATEGY_STOP, STRATEGY_CONTINUE, STRATEGY_ROLLBACK,
+};
+use crate::services::token_expansion::{
+    expand_tokens, resolve_log_file, resolve_upload_temp_dir,
+    normalize_remote_dir,
+};
+use crate::services::task_helpers::{
+    create_stage_from_step, create_failed_start_task, fail_first_stage, mark_cancelled,
+    finish_if_cancelled, is_cancel_requested, mark_pending_stages_skipped,
+    update_stage, update_stage_retry, append_log, emit_task_update, parse_config,
+};
+use chrono::Utc;
 use serde_json::json;
-use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -19,136 +33,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 use uuid::Uuid;
-
-const TYPE_SSH_COMMAND: &str = "ssh_command";
-const TYPE_WAIT: &str = "wait";
-const TYPE_PORT_CHECK: &str = "port_check";
-const TYPE_HTTP_CHECK: &str = "http_check";
-const TYPE_LOG_CHECK: &str = "log_check";
-const TYPE_UPLOAD_FILE: &str = "upload_file";
-
-const STRATEGY_STOP: &str = "stop";
-const STRATEGY_CONTINUE: &str = "continue";
-const STRATEGY_ROLLBACK: &str = "rollback";
-
-#[derive(Clone, Default)]
-pub struct DeploymentControlState {
-    cancelled_task_ids: Arc<Mutex<HashSet<String>>>,
-}
-
-impl DeploymentControlState {
-    fn request_cancel(&self, task_id: &str) -> AppResult<()> {
-        self.cancelled_task_ids
-            .lock()
-            .map_err(|_| to_user_error("无法更新部署停止状态。"))?
-            .insert(task_id.to_string());
-        Ok(())
-    }
-
-    fn clear(&self, task_id: &str) {
-        if let Ok(mut task_ids) = self.cancelled_task_ids.lock() {
-            task_ids.remove(task_id);
-        }
-    }
-
-    fn is_cancelled(&self, task_id: &str) -> bool {
-        self.cancelled_task_ids
-            .lock()
-            .map(|task_ids| task_ids.contains(task_id))
-            .unwrap_or(false)
-    }
-}
-
-#[derive(Debug, Clone)]
-struct DeploymentContext {
-    deployment_id: String,
-    artifact_path: String,
-    artifact_size: u64,
-    artifact_name: String,
-    remote_artifact_name: String,
-    remote_deploy_path: String,
-    publish_type: String,
-    frontend_remote_temp_dir: Option<String>,
-    frontend_entry_file: Option<String>,
-    frontend_reload_command: Option<String>,
-    frontend_verify_url: Option<String>,
-    frontend_verify_expected_status_codes: Vec<u16>,
-    frontend_verify_expected_body_contains: Option<String>,
-    frontend_release_dir: Option<String>,
-    frontend_releases_dir: Option<String>,
-    frontend_current_link_path: Option<String>,
-    frontend_keep_releases: Option<u32>,
-    frontend_backup_dir: Option<String>,
-    remote_upload_dir: String,
-    remote_upload_path: String,
-    login_user: String,
-    privilege: ServerPrivilegeConfig,
-    privilege_password: Option<String>,
-    _service_description: Option<String>,
-    _service_alias: Option<String>,
-    java_bin_path: Option<String>,
-    jvm_options: Option<String>,
-    spring_profile: Option<String>,
-    extra_args: Option<String>,
-    working_dir: Option<String>,
-    log_path: Option<String>,
-    log_naming_mode: String,
-    log_name: Option<String>,
-    log_encoding: String,
-    enable_deploy_log: bool,
-    port_probe_port: Option<u16>,
-    backup_config: BackupConfig,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SshCommandConfig {
-    command: String,
-    success_exit_codes: Option<Vec<i32>>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct WaitConfig {
-    wait_seconds: u64,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PortCheckConfig {
-    host: String,
-    port: u16,
-    check_interval_seconds: Option<u64>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct HttpCheckConfig {
-    url: String,
-    method: Option<String>,
-    headers: Option<HashMap<String, String>>,
-    body: Option<String>,
-    expected_status_codes: Option<Vec<u16>>,
-    expected_body_contains: Option<String>,
-    check_interval_seconds: Option<u64>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct LogCheckConfig {
-    log_path: String,
-    success_keywords: Vec<String>,
-    failure_keywords: Option<Vec<String>>,
-    check_interval_seconds: Option<u64>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct UploadFileConfig {
-    local_path: String,
-    remote_path: String,
-    overwrite: bool,
-}
 
 pub fn start_deployment(app: AppHandle, payload: StartDeploymentPayload) -> AppResult<String> {
     if payload.local_artifact_path.trim().is_empty() {
@@ -826,7 +710,7 @@ fn execute_step_with_retry(
                         format!("步骤失败：{}", error),
                     );
                     emit_task_update(app, task);
-                    if !sleep_with_cancel(app, task_id, retry_interval) {
+                    if !sleep_with_cancel(app, task_id, Duration::from_secs(retry_interval)) {
                         mark_cancelled(app, task, &step.id, "部署已停止。");
                         return Err(to_user_error("部署已停止。"));
                     }
@@ -960,7 +844,7 @@ fn execute_startup_probe(
     );
 
     {
-        let guard = shared_logs.lock().unwrap();
+        let guard = shared_logs.lock().unwrap_or_else(|e| e.into_inner());
         for log_line in guard.iter() {
             task.log.push(log_line.clone());
             if let Some(stage) = task.stages.iter_mut().find(|s| s.key == probe_stage_key) {
@@ -978,7 +862,7 @@ fn execute_startup_probe(
     }
 
     {
-        let guard = shared_probe_statuses.lock().unwrap();
+        let guard = shared_probe_statuses.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(stage) = task.stages.iter_mut().find(|s| s.key == probe_stage_key) {
             stage.probe_statuses = guard.clone();
         }
@@ -1320,7 +1204,7 @@ fn execute_port_check_step(
         {
             return Ok(format!("端口检测通过：{}:{}", host, config.port));
         }
-        if !sleep_with_cancel(app, task_id, interval) {
+        if !sleep_with_cancel(app, task_id, Duration::from_secs(interval)) {
             return Err(to_user_error("部署已停止。"));
         }
     }
@@ -1395,7 +1279,7 @@ fn execute_http_check_step(
                 last_error = error;
             }
         }
-        if !sleep_with_cancel(app, task_id, interval) {
+        if !sleep_with_cancel(app, task_id, Duration::from_secs(interval)) {
             return Err(to_user_error("部署已停止。"));
         }
     }
@@ -1455,7 +1339,7 @@ fn execute_log_check_step(
         {
             return Ok(format!("日志关键字检测通过：{}", keyword));
         }
-        if !sleep_with_cancel(app, task_id, interval) {
+        if !sleep_with_cancel(app, task_id, Duration::from_secs(interval)) {
             return Err(to_user_error("部署已停止。"));
         }
     }
@@ -1866,121 +1750,6 @@ fn create_http_step(id: &str, name: &str, order: i32, url: &str) -> DeployStep {
     }
 }
 
-fn create_stage_from_step(step: &DeployStep) -> DeploymentStage {
-    DeploymentStage {
-        key: step.id.clone(),
-        label: step.name.clone(),
-        step_type: Some(step.step_type.clone()),
-        status: if step.enabled { "pending" } else { "skipped" }.to_string(),
-        started_at: None,
-        finished_at: None,
-        message: if step.enabled {
-            None
-        } else {
-            Some("步骤已禁用，跳过。".to_string())
-        },
-        retry_count: step.retry_count,
-        current_retry: Some(0),
-        duration_ms: None,
-        logs: Vec::new(),
-        probe_statuses: Vec::new(),
-    }
-}
-
-fn create_failed_start_task(
-    task_id: &str,
-    payload: &StartDeploymentPayload,
-    error: String,
-) -> DeploymentTask {
-    let artifact_name = Path::new(&payload.local_artifact_path)
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or(&payload.local_artifact_path)
-        .to_string();
-    let now = Utc::now().to_rfc3339();
-    DeploymentTask {
-        id: task_id.to_string(),
-        build_task_id: payload.build_task_id.clone(),
-        project_root: String::new(),
-        deployment_profile_id: payload.deployment_profile_id.clone(),
-        deployment_profile_name: None,
-        server_id: payload.server_id.clone(),
-        server_name: None,
-        module_id: String::new(),
-        artifact_path: payload.local_artifact_path.clone(),
-        artifact_name: artifact_name.clone(),
-        status: "failed".to_string(),
-        log: vec![error.clone()],
-        stages: vec![DeploymentStage {
-            key: "startup".to_string(),
-            label: "启动部署".to_string(),
-            step_type: None,
-            status: "failed".to_string(),
-            started_at: Some(now.clone()),
-            finished_at: Some(now.clone()),
-            message: Some(error),
-            retry_count: Some(0),
-            current_retry: Some(0),
-            duration_ms: Some(0),
-            logs: Vec::new(),
-            probe_statuses: Vec::new(),
-        }],
-        created_at: now.clone(),
-        finished_at: Some(now),
-        startup_pid: None,
-        startup_log_path: None,
-        probe_result: None,
-        backup_path: None,
-        log_offset_before_start: None,
-        rollback_result: None,
-    }
-}
-
-fn fail_first_stage(app: &AppHandle, task: &mut DeploymentTask, error: String) {
-    let stage_key = task
-        .stages
-        .first()
-        .map(|stage| stage.key.clone())
-        .unwrap_or_else(|| "startup".to_string());
-    update_stage(task, &stage_key, "failed", Some(error.clone()));
-    task.status = "failed".to_string();
-    task.finished_at = Some(Utc::now().to_rfc3339());
-    append_log(app, task, Some(stage_key), error);
-    emit_task_update(app, task);
-}
-
-fn mark_cancelled(app: &AppHandle, task: &mut DeploymentTask, stage_key: &str, message: &str) {
-    update_stage(task, stage_key, "cancelled", Some(message.to_string()));
-    mark_pending_stages_skipped(task, "部署已停止，跳过。");
-    task.status = "cancelled".to_string();
-    task.finished_at = Some(Utc::now().to_rfc3339());
-    append_log(app, task, Some(stage_key.to_string()), message.to_string());
-    emit_task_update(app, task);
-}
-
-fn finish_if_cancelled(app: &AppHandle, task: &mut DeploymentTask, stage_key: &str) -> bool {
-    if is_cancel_requested(app, &task.id) {
-        mark_cancelled(app, task, stage_key, "部署已停止。");
-        true
-    } else {
-        false
-    }
-}
-
-fn is_cancel_requested(app: &AppHandle, task_id: &str) -> bool {
-    app.state::<DeploymentControlState>().is_cancelled(task_id)
-}
-
-fn mark_pending_stages_skipped(task: &mut DeploymentTask, message: &str) {
-    for stage in &mut task.stages {
-        if stage.status == "pending" {
-            stage.status = "skipped".to_string();
-            stage.message = Some(message.to_string());
-            stage.finished_at = Some(Utc::now().to_rfc3339());
-        }
-    }
-}
-
 fn execute_rollback(
     app: &AppHandle,
     conn: &mut SshConnection,
@@ -2213,74 +1982,6 @@ fn execute_rollback(
     emit_task_update(app, task);
 }
 
-fn update_stage(task: &mut DeploymentTask, stage_key: &str, status: &str, message: Option<String>) {
-    if let Some(stage) = task.stages.iter_mut().find(|item| item.key == stage_key) {
-        let now = Utc::now();
-        if matches!(status, "running" | "checking" | "waiting") && stage.started_at.is_none() {
-            stage.started_at = Some(now.to_rfc3339());
-        }
-        if matches!(
-            status,
-            "success" | "failed" | "skipped" | "cancelled" | "timeout"
-        ) {
-            stage.finished_at = Some(now.to_rfc3339());
-            stage.duration_ms = stage
-                .started_at
-                .as_deref()
-                .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
-                .and_then(|started_at| {
-                    now.signed_duration_since(started_at.with_timezone(&Utc))
-                        .num_milliseconds()
-                        .try_into()
-                        .ok()
-                });
-        }
-        stage.status = status.to_string();
-        stage.message = message;
-    }
-}
-
-fn update_stage_retry(
-    task: &mut DeploymentTask,
-    stage_key: &str,
-    current_retry: u32,
-    retry_count: u32,
-) {
-    if let Some(stage) = task.stages.iter_mut().find(|item| item.key == stage_key) {
-        stage.current_retry = Some(current_retry);
-        stage.retry_count = Some(retry_count);
-    }
-}
-
-fn append_log(app: &AppHandle, task: &mut DeploymentTask, stage_key: Option<String>, line: String) {
-    task.log.push(line.clone());
-    if let Some(key) = stage_key.as_deref() {
-        if let Some(stage) = task.stages.iter_mut().find(|item| item.key == key) {
-            stage.logs.push(line.clone());
-        }
-    }
-    let _ = app.emit(
-        "deployment-log",
-        crate::models::deployment::DeploymentLogEvent {
-            task_id: task.id.clone(),
-            stage_key,
-            line,
-        },
-    );
-}
-
-fn emit_task_update(app: &AppHandle, task: &DeploymentTask) {
-    let _ = app.emit("deployment-updated", task.clone());
-}
-
-fn parse_config<T>(step: &DeployStep) -> AppResult<T>
-where
-    T: for<'de> Deserialize<'de>,
-{
-    serde_json::from_value::<T>(step.config.clone())
-        .map_err(|error| to_user_error(format!("步骤「{}」配置格式错误：{}", step.name, error)))
-}
-
 fn execute_remote_command<C>(
     conn: &mut SshConnection,
     context: &DeploymentContext,
@@ -2368,394 +2069,69 @@ fn privilege_stdin(context: &DeploymentContext) -> AppResult<Option<String>> {
     }
 }
 
-fn expand_tokens(value: &str, context: &DeploymentContext) -> String {
-    let now = chrono::Local::now();
-    let today = now.format("%Y%m%d").to_string();
-    let timestamp = now.format("%Y%m%d%H%M%S").to_string();
-    let java_bin = context.java_bin_path.as_deref().unwrap_or("java");
-    let jvm_opts = context.jvm_options.as_deref().unwrap_or("");
-    let profile_arg = match &context.spring_profile {
-        Some(p) if !p.trim().is_empty() => format!("--spring.profiles.active={}", p),
-        _ => String::new(),
-    };
-    let extra = context.extra_args.as_deref().unwrap_or("");
-    let service_dir = context
-        .working_dir
-        .as_deref()
-        .unwrap_or(&context.remote_deploy_path);
-    let base_name = context
-        .remote_artifact_name
-        .rsplit_once('.')
-        .map(|(n, _)| n)
-        .unwrap_or(&context.remote_artifact_name);
-    let log_name_resolved = resolve_log_name(context, base_name, &today);
-    let log_file = resolve_log_file(context, base_name, &today, &timestamp);
-    let log_dir = log_file
-        .rsplit_once('/')
-        .map(|(dir, _)| dir)
-        .unwrap_or(&context.remote_deploy_path)
-        .to_string();
-    let pid_file = format!("{}/{}.pid", context.remote_deploy_path, base_name);
-    let log_path_file = format!(
-        "{}/.packflow/{}.log.path",
-        context.remote_deploy_path, base_name
-    );
-    let port_probe_port = context
-        .port_probe_port
-        .map(|port| port.to_string())
-        .unwrap_or_default();
-    let remote_temp_dir = context
-        .frontend_remote_temp_dir
-        .as_deref()
-        .unwrap_or(&context.remote_deploy_path);
-    let frontend_entry_file = context
-        .frontend_entry_file
-        .as_deref()
-        .unwrap_or("index.html");
-    let frontend_reload_command = context.frontend_reload_command.as_deref().unwrap_or("");
-    let frontend_verify_url = context.frontend_verify_url.as_deref().unwrap_or("");
-    let frontend_verify_codes = context
-        .frontend_verify_expected_status_codes
-        .iter()
-        .map(|value| value.to_string())
-        .collect::<Vec<_>>()
-        .join(",");
-    let frontend_verify_body = context
-        .frontend_verify_expected_body_contains
-        .as_deref()
-        .unwrap_or("");
-    let frontend_release_dir = context.frontend_release_dir.as_deref().unwrap_or("");
-    let frontend_releases_dir = context.frontend_releases_dir.as_deref().unwrap_or("");
-    let frontend_current_link_path = context
-        .frontend_current_link_path
-        .as_deref()
-        .unwrap_or("");
-    let frontend_keep_releases = context
-        .frontend_keep_releases
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "5".to_string());
-    let frontend_backup_dir = context.frontend_backup_dir.as_deref().unwrap_or("");
-    let resolved_upload_path = if uses_privilege(context) {
-        value
-            .replace(
-                "${remoteDeployPath}/.${artifactName}.uploading",
-                &context.remote_upload_path,
-            )
-            .replace(
-                "${remoteDeployPath}/.${remoteArtifactName}.uploading",
-                &context.remote_upload_path,
-            )
-            .replace(
-                "${remoteDeployPath}/.${remoteArtifactBaseName}.uploading",
-                &context.remote_upload_path,
-            )
-    } else {
-        value.to_string()
-    };
-    resolved_upload_path
-        .replace("${remoteArtifactName%.*}", base_name)
-        .replace("${artifactName%.*}", artifact_base_name(context))
-        .replace("${artifactPath}", &context.artifact_path)
-        .replace("${artifactName}", &context.artifact_name)
-        .replace("${remoteArtifactName}", &context.remote_artifact_name)
-        .replace("${remoteArtifactBaseName}", base_name)
-        .replace("${remoteDeployPath}", &context.remote_deploy_path)
-        .replace("${remoteSiteDir}", &context.remote_deploy_path)
-        .replace("${remoteTempDir}", remote_temp_dir)
-        .replace("${remoteUploadDir}", &context.remote_upload_dir)
-        .replace("${remoteUploadPath}", &context.remote_upload_path)
-        .replace("${deploymentId}", &context.deployment_id)
-        .replace("${localArtifactSize}", &context.artifact_size.to_string())
-        .replace("${entryFile}", frontend_entry_file)
-        .replace("${reloadCommand}", frontend_reload_command)
-        .replace("${verifyUrl}", frontend_verify_url)
-        .replace("${verifyExpectedStatusCodes}", &frontend_verify_codes)
-        .replace("${verifyExpectedBodyContains}", frontend_verify_body)
-        .replace("${releaseDir}", frontend_release_dir)
-        .replace("${releasesDir}", frontend_releases_dir)
-        .replace("${currentLinkPath}", frontend_current_link_path)
-        .replace("${keepReleases}", &frontend_keep_releases)
-        .replace("${remoteBackupDir}", frontend_backup_dir)
-        .replace("${loginUser}", &context.login_user)
-        .replace("${runAsUser}", &context.privilege.run_as_user)
-        .replace("${date}", &today)
-        .replace("${timestamp}", &timestamp)
-        .replace("${logName}", &log_name_resolved)
-        .replace("${logFile}", &log_file)
-        .replace("${logDir}", &log_dir)
-        .replace("${logPathFile}", &log_path_file)
-        .replace("${javaBin}", java_bin)
-        .replace("${jvmOptions}", jvm_opts)
-        .replace("${springProfile}", &profile_arg)
-        .replace("${extraArgs}", extra)
-        .replace("${serviceDir}", service_dir)
-        .replace("${pidFile}", &pid_file)
-        .replace("${portProbePort}", &port_probe_port)
-}
-
-fn artifact_base_name(context: &DeploymentContext) -> &str {
-    context
-        .artifact_name
-        .rsplit_once('.')
-        .map(|(n, _)| n)
-        .unwrap_or(&context.artifact_name)
-}
-
-fn resolve_log_name(context: &DeploymentContext, base_name: &str, today: &str) -> String {
-    match context.log_naming_mode.as_str() {
-        "fixed" => context
-            .log_name
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or(base_name)
-            .to_string(),
-        _ => format!("{}-{}", base_name, today),
-    }
-}
-
-fn resolve_log_file(
-    context: &DeploymentContext,
-    base_name: &str,
-    today: &str,
-    timestamp: &str,
-) -> String {
-    if let Some(custom) = context
-        .log_path
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-    {
-        let resolved = custom
-            .replace("${remoteDeployPath}", &context.remote_deploy_path)
-            .replace("${artifactName}", &context.artifact_name)
-            .replace("${artifactName%.*}", artifact_base_name(context))
-            .replace("${remoteArtifactName}", &context.remote_artifact_name)
-            .replace("${remoteArtifactName%.*}", base_name)
-            .replace("${remoteArtifactBaseName}", base_name)
-            .replace("${date}", today)
-            .replace("${timestamp}", timestamp)
-            .replace("${logName}", &resolve_log_name(context, base_name, today));
-
-        if is_explicit_log_file(&resolved) {
-            return resolved;
-        }
-
-        return format!(
-            "{}/{}.log",
-            resolved.trim_end_matches('/'),
-            resolve_log_name(context, base_name, today)
-        );
-    }
-
-    format!(
-        "{}/logs/{}.log",
-        context.remote_deploy_path,
-        resolve_log_name(context, base_name, today)
-    )
-}
-
-fn is_explicit_log_file(path: &str) -> bool {
-    path.trim_end()
-        .rsplit_once('/')
-        .map(|(_, name)| name)
-        .unwrap_or(path)
-        .to_ascii_lowercase()
-        .ends_with(".log")
-}
-
-fn normalize_remote_dir(value: &str) -> String {
-    let trimmed = value.trim().trim_end_matches('/');
-    if trimmed.is_empty() {
-        ".".to_string()
-    } else {
-        trimmed.to_string()
-    }
-}
-
-fn resolve_upload_temp_dir(
-    template: &str,
-    deployment_id: &str,
-    login_user: &str,
-    run_as_user: &str,
-    remote_artifact_name: &str,
-) -> String {
-    let login_home = default_login_home(login_user);
-    let artifact_base = remote_artifact_name
-        .rsplit_once('.')
-        .map(|(name, _)| name)
-        .unwrap_or(remote_artifact_name);
-    let resolved = template
-        .replace("${deploymentId}", deployment_id)
-        .replace("${loginUser}", login_user)
-        .replace("${loginHome}", &login_home)
-        .replace("${runAsUser}", run_as_user)
-        .replace("${remoteArtifactName}", remote_artifact_name)
-        .replace("${remoteArtifactBaseName}", artifact_base);
-    normalize_remote_dir(&expand_home_dir(&resolved, &login_home))
-}
-
-fn default_login_home(login_user: &str) -> String {
-    let user = login_user.trim();
-    if user == "root" {
-        "/root".to_string()
-    } else if user.is_empty() {
-        "/tmp".to_string()
-    } else {
-        format!("/home/{}", user)
-    }
-}
-
-fn expand_home_dir(path: &str, login_home: &str) -> String {
-    match path.trim() {
-        "~" => login_home.to_string(),
-        value if value.starts_with("~/") => format!("{}{}", login_home, &value[1..]),
-        value => value.to_string(),
-    }
-}
-
 fn task_status_for_step(step_type: &str) -> &'static str {
     match step_type {
         TYPE_UPLOAD_FILE => "uploading",
         TYPE_PORT_CHECK | TYPE_HTTP_CHECK | TYPE_LOG_CHECK => "checking",
-        TYPE_WAIT => "checking",
-        "startup_probe" => "checking",
-        _ => "starting",
+        _ => "running",
     }
 }
 
 fn running_status_for_step(step_type: &str) -> &'static str {
     match step_type {
-        TYPE_WAIT => "waiting",
+        TYPE_UPLOAD_FILE => "uploading",
         TYPE_PORT_CHECK | TYPE_HTTP_CHECK | TYPE_LOG_CHECK => "checking",
-        "startup_probe" => "checking",
-        _ => "running",
+        TYPE_WAIT => "waiting",
+        _ => "starting",
     }
 }
 
 fn stage_running_message(step: &DeployStep) -> String {
     match step.step_type.as_str() {
-        TYPE_WAIT => "等待中".to_string(),
-        TYPE_PORT_CHECK => "端口检测中".to_string(),
-        TYPE_HTTP_CHECK => "HTTP 健康检查中".to_string(),
-        TYPE_LOG_CHECK => "日志关键字检测中".to_string(),
-        TYPE_UPLOAD_FILE => "文件上传中".to_string(),
-        "startup_probe" => "启动探针检测中".to_string(),
-        _ => "执行中".to_string(),
+        TYPE_SSH_COMMAND => "执行 SSH 命令…".to_string(),
+        TYPE_WAIT => "等待中…".to_string(),
+        TYPE_PORT_CHECK => "检测端口…".to_string(),
+        TYPE_HTTP_CHECK => "HTTP 健康检查…".to_string(),
+        TYPE_LOG_CHECK => "检测日志关键字…".to_string(),
+        TYPE_UPLOAD_FILE => "上传文件…".to_string(),
+        _ => "执行中…".to_string(),
     }
 }
 
-fn sleep_with_cancel(app: &AppHandle, task_id: &str, seconds: u64) -> bool {
-    let deadline = Instant::now() + Duration::from_secs(seconds);
-    while Instant::now() < deadline {
+fn sleep_with_cancel(app: &AppHandle, task_id: &str, duration: Duration) -> bool {
+    let deadline = Instant::now() + duration;
+    loop {
         if is_cancel_requested(app, task_id) {
+            return true;
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
             return false;
         }
-        thread::sleep(Duration::from_millis(250));
+        std::thread::sleep(remaining.min(Duration::from_millis(200)));
     }
-    true
 }
 
-fn is_http_url(value: &str) -> bool {
-    let lower = value.trim().to_ascii_lowercase();
+fn is_http_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
     lower.starts_with("http://") || lower.starts_with("https://")
 }
 
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
-}
-
-fn format_bytes(value: u64) -> String {
+fn format_bytes(bytes: u64) -> String {
     const KB: f64 = 1024.0;
     const MB: f64 = 1024.0 * 1024.0;
-    if value as f64 >= MB {
-        format!("{:.1} MB", value as f64 / MB)
-    } else if value as f64 >= KB {
-        format!("{:.1} KB", value as f64 / KB)
+    if bytes as f64 >= MB {
+        format!("{:.1} MB", bytes as f64 / MB)
+    } else if bytes as f64 >= KB {
+        format!("{:.1} KB", bytes as f64 / KB)
     } else {
-        format!("{} B", value)
+        format!("{} B", bytes)
     }
 }
 
-fn format_speed(bytes_per_sec: f64) -> String {
-    const KB: f64 = 1024.0;
-    const MB: f64 = 1024.0 * 1024.0;
-    if bytes_per_sec >= MB {
-        format!("{:.1} MB/s", bytes_per_sec / MB)
-    } else if bytes_per_sec >= KB {
-        format!("{:.1} KB/s", bytes_per_sec / KB)
-    } else {
-        format!("{:.0} B/s", bytes_per_sec)
+fn format_speed(bytes_per_second: f64) -> String {
+    if bytes_per_second <= 0.0 {
+        return String::new();
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn test_context() -> DeploymentContext {
-        DeploymentContext {
-            deployment_id: "deploy-1".to_string(),
-            artifact_path: "/tmp/scs-gateway.jar".to_string(),
-            artifact_size: 1,
-            artifact_name: "scs-gateway.jar".to_string(),
-            remote_artifact_name: "scs-gateway.jar".to_string(),
-            remote_deploy_path: "/home/test/backend".to_string(),
-            publish_type: "backend_service".to_string(),
-            frontend_remote_temp_dir: None,
-            frontend_entry_file: None,
-            frontend_reload_command: None,
-            frontend_verify_url: None,
-            frontend_verify_expected_status_codes: vec![200],
-            frontend_verify_expected_body_contains: None,
-            frontend_release_dir: None,
-            frontend_releases_dir: None,
-            frontend_current_link_path: None,
-            frontend_keep_releases: None,
-            frontend_backup_dir: None,
-            remote_upload_dir: "/tmp/deploy".to_string(),
-            remote_upload_path: "/tmp/deploy/scs-gateway.jar".to_string(),
-            login_user: "gyf".to_string(),
-            privilege: ServerPrivilegeConfig::default(),
-            privilege_password: None,
-            _service_description: None,
-            _service_alias: None,
-            java_bin_path: Some("/home/test/java/jdk1.8.0_202/bin/java".to_string()),
-            jvm_options: None,
-            spring_profile: None,
-            extra_args: None,
-            working_dir: None,
-            log_path: None,
-            log_naming_mode: "date".to_string(),
-            log_name: None,
-            log_encoding: "UTF-8".to_string(),
-            enable_deploy_log: true,
-            port_probe_port: None,
-            backup_config: BackupConfig::default(),
-        }
-    }
-
-    #[test]
-    fn normalizes_jdk_root_to_java_executable() {
-        assert_eq!(
-            normalize_java_bin_path(Some("/home/test/java/jdk1.8.0_202".to_string())),
-            Some("/home/test/java/jdk1.8.0_202/bin/java".to_string())
-        );
-        assert_eq!(
-            normalize_java_bin_path(Some("/usr/bin/java".to_string())),
-            Some("/usr/bin/java".to_string())
-        );
-        assert_eq!(
-            normalize_java_bin_path(Some("java".to_string())),
-            Some("java".to_string())
-        );
-    }
-
-    #[test]
-    fn start_command_creates_log_pointer_directory() {
-        let command =
-            "cd /home/test/backend || exit 1; nohup java -jar /home/test/backend/scs-gateway.jar > /home/test/backend/logs/scs-gateway.log 2>&1 &".to_string();
-        let ensured = ensure_start_runtime_dirs(command, &test_context());
-        assert!(ensured.starts_with(
-            "mkdir -p '/home/test/backend/logs' '/home/test/backend/.packflow' && "
-        ));
-    }
+    format!("{}/s", format_bytes(bytes_per_second as u64))
 }

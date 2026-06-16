@@ -1,10 +1,11 @@
-use crate::error::{to_user_error, AppResult};
+use crate::error::AppResult;
 use crate::models::service_ops::{
     ServiceLogConfig, ServiceOperationHistory, ServiceOperationLogEvent, ServiceOperationTask,
     ServiceRuntimeConfig,
 };
 use crate::models::deployment::DeploymentProfile;
 use crate::repositories::{deployment_repo, service_ops_repo};
+use crate::services::process_utils::shell_quote;
 use crate::services::ssh_transport_service::SshConnection;
 use chrono::Utc;
 use std::sync::{Arc, Mutex};
@@ -620,13 +621,4 @@ fn save_history(
         error_message: task.error_message.clone(),
     };
     let _ = service_ops_repo::save_service_operation_history(app, history);
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
-}
-
-#[allow(dead_code)]
-fn map_error(error: impl ToString) -> String {
-    to_user_error(error.to_string())
 }

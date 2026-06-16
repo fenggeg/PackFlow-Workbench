@@ -2,6 +2,9 @@ import {create} from 'zustand'
 import {api, createDefaultBuildOptions, selectProjectDirectory} from '../services/tauri-api'
 import {diagnoseBuildFailure} from '../services/buildDiagnosisService'
 import {appendBoundedItems} from '../utils/boundedBuffer'
+import {getErrorMessage} from '../utils/errors'
+import {flattenModules} from '../services/deploymentTopologyService'
+import {useEnvironmentStore} from './useEnvironmentStore'
 import type {
     BuildArtifact,
     BuildDiagnosis,
@@ -12,7 +15,6 @@ import type {
     BuildOptions,
     BuildStatus,
     BuildTemplate,
-    EnvironmentProfile,
     EnvironmentSettings,
     GitCommit,
     GitRepositoryStatus,
@@ -80,14 +82,17 @@ interface AppState {
   clearBuildLogs: () => void
   finishBuild: (event: BuildFinishedEvent) => void
   loadHistoryAndTemplates: () => Promise<void>
+  deleteHistory: (historyId: string) => Promise<void>
   rerunHistory: (record: BuildHistoryRecord) => void
   rerunHistoryNow: (record: BuildHistoryRecord) => Promise<void>
   saveTemplate: (name: string) => Promise<void>
   updateTemplate: (template: BuildTemplate) => Promise<void>
   applyTemplate: (template: BuildTemplate) => void
   deleteTemplate: (templateId: string) => Promise<void>
-  removeArtifact: (path: string) => Promise<void>
+  removeArtifact: (path: string, recordOnly?: boolean) => Promise<void>
 }
+
+const envStore = () => useEnvironmentStore.getState()
 
 const findModule = (
   modules: MavenModule[],
@@ -104,12 +109,6 @@ const findModule = (
   }
   return undefined
 }
-
-const flattenModules = (modules: MavenModule[]): MavenModule[] =>
-  modules.flatMap((moduleItem) => [
-    moduleItem,
-    ...flattenModules(moduleItem.children ?? []),
-  ])
 
 const moduleSelectionLabel = (modules: MavenModule[], modulePath: string) => {
   if (!modulePath) {
@@ -134,9 +133,6 @@ const findModulesByPaths = (modules: MavenModule[], modulePath: string) => {
 
 const toHistoryStatus = (status: PersistedBuildStatus): BuildStatus => status
 
-const getErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : String(error)
-
 const appendSystemLog = (
   logs: BuildLogEvent[],
   buildId: string | undefined,
@@ -147,24 +143,14 @@ const appendSystemLog = (
   line,
 }], 5000)
 
-const createProfileFromEnvironment = (
-  name: string,
-  environment?: BuildEnvironment,
-  existingId?: string,
-): EnvironmentProfile => ({
-  id: existingId ?? crypto.randomUUID(),
-  name: name.trim(),
-  javaHome: environment?.javaHome,
-  mavenHome: environment?.mavenHome,
-  settingsXmlPath: environment?.settingsXmlPath,
-  localRepoPath: environment?.localRepoPath,
-  useMavenWrapper: environment?.useMavenWrapper ?? false,
-  updatedAt: new Date().toISOString(),
-})
-
-const emptyEnvironmentSettings = (): EnvironmentSettings => ({
-  profiles: [],
-})
+const isSameBuildLogLine = (
+  previous: BuildLogEvent | undefined,
+  next: BuildLogEvent,
+) =>
+  Boolean(previous)
+  && previous?.buildId === next.buildId
+  && previous.stream === next.stream
+  && previous.line === next.line
 
 const sortTemplates = (templates: BuildTemplate[]) =>
   [...templates].sort((left, right) => {
@@ -196,7 +182,7 @@ const notifyBuildFinished = (status: PersistedBuildStatus, durationMs: number, a
       }
     }
   } catch {
-    // 桌面通知不可用时继续播放提示音。
+    // Desktop notification unavailable.
   }
 
   try {
@@ -219,7 +205,7 @@ const notifyBuildFinished = (status: PersistedBuildStatus, durationMs: number, a
     oscillator.stop(context.currentTime + 0.24)
     oscillator.onended = () => void context.close()
   } catch {
-    // 用户系统禁止音频时忽略。
+    // User system blocks audio.
   }
 }
 
@@ -233,35 +219,6 @@ const ensurePackageGoal = (goals: string[]) => {
   const nextGoals = goals.length > 0 ? [...goals, 'package'] : ['clean', 'package']
   return Array.from(new Set(nextGoals))
 }
-
-const normalizeProjectPaths = (paths: string[]) =>
-  paths.reduce<string[]>((result, path) => {
-    const trimmed = path.trim()
-    if (!trimmed || result.some((item) => item.toLowerCase() === trimmed.toLowerCase())) {
-      return result
-    }
-    return [...result, trimmed]
-  }, [])
-
-const upsertProjectPath = (paths: string[], rootPath: string) => {
-  const trimmed = rootPath.trim()
-  if (!trimmed) {
-    return paths
-  }
-  return [
-    trimmed,
-    ...paths.filter((path) => path.toLowerCase() !== trimmed.toLowerCase()),
-  ].slice(0, 20)
-}
-
-const isSameBuildLogLine = (
-  previous: BuildLogEvent | undefined,
-  next: BuildLogEvent,
-) =>
-  Boolean(previous)
-  && previous?.buildId === next.buildId
-  && previous.stream === next.stream
-  && previous.line === next.line
 
 export const useAppStore = create<AppState>((set, get) => ({
   buildOptions: createDefaultBuildOptions(),
@@ -287,20 +244,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   initialize: async () => {
     await get().loadHistoryAndTemplates()
     try {
-      const settings = await api.loadEnvironmentSettings()
-      const savedProjectPaths = normalizeProjectPaths([
-        ...(settings.projectPaths ?? []),
-        ...(settings.lastProjectPath ? [settings.lastProjectPath] : []),
-      ])
-      set({ savedProjectPaths, environmentSettings: settings })
-      if (settings.lastProjectPath) {
+      await envStore().loadSettings()
+      const settings = envStore().environmentSettings
+      const savedProjectPaths = envStore().savedProjectPaths
+      set({savedProjectPaths, environmentSettings: settings})
+      if (settings?.lastProjectPath) {
         await get().parseProjectPath(settings.lastProjectPath)
       } else {
-        const environment = await api.detectEnvironment('')
-        set({ environment })
+        await envStore().detectForProject('')
+        set({environment: envStore().environment})
       }
     } catch {
-      // 浏览器预览或首次启动时没有本地设置，保持空工作台即可。
+      // Browser preview or first launch — keep empty workbench.
     }
   },
 
@@ -331,14 +286,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       gitError: undefined,
     })
     try {
-      const [project, environment] = await Promise.all([
+      const [project] = await Promise.all([
         api.parseMavenProject(rootPath),
-        api.detectEnvironment(rootPath),
+        envStore().detectForProject(rootPath),
       ])
       const buildOptions = createDefaultBuildOptions(project.rootPath, '')
       set({
         project,
-        environment,
+        environment: envStore().environment,
         selectedModule: undefined,
         selectedModules: [],
         selectedModuleIds: [],
@@ -348,27 +303,23 @@ export const useAppStore = create<AppState>((set, get) => ({
         buildCancelling: false,
         durationMs: 0,
       })
-      await api.saveLastProjectPath(project.rootPath)
-      set((state) => ({
-        savedProjectPaths: upsertProjectPath(state.savedProjectPaths, project.rootPath),
-      }))
+      await envStore().saveLastProjectPath(project.rootPath)
+      set({savedProjectPaths: envStore().savedProjectPaths})
       await get().refreshCommandPreview()
       void get().checkGitStatus(project.rootPath)
     } catch (error) {
-      set({ error: getErrorMessage(error) })
+      set({error: getErrorMessage(error)})
     } finally {
-      set({ loading: false })
+      set({loading: false})
     }
   },
 
   removeSavedProject: async (rootPath: string) => {
     try {
-      const settings = await api.removeSavedProjectPath(rootPath)
-      set({
-        savedProjectPaths: normalizeProjectPaths(settings.projectPaths ?? []),
-      })
+      await envStore().removeSavedProject(rootPath)
+      set({savedProjectPaths: envStore().savedProjectPaths})
     } catch (error) {
-      set({ error: getErrorMessage(error) })
+      set({error: getErrorMessage(error)})
     }
   },
 
@@ -582,122 +533,67 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   updateEnvironment: async (settings: EnvironmentSettings) => {
-    const { project } = get()
+    const project = get().project
     try {
-      await api.saveEnvironmentSettings({
-        ...settings,
-        profiles: settings.profiles ?? [],
-        projectPaths: get().savedProjectPaths,
-      })
-      const environmentSettings = await api.loadEnvironmentSettings()
-      const environment = await api.detectEnvironment(project?.rootPath ?? '')
-      set({ environment, environmentSettings })
+      await envStore().updateEnvironment(settings, project?.rootPath)
+      set({environment: envStore().environment, environmentSettings: envStore().environmentSettings})
       if (project) {
         await get().refreshCommandPreview()
       }
     } catch (error) {
-      set({ error: getErrorMessage(error) })
+      set({error: getErrorMessage(error)})
     }
   },
 
   refreshEnvironment: async () => {
-    const { project } = get()
+    const project = get().project
     try {
-      const environment = await api.detectEnvironment(project?.rootPath ?? '')
-      const environmentSettings = await api.loadEnvironmentSettings()
-      set({ environment, environmentSettings })
+      await envStore().refreshEnvironment(project?.rootPath)
+      set({environment: envStore().environment, environmentSettings: envStore().environmentSettings})
       if (project) {
         await get().refreshCommandPreview()
       }
     } catch (error) {
-      set({ error: getErrorMessage(error) })
+      set({error: getErrorMessage(error)})
     }
   },
 
   applyEnvironmentProfile: async (profileId: string) => {
-    const { environmentSettings, project } = get()
-    const profile = environmentSettings?.profiles.find((item) => item.id === profileId)
-    if (!profile) {
-      set({ error: '未找到环境方案。' })
-      return
-    }
-
+    const project = get().project
     try {
-      await api.saveEnvironmentSettings({
-        ...(environmentSettings ?? emptyEnvironmentSettings()),
-        activeProfileId: profile.id,
-        profiles: environmentSettings?.profiles ?? [],
-        projectPaths: get().savedProjectPaths,
-      })
-      const nextSettings = await api.loadEnvironmentSettings()
-      const environment = await api.detectEnvironment(project?.rootPath ?? '')
-      set({ environment, environmentSettings: nextSettings })
+      await envStore().applyEnvironmentProfile(profileId, project?.rootPath)
+      set({environment: envStore().environment, environmentSettings: envStore().environmentSettings})
       if (project) {
         await get().refreshCommandPreview()
       }
     } catch (error) {
-      set({ error: getErrorMessage(error) })
+      set({error: getErrorMessage(error)})
     }
   },
 
   saveEnvironmentProfile: async (name: string) => {
-    const trimmedName = name.trim()
-    if (!trimmedName) {
-      set({ error: '请输入环境方案名称。' })
-      return
-    }
-
-    const { environmentSettings, project, environment } = get()
-    const baseSettings = environmentSettings ?? emptyEnvironmentSettings()
-    const existing = baseSettings.profiles.find((profile) => profile.name === trimmedName)
-    const profile = createProfileFromEnvironment(trimmedName, environment, existing?.id)
-    const profiles = [
-      profile,
-      ...baseSettings.profiles.filter((item) => item.id !== profile.id),
-    ].slice(0, 12)
-
+    const project = get().project
     try {
-      await api.saveEnvironmentSettings({
-        ...baseSettings,
-        activeProfileId: profile.id,
-        profiles,
-        projectPaths: get().savedProjectPaths,
-      })
-      const nextSettings = await api.loadEnvironmentSettings()
-      const environment = await api.detectEnvironment(project?.rootPath ?? '')
-      set({ environment, environmentSettings: nextSettings })
+      await envStore().saveEnvironmentProfile(name, project?.rootPath)
+      set({environment: envStore().environment, environmentSettings: envStore().environmentSettings})
       if (project) {
         await get().refreshCommandPreview()
       }
     } catch (error) {
-      set({ error: getErrorMessage(error) })
+      set({error: getErrorMessage(error)})
     }
   },
 
   deleteEnvironmentProfile: async (profileId: string) => {
-    const { environmentSettings, project } = get()
-    const profiles = (environmentSettings?.profiles ?? []).filter(
-      (profile) => profile.id !== profileId,
-    )
-    const activeProfileId = environmentSettings?.activeProfileId === profileId
-      ? undefined
-      : environmentSettings?.activeProfileId
-
+    const project = get().project
     try {
-      await api.saveEnvironmentSettings({
-        ...(environmentSettings ?? emptyEnvironmentSettings()),
-        activeProfileId,
-        profiles,
-        projectPaths: get().savedProjectPaths,
-      })
-      const nextSettings = await api.loadEnvironmentSettings()
-      const environment = await api.detectEnvironment(project?.rootPath ?? '')
-      set({ environment, environmentSettings: nextSettings })
+      await envStore().deleteEnvironmentProfile(profileId, project?.rootPath)
+      set({environment: envStore().environment, environmentSettings: envStore().environmentSettings})
       if (project) {
         await get().refreshCommandPreview()
       }
     } catch (error) {
-      set({ error: getErrorMessage(error) })
+      set({error: getErrorMessage(error)})
     }
   },
 
@@ -898,6 +794,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  deleteHistory: async (historyId: string) => {
+    await api.deleteBuildHistory(historyId)
+    set((state) => ({
+      history: state.history.filter((record) => record.id !== historyId),
+    }))
+  },
+
   rerunHistory: (record: BuildHistoryRecord) => {
     const project = get().project
     const selectedModules = project
@@ -989,8 +892,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     await get().loadHistoryAndTemplates()
   },
 
-  removeArtifact: async (path: string) => {
-    await api.deleteBuildArtifact(path)
+  removeArtifact: async (path: string, recordOnly?: boolean) => {
+    await api.deleteBuildArtifact(path, recordOnly)
     const currentState = get()
     const changedHistoryRecords: BuildHistoryRecord[] = []
     const nextHistory = currentState.history.map((record) => {

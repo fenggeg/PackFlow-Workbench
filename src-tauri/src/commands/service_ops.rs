@@ -40,6 +40,18 @@ pub async fn list_service_operation_histories(
 }
 
 #[tauri::command]
+pub async fn delete_service_operation_history(
+    app: AppHandle,
+    history_id: String,
+) -> AppResult<()> {
+    let task_app = app.clone();
+    blocking::run(move || {
+        service_ops_repo::delete_service_operation_history(&task_app, &history_id)
+    })
+    .await
+}
+
+#[tauri::command]
 pub fn start_service_restart(
     app: AppHandle,
     payload: StartServiceOperationPayload,

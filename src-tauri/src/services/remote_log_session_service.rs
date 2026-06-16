@@ -3,6 +3,7 @@ use crate::models::service_ops::{
     RemoteLogLineEvent, RemoteLogSession, ServiceLogConfig, StartRemoteLogSessionPayload,
 };
 use crate::repositories::{deployment_repo, service_ops_repo};
+use crate::services::process_utils::shell_quote;
 use crate::services::ssh_transport_service::SshConnection;
 use chrono::Utc;
 use std::collections::HashSet;
@@ -192,8 +193,4 @@ fn build_log_command(
             .ok_or_else(|| "当前服务未配置 Docker 容器名称。".to_string()),
         _ => Err("暂不支持的日志来源类型。".to_string()),
     }
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }

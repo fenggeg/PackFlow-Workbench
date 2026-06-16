@@ -3,12 +3,11 @@ use crate::models::git::{
     GitBranch, GitCommit, GitPullResult, GitRepositoryStatus, GitSwitchBranchResult,
 };
 use crate::services::{app_logger, blocking};
+use crate::services::process_utils::CREATE_NO_WINDOW;
 use encoding_rs::GBK;
 use std::os::windows::process::CommandExt;
 use std::process::Command;
 use tauri::AppHandle;
-
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[tauri::command]
 pub async fn check_git_status(app: AppHandle, root_path: String) -> AppResult<GitRepositoryStatus> {

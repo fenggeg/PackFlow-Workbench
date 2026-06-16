@@ -58,3 +58,11 @@ pub fn save(app: &AppHandle, record: BuildHistoryRecord) -> AppResult<()> {
 
     Ok(())
 }
+
+pub fn delete(app: &AppHandle, history_id: &str) -> AppResult<()> {
+    let connection = open_database(app)?;
+    connection
+        .execute("DELETE FROM build_history WHERE id = ?1", params![history_id])
+        .map_err(|error| format!("无法删除构建历史：{}", error))?;
+    Ok(())
+}

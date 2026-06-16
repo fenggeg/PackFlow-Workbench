@@ -10,6 +10,7 @@ import {
     installCachedAppUpdate,
     isTauriRuntime,
 } from '../../services/tauri-api'
+import {getErrorMessage} from '../../utils/errors'
 
 const { Text } = Typography
 
@@ -34,9 +35,6 @@ const formatBytes = (bytes: number) => {
 
   return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`
 }
-
-const getErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : String(error)
 
 const getRawUpdateNotes = (update: AppUpdateInfo) => {
   if (typeof update.body === 'string' && update.body.trim()) {

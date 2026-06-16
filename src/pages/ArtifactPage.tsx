@@ -1,5 +1,6 @@
 import {CopyOutlined, DeleteOutlined, FolderOpenOutlined, RocketOutlined} from '@ant-design/icons'
-import {App, Button, Empty, List, Popconfirm, Space, Tag, Tooltip, Typography} from 'antd'
+import {App, Button, Checkbox, Empty, List, Popconfirm, Space, Tag, Tooltip, Typography} from 'antd'
+import {useState} from 'react'
 import {api} from '../services/tauri-api'
 import {useAppStore} from '../store/useAppStore'
 import {useNavigationStore} from '../store/navigationStore'
@@ -28,6 +29,43 @@ const dedupeArtifacts = (artifacts: BuildArtifact[]) => {
   })
 }
 
+function DeleteArtifactConfirm({
+  artifact,
+  onDelete,
+}: {
+  artifact: BuildArtifact
+  onDelete: (recordOnly: boolean) => void
+}) {
+  const [recordOnly, setRecordOnly] = useState(false)
+
+  return (
+    <Popconfirm
+      title="删除产物"
+      description={
+        <div style={{display: 'flex', flexDirection: 'column', gap: 8}}>
+          <span>确定要删除 {artifact.fileName} 吗？</span>
+          <Checkbox checked={recordOnly} onChange={(e) => setRecordOnly(e.target.checked)}>
+            仅删除记录，不删除文件
+          </Checkbox>
+        </div>
+      }
+      okText="删除"
+      okType="danger"
+      cancelText="取消"
+      onConfirm={() => onDelete(recordOnly)}
+    >
+      <Tooltip title="删除">
+        <Button
+          size="small"
+          type="text"
+          danger
+          icon={<DeleteOutlined />}
+        />
+      </Tooltip>
+    </Popconfirm>
+  )
+}
+
 export function ArtifactPage() {
   const {message} = App.useApp()
   const artifacts = useAppStore((state) => state.artifacts)
@@ -45,10 +83,10 @@ export function ArtifactPage() {
       void message.error(error instanceof Error ? error.message : String(error))
     }
   }
-  const deleteArtifact = async (artifact: BuildArtifact) => {
+  const deleteArtifact = async (artifact: BuildArtifact, recordOnly: boolean) => {
     try {
-      await removeArtifact(artifact.path)
-      void message.success(`已清理 ${artifact.fileName}`)
+      await removeArtifact(artifact.path, recordOnly)
+      void message.success(recordOnly ? `已移除 ${artifact.fileName} 的记录` : `已清理 ${artifact.fileName}`)
     } catch (error) {
       void message.error(error instanceof Error ? error.message : String(error))
     }
@@ -89,24 +127,11 @@ export function ArtifactPage() {
                     onClick={() => void openArtifactLocation(artifact)}
                   />
                 </Tooltip>,
-                <Popconfirm
+                <DeleteArtifactConfirm
                   key="delete"
-                  title="删除产物文件？"
-                  description={`确定要删除 ${artifact.fileName} 吗？此操作不可恢复。`}
-                  okText="删除"
-                  okType="danger"
-                  cancelText="取消"
-                  onConfirm={() => void deleteArtifact(artifact)}
-                >
-                  <Tooltip title="删除">
-                    <Button
-                      size="small"
-                      type="text"
-                      danger
-                      icon={<DeleteOutlined />}
-                    />
-                  </Tooltip>
-                </Popconfirm>,
+                  artifact={artifact}
+                  onDelete={(recordOnly) => void deleteArtifact(artifact, recordOnly)}
+                />,
                 <Button
                   key="deploy"
                   size="small"

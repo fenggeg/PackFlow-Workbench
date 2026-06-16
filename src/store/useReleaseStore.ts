@@ -1,6 +1,8 @@
 import {create} from 'zustand'
 import {api} from '../services/tauri-api'
 import {appendBoundedItems} from '../utils/boundedBuffer'
+import {getErrorMessage} from '../utils/errors'
+import {flattenModules} from '../services/deploymentTopologyService'
 import type {
     BuildArtifact,
     BuildEnvironment,
@@ -10,7 +12,6 @@ import type {
     DeploymentLogEvent,
     DeploymentStage,
     DeploymentTask,
-    MavenModule,
     MavenProject,
     ReleasePrecheckItem,
     ReleaseRecord,
@@ -80,9 +81,6 @@ const terminalStatuses = new Set(['success', 'failed', 'cancelled'])
 
 let activeContext: ActiveReleaseContext | undefined
 
-const getErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : String(error)
-
 const nowIso = () => new Date().toISOString()
 
 const sortRecords = (records: ReleaseRecord[]) =>
@@ -92,9 +90,6 @@ const sortTemplates = (templates: ReleaseTemplate[]) =>
   [...templates].sort((left, right) =>
     (right.updatedAt ?? '').localeCompare(left.updatedAt ?? '')
       || left.name.localeCompare(right.name, 'zh-CN'))
-
-const flattenModules = (modules: MavenModule[]): MavenModule[] =>
-  modules.flatMap((moduleItem) => [moduleItem, ...flattenModules(moduleItem.children ?? [])])
 
 const findModule = (project: MavenProject, template: ReleaseTemplate) =>
   flattenModules(project.modules).find((moduleItem) =>

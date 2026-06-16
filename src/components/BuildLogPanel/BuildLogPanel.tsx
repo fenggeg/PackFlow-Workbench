@@ -13,7 +13,8 @@ import {useAppStore} from '../../store/useAppStore'
 import {useDeploymentLogStore} from '../../store/useDeploymentLogStore'
 import {useNavigationStore} from '../../store/navigationStore'
 import {useWorkflowStore} from '../../store/useWorkflowStore'
-import type {BuildDiagnosis, BuildLogEvent, BuildStatus} from '../../types/domain'
+import type {BuildLogEvent, BuildStatus} from '../../types/domain'
+import {diagnosisCategoryText, deploymentStatusText} from '../../utils/format'
 
 const { Text } = Typography
 
@@ -35,19 +36,6 @@ const statusColor: Record<BuildStatus, string> = {
   SUCCESS: 'success',
   FAILED: 'error',
   CANCELLED: 'warning',
-}
-
-const diagnosisCategoryText: Record<BuildDiagnosis['category'], string> = {
-  jdk_mismatch: 'JDK 版本不匹配',
-  maven_missing: 'Maven 不存在',
-  wrapper_issue: 'Wrapper 失效',
-  settings_missing: 'settings.xml 缺失',
-  dependency_download_failed: '依赖下载失败',
-  repo_unreachable: '私服不可达',
-  profile_invalid: 'profile 不存在',
-  module_invalid: '模块路径错误',
-  test_failed: '单元测试失败',
-  unknown: '未知错误',
 }
 
 const classifyBuildLog = (event: BuildLogEvent) => {
@@ -82,20 +70,6 @@ const classifyLine = (line: string) => {
     return 'warn'
   }
   return ''
-}
-
-const deploymentStatusLabel = (status: string) => {
-  switch (status) {
-    case 'success': return '部署成功'
-    case 'failed': return '部署失败'
-    case 'cancelled': return '已停止'
-    case 'pending': return '等待中'
-    case 'uploading': return '上传中'
-    case 'stopping': return '停止旧服务'
-    case 'starting': return '启动中'
-    case 'checking': return '检测中'
-    default: return status
-  }
 }
 
 export function BuildLogPanel() {
@@ -244,7 +218,7 @@ export function BuildLogPanel() {
     if (activeSource === 'deployment' && currentDeploymentTask) {
       const isRunning = !['success', 'failed', 'cancelled'].includes(currentDeploymentTask.status)
       const color = currentDeploymentTask.status === 'success' ? 'success' : currentDeploymentTask.status === 'cancelled' ? 'warning' : isRunning ? 'processing' : 'error'
-      const label = `${currentDeploymentTask.artifactName} · ${deploymentStatusLabel(currentDeploymentTask.status)}`
+      const label = `${currentDeploymentTask.artifactName} · ${deploymentStatusText(currentDeploymentTask.status)}`
       return (
         <Tooltip title={label}>
           <Tag color={color} className="log-status-tag">

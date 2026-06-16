@@ -9,6 +9,7 @@ import type {
     ServiceRuntimeConfig,
 } from '../../../types/domain'
 import {deriveRuntimeConfig, getEnvironmentId, runtimeConfigKey} from '../services/serviceRuntimeConfigService'
+import {getErrorMessage} from '../../../utils/errors'
 
 interface ServiceOperationState {
   runtimeConfigs: ServiceRuntimeConfig[]
@@ -20,6 +21,7 @@ interface ServiceOperationState {
   error?: string
   initialize: () => Promise<void>
   refreshHistories: () => Promise<void>
+  deleteHistory: (historyId: string) => Promise<void>
   saveRuntimeConfig: (config: ServiceRuntimeConfig) => Promise<ServiceRuntimeConfig>
   ensureRuntimeConfig: (profile: DeploymentProfile, server: ServerProfile) => Promise<ServiceRuntimeConfig>
   startRestart: (config: ServiceRuntimeConfig) => Promise<string>
@@ -28,9 +30,6 @@ interface ServiceOperationState {
   updateOperationTask: (task: ServiceOperationTask) => void
   finishOperationTask: (task: ServiceOperationTask) => void
 }
-
-const getErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : String(error)
 
 const sortHistories = (items: ServiceOperationHistory[]) =>
   [...items].sort((left, right) => right.startedAt.localeCompare(left.startedAt))
@@ -83,6 +82,13 @@ export const useServiceOperationStore = create<ServiceOperationState>((set, get)
     } catch (error) {
       set({error: getErrorMessage(error)})
     }
+  },
+
+  deleteHistory: async (historyId: string) => {
+    await api.deleteServiceOperationHistory(historyId)
+    set((state) => ({
+      histories: state.histories.filter((item) => item.id !== historyId),
+    }))
   },
 
   saveRuntimeConfig: async (config) => {

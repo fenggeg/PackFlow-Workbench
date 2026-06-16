@@ -1,6 +1,7 @@
 import {create} from 'zustand'
 import {api} from '../../../services/tauri-api'
 import type {RemoteLogLineEvent, RemoteLogSession, ServiceRuntimeConfig} from '../../../types/domain'
+import {getErrorMessage} from '../../../utils/errors'
 
 interface RemoteLogSessionState {
   sessionsById: Record<string, RemoteLogSession>
@@ -15,9 +16,6 @@ interface RemoteLogSessionState {
   clearSessionLines: (sessionId: string) => void
   setAutoScroll: (sessionId: string, autoScroll: boolean) => void
 }
-
-const getErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : String(error)
 
 export const useRemoteLogSessionStore = create<RemoteLogSessionState>((set) => ({
   sessionsById: {},

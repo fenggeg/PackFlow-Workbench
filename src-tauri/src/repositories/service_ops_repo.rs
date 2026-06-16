@@ -180,6 +180,17 @@ pub fn save_service_operation_history(
     Ok(())
 }
 
+pub fn delete_service_operation_history(app: &AppHandle, history_id: &str) -> AppResult<()> {
+    let connection = open_database(app)?;
+    connection
+        .execute(
+            "DELETE FROM service_operation_histories WHERE id = ?1",
+            params![history_id],
+        )
+        .map_err(|error| format!("无法删除服务操作历史：{}", error))?;
+    Ok(())
+}
+
 fn normalize_optional(value: Option<String>) -> Option<String> {
     value
         .map(|item| item.trim().to_string())

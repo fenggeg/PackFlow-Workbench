@@ -42,6 +42,8 @@ import type {
     ReleaseTemplate,
     StartupProbeConfig,
 } from '../types/domain'
+import {flattenModules} from '../services/deploymentTopologyService'
+import {releaseStatusMeta} from '../utils/format'
 
 const {Title, Text} = Typography
 
@@ -70,9 +72,6 @@ const defaultHealthCheck = (): StartupProbeConfig => ({
   },
   successPolicy: 'health_first',
 })
-
-const flattenModules = (modules: MavenModule[]): MavenModule[] =>
-  modules.flatMap((moduleItem) => [moduleItem, ...flattenModules(moduleItem.children ?? [])])
 
 const firstDeployableModule = (modules: MavenModule[]) =>
   flattenModules(modules).find((moduleItem) => moduleItem.packaging !== 'pom') ?? flattenModules(modules)[0]
@@ -104,20 +103,6 @@ const createDraft = (
   healthCheck: defaultHealthCheck(),
   logConfig: {logPath: '', tailLines: 500},
 })
-
-const releaseStatusMeta = (status: string) => {
-  switch (status) {
-    case 'success': return {label: '成功', color: 'green'}
-    case 'failed': return {label: '失败', color: 'red'}
-    case 'cancelled': return {label: '已取消', color: 'default'}
-    case 'prechecking': return {label: '预检中', color: 'processing'}
-    case 'building': return {label: '构建中', color: 'processing'}
-    case 'matching_artifact': return {label: '匹配产物', color: 'processing'}
-    case 'deploying': return {label: '部署中', color: 'processing'}
-    case 'checking': return {label: '健康检查', color: 'processing'}
-    default: return {label: '等待', color: 'blue'}
-  }
-}
 
 const stageStatus = (stage: ReleaseStageRecord) => {
   switch (stage.status) {

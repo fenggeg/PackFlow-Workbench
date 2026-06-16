@@ -1,6 +1,7 @@
 use crate::error::{to_user_error, AppResult};
 use crate::models::build::{BuildFinishedEvent, BuildLogEvent, StartBuildPayload};
 use crate::services::app_logger;
+use crate::services::process_utils::CREATE_NO_WINDOW;
 use encoding_rs::GBK;
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
@@ -20,8 +21,6 @@ use windows_sys::Win32::System::JobObjects::{
     SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
-
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Default)]
 pub struct BuildProcessState {

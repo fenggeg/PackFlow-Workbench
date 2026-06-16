@@ -40,8 +40,7 @@ interface WorkflowState {
   updateProbeStatuses: (event: ProbeStatusEvent) => void
 }
 
-const getErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : String(error)
+import {getErrorMessage} from '../utils/errors'
 
 const sortProfiles = <T extends {updatedAt?: string; name?: string}>(items: T[]) =>
   [...items].sort((left, right) =>

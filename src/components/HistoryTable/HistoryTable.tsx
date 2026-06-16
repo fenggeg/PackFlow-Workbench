@@ -1,11 +1,12 @@
 import {
     CopyOutlined,
+    DeleteOutlined,
     FolderOpenOutlined,
     FullscreenOutlined,
     PlayCircleOutlined,
     RollbackOutlined
 } from '@ant-design/icons'
-import {Button, List, Modal, Space, Table, Tag, Tooltip, Typography} from 'antd'
+import {Button, List, Modal, Popconfirm, Space, Table, Tag, Tooltip, Typography} from 'antd'
 import type {ColumnsType} from 'antd/es/table'
 import {useState} from 'react'
 import {api} from '../../services/tauri-api'
@@ -47,6 +48,7 @@ export function HistoryTable() {
   const history = useAppStore((state) => state.history)
   const rerunHistory = useAppStore((state) => state.rerunHistory)
   const rerunHistoryNow = useAppStore((state) => state.rerunHistoryNow)
+  const deleteHistory = useAppStore((state) => state.deleteHistory)
   const [expanded, setExpanded] = useState(false)
   const [openRecord, setOpenRecord] = useState<BuildHistoryRecord>()
 
@@ -113,7 +115,7 @@ export function HistoryTable() {
     },
     {
       title: '操作',
-      width: 160,
+      width: 200,
       render: (_, record) => (
         <Space wrap>
           <Tooltip title="重跑">
@@ -137,6 +139,17 @@ export function HistoryTable() {
           <Tooltip title="打开目录">
             <Button icon={<FolderOpenOutlined />} size="small" onClick={() => handleOpen(record)} />
           </Tooltip>
+          <Popconfirm
+            title="确认删除"
+            description="删除后无法恢复，确认删除此构建记录？"
+            okText="删除"
+            cancelText="取消"
+            onConfirm={() => void deleteHistory(record.id)}
+          >
+            <Tooltip title="删除">
+              <Button icon={<DeleteOutlined />} size="small" danger />
+            </Tooltip>
+          </Popconfirm>
         </Space>
       ),
     },

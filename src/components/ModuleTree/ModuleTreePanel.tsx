@@ -13,6 +13,7 @@ import {useMemo, useState} from 'react'
 import {useAppStore} from '../../store/useAppStore'
 import {useWorkflowStore} from '../../store/useWorkflowStore'
 import type {MavenModule} from '../../types/domain'
+import {flattenModules} from '../../services/deploymentTopologyService'
 
 const { Text } = Typography
 
@@ -62,12 +63,6 @@ const flattenModuleIds = (modules: MavenModule[]): string[] =>
   modules.flatMap((moduleItem) => [
     moduleItem.id,
     ...flattenModuleIds(moduleItem.children ?? []),
-  ])
-
-const flattenModules = (modules: MavenModule[]): MavenModule[] =>
-  modules.flatMap((moduleItem) => [
-    moduleItem,
-    ...flattenModules(moduleItem.children ?? []),
   ])
 
 export function ModuleTreePanel() {

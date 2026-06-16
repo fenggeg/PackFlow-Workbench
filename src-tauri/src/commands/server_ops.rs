@@ -413,5 +413,5 @@ pub async fn check_terminal_alive(
     session_id: String,
     terminal_manager: State<'_, terminal_session_service::TerminalManager>,
 ) -> AppResult<bool> {
-    Ok(terminal_manager.is_alive(&session_id))
+    Ok(terminal_manager.check_and_sweep(&session_id))
 }

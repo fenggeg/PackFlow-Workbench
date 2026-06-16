@@ -12,20 +12,9 @@ import {useAppStore} from '../store/useAppStore'
 import {useNavigationStore} from '../store/navigationStore'
 import {useReleaseStore} from '../store/useReleaseStore'
 import {useWorkflowStore} from '../store/useWorkflowStore'
+import {releaseStatusMeta} from '../utils/format'
 
 const {Title, Text} = Typography
-
-const releaseStatusMeta = (status: string) => {
-  switch (status) {
-    case 'success': return {label: '成功', color: 'green'}
-    case 'failed': return {label: '失败', color: 'red'}
-    case 'cancelled': return {label: '已取消', color: 'default'}
-    case 'building': return {label: '构建中', color: 'processing'}
-    case 'deploying': return {label: '部署中', color: 'processing'}
-    case 'checking': return {label: '验证中', color: 'processing'}
-    default: return {label: '进行中', color: 'blue'}
-  }
-}
 
 const targetBindingMode = (targetServerId?: string, mode?: string) =>
   mode ?? (targetServerId ? 'fixed' : 'runtime')

@@ -4,7 +4,7 @@ mod models;
 mod repositories;
 mod services;
 
-use services::deployment_executor::DeploymentControlState;
+use services::deployment_common::DeploymentControlState;
 use services::process_runner::BuildProcessState;
 use services::remote_log_session_service::RemoteLogSessionState;
 use services::terminal_session_service::TerminalManager;
@@ -45,7 +45,7 @@ pub fn run() {
             commands::filesystem::open_path_in_explorer,
             commands::filesystem::scan_build_artifacts,
             commands::filesystem::delete_build_artifact,
-            commands::filesystem::copy_file_to_clipboard,
+            commands::clipboard::copy_file_to_clipboard,
             commands::git::check_git_status,
             commands::git::fetch_git_updates,
             commands::git::pull_git_updates,
@@ -53,6 +53,7 @@ pub fn run() {
             commands::git::list_git_commits,
             commands::history::list_build_history,
             commands::history::save_build_history,
+            commands::history::delete_build_history,
             commands::template::list_templates,
             commands::template::save_template,
             commands::template::delete_template,
@@ -77,6 +78,7 @@ pub fn run() {
             commands::service_ops::save_service_runtime_config,
             commands::service_ops::delete_service_runtime_config,
             commands::service_ops::list_service_operation_histories,
+            commands::service_ops::delete_service_operation_history,
             commands::service_ops::start_service_restart,
             commands::service_ops::start_service_health_check,
             commands::service_ops::start_remote_log_session,
@@ -109,10 +111,10 @@ pub fn run() {
             commands::server_ops::resize_terminal,
             commands::server_ops::close_terminal_session,
             commands::server_ops::check_terminal_alive,
-            commands::filesystem::check_for_app_update,
-            commands::filesystem::download_app_update,
-            commands::filesystem::install_cached_app_update,
-            commands::filesystem::install_app_update,
+            commands::updater::check_for_app_update,
+            commands::updater::download_app_update,
+            commands::updater::install_cached_app_update,
+            commands::updater::install_app_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

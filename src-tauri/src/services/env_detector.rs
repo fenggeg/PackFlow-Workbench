@@ -1,13 +1,12 @@
 use crate::models::environment::{
     BuildEnvironment, EnvironmentSettings, EnvironmentSource, EnvironmentStatus,
 };
+use crate::services::process_utils::CREATE_NO_WINDOW;
 use std::env;
 use std::fs;
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
-
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub fn detect_environment(root_path: &str, settings: EnvironmentSettings) -> BuildEnvironment {
     let mut errors = Vec::new();

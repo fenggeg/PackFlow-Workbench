@@ -1,7 +1,7 @@
 use crate::models::deployment::{
-    HttpProbeConfig, LogProbeConfig, PortProbeConfig, ProbeStatus, ProcessProbeConfig,
-    StartupProbeConfig,
+    ProbeStatus, ProcessProbeConfig, StartupProbeConfig,
 };
+use crate::services::process_utils::shell_quote;
 use crate::services::ssh_transport_service::SshConnection;
 use chrono::Utc;
 use std::thread;
@@ -860,10 +860,6 @@ fn is_explicit_log_file(path: &str) -> bool {
         .ends_with(".log")
 }
 
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
-}
-
 fn shell_glob_fragment(value: &str) -> String {
     value
         .chars()
@@ -875,53 +871,4 @@ fn regex_match(pattern: &str, content: &str) -> bool {
     regex::Regex::new(pattern)
         .map(|re| re.is_match(content))
         .unwrap_or(false)
-}
-
-#[allow(dead_code)]
-fn create_default_startup_probe() -> StartupProbeConfig {
-    StartupProbeConfig {
-        enabled: true,
-        timeout_seconds: 120,
-        interval_seconds: 3,
-        process_probe: Some(ProcessProbeConfig {
-            enabled: true,
-            pid_file: None,
-        }),
-        port_probe: Some(PortProbeConfig {
-            enabled: true,
-            host: "127.0.0.1".to_string(),
-            port: 8080,
-            consecutive_successes: 2,
-        }),
-        http_probe: Some(HttpProbeConfig {
-            enabled: false,
-            url: Some("http://127.0.0.1:8080/actuator/health".to_string()),
-            method: "GET".to_string(),
-            expected_status_codes: Some(vec![200]),
-            expected_body_contains: Some("UP".to_string()),
-            consecutive_successes: 2,
-        }),
-        log_probe: Some(LogProbeConfig {
-            enabled: true,
-            log_path: None,
-            success_patterns: vec!["Started".to_string()],
-            failure_patterns: vec![
-                "APPLICATION FAILED TO START".to_string(),
-                "Application run failed".to_string(),
-                "Port already in use".to_string(),
-                "Web server failed to start".to_string(),
-                "Address already in use".to_string(),
-                "BindException".to_string(),
-                "OutOfMemoryError".to_string(),
-            ],
-            warning_patterns: vec![
-                "Exception".to_string(),
-                "ERROR".to_string(),
-                "WARN".to_string(),
-            ],
-            use_regex: false,
-            only_current_deploy_log: true,
-        }),
-        success_policy: "health_first".to_string(),
-    }
 }

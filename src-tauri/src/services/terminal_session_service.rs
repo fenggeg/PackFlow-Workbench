@@ -1,24 +1,25 @@
 use crate::error::{to_user_error, AppResult};
 use crate::repositories::deployment_repo::ExecutionServerProfile;
-use ssh::algorithm::{Enc, Kex, PubKey};
+use crate::services::process_utils::{SSH_ENC_ALGORITHMS, SSH_KEX_ALGORITHMS, SSH_PUBKEY_ALGORITHMS, SSH_TIMEOUT_SECS, SSH_CONNECT_TIMEOUT_SECS};
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::net::TcpStream;
 use std::sync::{mpsc as std_mpsc, Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-const CONNECT_TIMEOUT_SECONDS: u64 = 10;
 const SHELL_READ_TIMEOUT_MS: u64 = 50;
+const SESSION_IDLE_TIMEOUT_SECS: u64 = 30 * 60; // 30 minutes
 
 struct TerminalInner {
     input_tx: mpsc::UnboundedSender<Vec<u8>>,
     resize_tx: mpsc::UnboundedSender<TerminalResize>,
     stdout_rx: std_mpsc::Receiver<Vec<u8>>,
     alive: Arc<Mutex<bool>>,
+    last_activity: Arc<Mutex<Instant>>,
 }
 
 pub struct TerminalSession {
@@ -39,18 +40,18 @@ pub struct TerminalManager {
 fn connect(profile: &ExecutionServerProfile) -> AppResult<ssh::LocalSession<std::net::TcpStream>> {
     let mut connector = ssh::create_session()
         .username(&profile.username)
-        .add_kex_algorithms(Kex::Curve25519Sha256)
-        .add_kex_algorithms(Kex::EcdhSha2Nistrp256)
-        .add_kex_algorithms(Kex::DiffieHellmanGroup14Sha256)
-        .add_kex_algorithms(Kex::DiffieHellmanGroup14Sha1)
-        .add_pubkey_algorithms(PubKey::SshEd25519)
-        .add_pubkey_algorithms(PubKey::RsaSha2_256)
-        .add_pubkey_algorithms(PubKey::RsaSha2_512)
-        .add_enc_algorithms(Enc::Chacha20Poly1305Openssh)
-        .add_enc_algorithms(Enc::Aes256Ctr)
-        .add_enc_algorithms(Enc::Aes192Ctr)
-        .add_enc_algorithms(Enc::Aes128Ctr)
-        .timeout(Some(Duration::from_secs(30)));
+        .add_kex_algorithms(SSH_KEX_ALGORITHMS[0])
+        .add_kex_algorithms(SSH_KEX_ALGORITHMS[1])
+        .add_kex_algorithms(SSH_KEX_ALGORITHMS[2])
+        .add_kex_algorithms(SSH_KEX_ALGORITHMS[3])
+        .add_pubkey_algorithms(SSH_PUBKEY_ALGORITHMS[0])
+        .add_pubkey_algorithms(SSH_PUBKEY_ALGORITHMS[1])
+        .add_pubkey_algorithms(SSH_PUBKEY_ALGORITHMS[2])
+        .add_enc_algorithms(SSH_ENC_ALGORITHMS[0])
+        .add_enc_algorithms(SSH_ENC_ALGORITHMS[1])
+        .add_enc_algorithms(SSH_ENC_ALGORITHMS[2])
+        .add_enc_algorithms(SSH_ENC_ALGORITHMS[3])
+        .timeout(Some(Duration::from_secs(SSH_TIMEOUT_SECS)));
 
     connector = match profile.auth_type.as_str() {
         "password" => {
@@ -73,7 +74,7 @@ fn connect(profile: &ExecutionServerProfile) -> AppResult<ssh::LocalSession<std:
     let connected = connector
         .connect_with_timeout(
             (&profile.host as &str, profile.port),
-            Some(Duration::from_secs(CONNECT_TIMEOUT_SECONDS)),
+            Some(Duration::from_secs(SSH_CONNECT_TIMEOUT_SECS)),
         )
         .map_err(|error| to_user_error(format!("SSH 连接失败：{}", error)))?;
 
@@ -104,6 +105,8 @@ impl TerminalManager {
         let (stdout_tx, stdout_rx) = std_mpsc::channel::<Vec<u8>>();
         let alive = Arc::new(Mutex::new(true));
         let alive_clone = alive.clone();
+        let last_activity = Arc::new(Mutex::new(Instant::now()));
+        let last_activity_clone = last_activity.clone();
 
         thread::spawn(move || {
             let mut session = match connect(&profile) {
@@ -160,6 +163,7 @@ impl TerminalManager {
                         if data.is_empty() {
                             break;
                         }
+                        let _ = last_activity_clone.lock().map(|mut v| *v = Instant::now());
                         if !publish_output(&app, &thread_session_id, &stdout_tx, data) {
                             break;
                         }
@@ -200,6 +204,7 @@ impl TerminalManager {
                 resize_tx,
                 stdout_rx,
                 alive,
+                last_activity,
             }),
         };
 
@@ -213,7 +218,7 @@ impl TerminalManager {
     }
 
     pub fn write_input(&self, session_id: &str, data: &[u8]) -> AppResult<()> {
-        let input_tx = {
+        let (input_tx, last_activity) = {
             let sessions = self
                 .sessions
                 .lock()
@@ -226,12 +231,13 @@ impl TerminalManager {
                 .inner
                 .lock()
                 .map_err(|e| to_user_error(format!("锁错误：{}", e)))?;
-            inner.input_tx.clone()
+            (inner.input_tx.clone(), inner.last_activity.clone())
         };
 
         input_tx
             .send(data.to_vec())
             .map_err(|_| to_user_error("终端会话已关闭"))?;
+        let _ = last_activity.lock().map(|mut v| *v = Instant::now());
 
         Ok(())
     }
@@ -308,6 +314,44 @@ impl TerminalManager {
             }
         }
         false
+    }
+
+    pub fn sweep_dead_sessions(&self) -> Vec<String> {
+        let mut sessions = match self.sessions.lock() {
+            Ok(sessions) => sessions,
+            Err(_) => return Vec::new(),
+        };
+
+        let now = Instant::now();
+        let idle_timeout = Duration::from_secs(SESSION_IDLE_TIMEOUT_SECS);
+        let mut removed = Vec::new();
+
+        sessions.retain(|id, session| {
+            if let Ok(inner) = session.inner.lock() {
+                let is_alive = *inner.alive.lock().unwrap_or_else(|e| e.into_inner());
+                let last = *inner.last_activity.lock().unwrap_or_else(|e| e.into_inner());
+                let idle = now.duration_since(last);
+
+                if !is_alive || idle > idle_timeout {
+                    log::info!(
+                        "terminal_session_service sweeping session id={} alive={} idle_secs={}",
+                        id,
+                        is_alive,
+                        idle.as_secs()
+                    );
+                    removed.push(id.clone());
+                    return false;
+                }
+            }
+            true
+        });
+
+        removed
+    }
+
+    pub fn check_and_sweep(&self, session_id: &str) -> bool {
+        self.sweep_dead_sessions();
+        self.is_alive(session_id)
     }
 }
 

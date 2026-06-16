@@ -1,8 +1,8 @@
 use crate::error::{to_user_error, AppResult};
 use crate::models::deployment::ServerPrivilegeConfig;
 use crate::repositories::deployment_repo::ExecutionServerProfile;
+use crate::services::process_utils::{shell_quote, SSH_ENC_ALGORITHMS, SSH_KEX_ALGORITHMS, SSH_PUBKEY_ALGORITHMS, SSH_TIMEOUT_SECS, SSH_CONNECT_TIMEOUT_SECS};
 use encoding_rs::GBK;
-use ssh::algorithm::{Enc, Kex, PubKey};
 use ssh2::Session;
 use std::fs::File;
 use std::io::{ErrorKind, Read, Write};
@@ -70,8 +70,14 @@ impl SshConnection {
             _ => return Err(to_user_error("暂不支持的认证方式。")),
         };
 
-        let sftp_session = open_sftp_session(profile).ok();
-        let command_session = open_ssh2_session(profile).ok();
+        let sftp_session = match open_sftp_session(profile) {
+            Ok(session) => Some(session),
+            Err(_) => None,
+        };
+        let command_session = match open_ssh2_session(profile) {
+            Ok(session) => Some(session),
+            Err(_) => None,
+        };
 
         Ok(Self {
             session,
@@ -237,10 +243,12 @@ impl SshConnection {
         if is_cancelled() {
             return Err(to_user_error("远程会话已停止。"));
         }
-        let session_arc = self
-            .command_session
-            .as_ref()
-            .ok_or_else(|| to_user_error("当前 SSH 连接不支持实时日志会话。"))?;
+
+        // 如果 command_session 不可用，使用主会话作为回退
+        let Some(session_arc) = self.command_session.as_ref() else {
+            return self.stream_via_primary_session(command, stdin, is_cancelled, on_line);
+        };
+
         let session = session_arc
             .lock()
             .map_err(|_| to_user_error("无法获取 SSH2 命令会话锁。"))?;
@@ -315,6 +323,58 @@ impl SshConnection {
         let _ = channel.wait_close();
         let exit_status = channel.exit_status().unwrap_or(0);
         session.set_blocking(true);
+        Ok(exit_status)
+    }
+
+    fn stream_via_primary_session<C, L>(
+        &mut self,
+        command: &str,
+        _stdin: Option<&str>,
+        mut is_cancelled: C,
+        mut on_line: L,
+    ) -> AppResult<i32>
+    where
+        C: FnMut() -> bool,
+        L: FnMut(String),
+    {
+        if is_cancelled() {
+            return Err(to_user_error("远程会话已停止。"));
+        }
+
+        let wrapped_command = if let Some(privilege) = self.privilege.clone() {
+            let (wrapped, _) = wrap_privileged_command(&privilege, command)?;
+            wrapped
+        } else {
+            command.to_string()
+        };
+
+        let mut channel = self
+            .session
+            .open_exec()
+            .map_err(|error| to_user_error(format!("无法打开 SSH 命令通道：{}", error)))?;
+
+        channel
+            .exec_command(&wrapped_command)
+            .map_err(|error| to_user_error(format!("远端命令执行失败：{}", error)))?;
+
+        let output = channel
+            .get_output()
+            .map_err(|error| to_user_error(format!("读取命令输出失败：{}", error)))?;
+
+        if !output.is_empty() {
+            let output_str = decode_output(&output);
+            for line in output_str.lines() {
+                if !line.trim().is_empty() {
+                    on_line(line.to_string());
+                }
+            }
+        }
+
+        let exit_status = channel
+            .exit_status()
+            .map_err(|error| to_user_error(format!("读取远端命令退出码失败：{}", error)))?
+            as i32;
+
         Ok(exit_status)
     }
 
@@ -739,12 +799,6 @@ fn wrap_privileged_command(
     Ok((wrapped, stdin))
 }
 
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
-}
-
-const CONNECT_TIMEOUT_SECONDS: u64 = 10;
-
 fn open_password_session<C>(
     profile: &ExecutionServerProfile,
     mut is_cancelled: C,
@@ -764,21 +818,21 @@ where
     let connector = ssh::create_session()
         .username(&profile.username)
         .password(password)
-        .add_kex_algorithms(Kex::Curve25519Sha256)
-        .add_kex_algorithms(Kex::EcdhSha2Nistrp256)
-        .add_kex_algorithms(Kex::DiffieHellmanGroup14Sha256)
-        .add_kex_algorithms(Kex::DiffieHellmanGroup14Sha1)
-        .add_pubkey_algorithms(PubKey::SshEd25519)
-        .add_pubkey_algorithms(PubKey::RsaSha2_256)
-        .add_pubkey_algorithms(PubKey::RsaSha2_512)
-        .add_enc_algorithms(Enc::Chacha20Poly1305Openssh)
-        .add_enc_algorithms(Enc::Aes256Ctr)
-        .add_enc_algorithms(Enc::Aes192Ctr)
-        .add_enc_algorithms(Enc::Aes128Ctr)
-        .timeout(Some(Duration::from_secs(30)))
+        .add_kex_algorithms(SSH_KEX_ALGORITHMS[0])
+        .add_kex_algorithms(SSH_KEX_ALGORITHMS[1])
+        .add_kex_algorithms(SSH_KEX_ALGORITHMS[2])
+        .add_kex_algorithms(SSH_KEX_ALGORITHMS[3])
+        .add_pubkey_algorithms(SSH_PUBKEY_ALGORITHMS[0])
+        .add_pubkey_algorithms(SSH_PUBKEY_ALGORITHMS[1])
+        .add_pubkey_algorithms(SSH_PUBKEY_ALGORITHMS[2])
+        .add_enc_algorithms(SSH_ENC_ALGORITHMS[0])
+        .add_enc_algorithms(SSH_ENC_ALGORITHMS[1])
+        .add_enc_algorithms(SSH_ENC_ALGORITHMS[2])
+        .add_enc_algorithms(SSH_ENC_ALGORITHMS[3])
+        .timeout(Some(Duration::from_secs(SSH_TIMEOUT_SECS)))
         .connect_with_timeout(
             (&profile.host as &str, profile.port),
-            Some(Duration::from_secs(CONNECT_TIMEOUT_SECONDS)),
+            Some(Duration::from_secs(SSH_CONNECT_TIMEOUT_SECS)),
         )
         .map_err(|error| to_user_error(format!("SSH 连接失败：{}", error)))?;
 
@@ -806,21 +860,21 @@ where
     let connector = ssh::create_session()
         .username(&profile.username)
         .private_key_path(key_path)
-        .add_kex_algorithms(Kex::Curve25519Sha256)
-        .add_kex_algorithms(Kex::EcdhSha2Nistrp256)
-        .add_kex_algorithms(Kex::DiffieHellmanGroup14Sha256)
-        .add_kex_algorithms(Kex::DiffieHellmanGroup14Sha1)
-        .add_pubkey_algorithms(PubKey::SshEd25519)
-        .add_pubkey_algorithms(PubKey::RsaSha2_256)
-        .add_pubkey_algorithms(PubKey::RsaSha2_512)
-        .add_enc_algorithms(Enc::Chacha20Poly1305Openssh)
-        .add_enc_algorithms(Enc::Aes256Ctr)
-        .add_enc_algorithms(Enc::Aes192Ctr)
-        .add_enc_algorithms(Enc::Aes128Ctr)
-        .timeout(Some(Duration::from_secs(30)))
+        .add_kex_algorithms(SSH_KEX_ALGORITHMS[0])
+        .add_kex_algorithms(SSH_KEX_ALGORITHMS[1])
+        .add_kex_algorithms(SSH_KEX_ALGORITHMS[2])
+        .add_kex_algorithms(SSH_KEX_ALGORITHMS[3])
+        .add_pubkey_algorithms(SSH_PUBKEY_ALGORITHMS[0])
+        .add_pubkey_algorithms(SSH_PUBKEY_ALGORITHMS[1])
+        .add_pubkey_algorithms(SSH_PUBKEY_ALGORITHMS[2])
+        .add_enc_algorithms(SSH_ENC_ALGORITHMS[0])
+        .add_enc_algorithms(SSH_ENC_ALGORITHMS[1])
+        .add_enc_algorithms(SSH_ENC_ALGORITHMS[2])
+        .add_enc_algorithms(SSH_ENC_ALGORITHMS[3])
+        .timeout(Some(Duration::from_secs(SSH_TIMEOUT_SECS)))
         .connect_with_timeout(
             (&profile.host as &str, profile.port),
-            Some(Duration::from_secs(CONNECT_TIMEOUT_SECONDS)),
+            Some(Duration::from_secs(SSH_CONNECT_TIMEOUT_SECS)),
         )
         .map_err(|error| to_user_error(format!("SSH 连接失败：{}", error)))?;
 

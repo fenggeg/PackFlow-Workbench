@@ -24,21 +24,11 @@ import {useDeploymentLogStore} from '../store/useDeploymentLogStore'
 import {useNavigationStore} from '../store/navigationStore'
 import {useWorkflowStore} from '../store/useWorkflowStore'
 import type {DeploymentTask} from '../types/domain'
+import {formatDuration, stageStatusText, stepTypeText, deploymentStatusColor} from '../utils/format'
 
 const {Title, Text} = Typography
 
-const statusColor: Record<DeploymentTask['status'], string> = {
-  pending: 'default',
-  uploading: 'processing',
-  stopping: 'orange',
-  starting: 'cyan',
-  checking: 'blue',
-  waiting: 'processing',
-  success: 'green',
-  failed: 'red',
-  timeout: 'red',
-  cancelled: 'orange',
-}
+const statusColor = deploymentStatusColor
 
 const statusLabel = (status: DeploymentTask['status']) => {
   switch (status) {
@@ -56,40 +46,7 @@ const statusLabel = (status: DeploymentTask['status']) => {
   }
 }
 
-const stepTypeLabel = (type?: string) => {
-  switch (type) {
-    case 'ssh_command': return 'SSH 命令'
-    case 'wait': return '等待'
-    case 'port_check': return '端口检测'
-    case 'http_check': return 'HTTP 健康检查'
-    case 'log_check': return '日志关键字检测'
-    case 'upload_file': return '文件上传'
-    case 'startup_probe': return '启动探针'
-    default: return type ?? '-'
-  }
-}
-
-const stageStatusLabel = (status: string) => {
-  switch (status) {
-    case 'pending': return '等待中'
-    case 'waiting': return '等待中'
-    case 'running': return '执行中'
-    case 'checking': return '检测中'
-    case 'success': return '成功'
-    case 'failed': return '失败'
-    case 'skipped': return '已跳过'
-    case 'timeout': return '已超时'
-    case 'cancelled': return '已取消'
-    default: return status
-  }
-}
-
-const formatDuration = (durationMs?: number) => {
-  if (!durationMs) {
-    return '-'
-  }
-  return durationMs >= 1000 ? `${(durationMs / 1000).toFixed(1)}s` : `${durationMs}ms`
-}
+const stageStatusLabel = stageStatusText
 
 const classifyLine = (line: string) => {
   const lower = line.toLowerCase()
@@ -385,7 +342,7 @@ export function ServicePage() {
                   title: '类型',
                   dataIndex: 'type',
                   width: 120,
-                  render: (value: string) => stepTypeLabel(value),
+                  render: (value: string) => stepTypeText(value),
                 },
                 {
                   title: '状态',
@@ -397,7 +354,7 @@ export function ServicePage() {
                   title: '耗时',
                   dataIndex: 'durationMs',
                   width: 90,
-                  render: (value: number | undefined) => formatDuration(value),
+                  render: (value: number | undefined) => formatDuration(value, '-'),
                 },
                 {
                   title: '结果',

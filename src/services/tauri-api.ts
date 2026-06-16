@@ -189,6 +189,9 @@ export const api = {
   saveBuildHistory: (record: BuildHistoryRecord) =>
     invoke<void>('save_build_history', { record }),
 
+  deleteBuildHistory: (historyId: string) =>
+    invoke<void>('delete_build_history', { historyId }),
+
   listTemplates: () => invoke<BuildTemplate[]>('list_templates'),
 
   saveTemplate: (template: BuildTemplate) =>
@@ -259,6 +262,9 @@ export const api = {
   listServiceOperationHistories: () =>
     invoke<ServiceOperationHistory[]>('list_service_operation_histories'),
 
+  deleteServiceOperationHistory: (historyId: string) =>
+    invoke<void>('delete_service_operation_history', { historyId }),
+
   startServiceRestart: (serviceRuntimeConfigId: string) =>
     invoke<string>('start_service_restart', { payload: { serviceRuntimeConfigId } }),
 
@@ -277,8 +283,8 @@ export const api = {
   scanBuildArtifacts: (projectRoot: string, modulePath: string) =>
     invoke<BuildArtifact[]>('scan_build_artifacts', { projectRoot, modulePath }),
 
-  deleteBuildArtifact: (path: string) =>
-    invoke<void>('delete_build_artifact', { path }),
+  deleteBuildArtifact: (path: string, recordOnly?: boolean) =>
+    invoke<void>('delete_build_artifact', { path, recordOnly: recordOnly ?? false }),
 
   copyFileToClipboard: (path: string) =>
     invoke<void>('copy_file_to_clipboard', { path }),

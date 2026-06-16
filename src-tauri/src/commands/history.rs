@@ -38,3 +38,14 @@ pub async fn save_build_history(app: AppHandle, record: BuildHistoryRecord) -> A
     }
     result
 }
+
+#[tauri::command]
+pub async fn delete_build_history(app: AppHandle, history_id: String) -> AppResult<()> {
+    app_logger::log_info(&app, "history.delete.start", format!("id={}", history_id));
+    let task_app = app.clone();
+    let result = blocking::run(move || history_repo::delete(&task_app, &history_id)).await;
+    if let Err(error) = &result {
+        app_logger::log_error(&app, "history.delete.failed", format!("error={}", error));
+    }
+    result
+}
