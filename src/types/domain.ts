@@ -10,6 +10,7 @@ export interface MavenProject {
   version?: string
   packaging?: string
   modules: MavenModule[]
+  jdkRequirement?: JdkRequirement
 }
 
 export interface MavenModule {
@@ -113,6 +114,9 @@ export interface BuildEnvironment {
   gitSource: EnvironmentSource
   status: EnvironmentStatus
   errors: string[]
+  projectJdkRequirement?: JdkRequirement
+  availableJdks?: JdkEntry[]
+  matchedJdkId?: string
 }
 
 export type EnvironmentStatus = 'ok' | 'warning' | 'error'
@@ -448,7 +452,37 @@ export interface EnvironmentSettings {
   profiles: EnvironmentProfile[]
   lastProjectPath?: string
   projectPaths?: string[]
+  /** projectPath -> profileId，项目专属环境方案绑定 */
+  projectProfileBindings?: Record<string, string>
+  jdkRegistry?: JdkEntry[]
 }
+
+export interface JdkEntry {
+  id: string
+  name: string
+  path: string
+  version?: string
+  majorVersion?: number
+  vendor?: string
+  isDefault: boolean
+  source: JdkSource
+}
+
+export type JdkSource = 'scan' | 'manual' | 'envVar' | 'path'
+
+export interface JdkRequirement {
+  versionSpec: string
+  source: JdkRequirementSource
+  resolvedMajor?: number
+}
+
+export type JdkRequirementSource =
+  | 'mavenCompilerRelease'
+  | 'mavenCompilerTarget'
+  | 'mavenCompilerSource'
+  | 'javaVersion'
+  | 'mavenCompilerPlugin'
+  | 'unspecified'
 
 export interface EnvironmentProfile {
   id: string

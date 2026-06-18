@@ -18,6 +18,7 @@ import type {
     EnvironmentSettings,
     GitCommit,
     GitRepositoryStatus,
+    JdkEntry,
     MavenModule,
     MavenProject,
     PersistedBuildStatus,
@@ -75,6 +76,14 @@ interface AppState {
   applyEnvironmentProfile: (profileId: string) => Promise<void>
   saveEnvironmentProfile: (name: string) => Promise<void>
   deleteEnvironmentProfile: (profileId: string) => Promise<void>
+  bindProjectProfile: (projectPath: string, profileId: string) => Promise<void>
+  unbindProjectProfile: (projectPath: string) => Promise<void>
+  getBoundProfileId: (projectPath: string) => string | undefined
+  jdkRegistry: JdkEntry[]
+  scanSystemJdks: () => Promise<void>
+  addJdkToRegistry: (path: string, name?: string) => Promise<void>
+  removeJdkFromRegistry: (jdkId: string) => Promise<void>
+  setDefaultJdk: (jdkId: string) => Promise<void>
   startBuild: () => Promise<void>
   startPackageBuild: (moduleIds: string[]) => Promise<void>
   cancelBuild: () => Promise<void>
@@ -247,7 +256,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       await envStore().loadSettings()
       const settings = envStore().environmentSettings
       const savedProjectPaths = envStore().savedProjectPaths
-      set({savedProjectPaths, environmentSettings: settings})
+      set({savedProjectPaths, environmentSettings: settings, jdkRegistry: envStore().jdkRegistry})
       if (settings?.lastProjectPath) {
         await get().parseProjectPath(settings.lastProjectPath)
       } else {
@@ -290,6 +299,20 @@ export const useAppStore = create<AppState>((set, get) => ({
         api.parseMavenProject(rootPath),
         envStore().detectForProject(rootPath),
       ])
+      // 加载项目后，根据项目绑定解析 activeProfileId
+      const settings = envStore().environmentSettings
+      const boundProfileId = settings?.projectProfileBindings?.[project.rootPath]
+      const resolvedActiveProfileId = boundProfileId ?? settings?.activeProfileId
+      if (resolvedActiveProfileId !== settings?.activeProfileId) {
+        const updatedSettings: EnvironmentSettings = {
+          profiles: [],
+          ...settings,
+          activeProfileId: resolvedActiveProfileId,
+        }
+        set({ environmentSettings: updatedSettings })
+        // 同步到 envStore 以便后续操作使用
+        await envStore().syncActiveProfileId(resolvedActiveProfileId)
+      }
       const buildOptions = createDefaultBuildOptions(project.rootPath, '')
       set({
         project,
@@ -592,6 +615,74 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (project) {
         await get().refreshCommandPreview()
       }
+    } catch (error) {
+      set({error: getErrorMessage(error)})
+    }
+  },
+
+  bindProjectProfile: async (projectPath: string, profileId: string) => {
+    try {
+      await envStore().bindProjectProfile(projectPath, profileId)
+      set({environment: envStore().environment, environmentSettings: envStore().environmentSettings})
+      const project = get().project
+      if (project) {
+        await get().refreshCommandPreview()
+      }
+    } catch (error) {
+      set({error: getErrorMessage(error)})
+    }
+  },
+
+  unbindProjectProfile: async (projectPath: string) => {
+    try {
+      await envStore().unbindProjectProfile(projectPath)
+      set({environment: envStore().environment, environmentSettings: envStore().environmentSettings})
+      const project = get().project
+      if (project) {
+        await get().refreshCommandPreview()
+      }
+    } catch (error) {
+      set({error: getErrorMessage(error)})
+    }
+  },
+
+  getBoundProfileId: (projectPath: string) => {
+    return envStore().getBoundProfileId(projectPath)
+  },
+
+  jdkRegistry: [],
+
+  scanSystemJdks: async () => {
+    try {
+      await envStore().scanSystemJdks()
+      set({jdkRegistry: envStore().jdkRegistry})
+    } catch (error) {
+      set({error: getErrorMessage(error)})
+    }
+  },
+
+  addJdkToRegistry: async (path: string, name?: string) => {
+    try {
+      await envStore().addJdkToRegistry(path, name)
+      set({jdkRegistry: envStore().jdkRegistry})
+    } catch (error) {
+      set({error: getErrorMessage(error)})
+    }
+  },
+
+  removeJdkFromRegistry: async (jdkId: string) => {
+    try {
+      await envStore().removeJdkFromRegistry(jdkId)
+      set({jdkRegistry: envStore().jdkRegistry})
+    } catch (error) {
+      set({error: getErrorMessage(error)})
+    }
+  },
+
+  setDefaultJdk: async (jdkId: string) => {
+    try {
+      await envStore().setDefaultJdk(jdkId)
+      set({jdkRegistry: envStore().jdkRegistry})
     } catch (error) {
       set({error: getErrorMessage(error)})
     }

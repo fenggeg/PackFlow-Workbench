@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use super::environment::JdkRequirement;
 use super::module::MavenModule;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -12,4 +13,5 @@ pub struct MavenProject {
     pub version: Option<String>,
     pub packaging: Option<String>,
     pub modules: Vec<MavenModule>,
+    pub jdk_requirement: Option<JdkRequirement>,
 }

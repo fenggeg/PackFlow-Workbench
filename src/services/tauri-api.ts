@@ -22,6 +22,7 @@ import type {
   GitRepositoryStatus,
   GitSwitchBranchResult,
   HighlightRule,
+  JdkEntry,
   LogSource,
   MavenProject,
   ModuleDependencyGraph,
@@ -175,6 +176,12 @@ export const api = {
 
   removeSavedProjectPath: (rootPath: string) =>
     invoke<EnvironmentSettings>('remove_saved_project_path', { rootPath }),
+
+  bindProjectProfile: (projectPath: string, profileId: string) =>
+    invoke<void>('bind_project_profile', { projectPath, profileId }),
+
+  unbindProjectProfile: (projectPath: string) =>
+    invoke<void>('unbind_project_profile', { projectPath }),
 
   buildCommandPreview: (payload: BuildCommandPayload) =>
     invoke<string>('build_command_preview', { payload }),
@@ -394,6 +401,19 @@ export const api = {
 
   checkTerminalAlive: (sessionId: string) =>
     invoke<boolean>('check_terminal_alive', { sessionId }),
+
+  // JDK Registry
+  scanSystemJdks: () =>
+    invoke<JdkEntry[]>('scan_system_jdks'),
+
+  addJdkToRegistry: (path: string, name?: string) =>
+    invoke<JdkEntry>('add_jdk_to_registry', { path, name }),
+
+  removeJdkFromRegistry: (jdkId: string) =>
+    invoke<void>('remove_jdk_from_registry', { jdkId }),
+
+  setDefaultJdk: (jdkId: string) =>
+    invoke<void>('set_default_jdk', { jdkId }),
 }
 
 export async function registerBuildEvents(

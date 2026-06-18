@@ -5,12 +5,14 @@ import type {
     BuildEnvironment,
     EnvironmentProfile,
     EnvironmentSettings,
+    JdkEntry,
 } from '../types/domain'
 
 interface EnvironmentState {
   environment?: BuildEnvironment
   environmentSettings?: EnvironmentSettings
   savedProjectPaths: string[]
+  jdkRegistry: JdkEntry[]
   loadSettings: () => Promise<void>
   detectForProject: (rootPath: string) => Promise<void>
   refreshEnvironment: (projectRoot?: string) => Promise<void>
@@ -18,8 +20,16 @@ interface EnvironmentState {
   applyEnvironmentProfile: (profileId: string, projectRoot?: string) => Promise<void>
   saveEnvironmentProfile: (name: string, projectRoot?: string) => Promise<void>
   deleteEnvironmentProfile: (profileId: string, projectRoot?: string) => Promise<void>
+  bindProjectProfile: (projectPath: string, profileId: string) => Promise<void>
+  unbindProjectProfile: (projectPath: string) => Promise<void>
+  getBoundProfileId: (projectPath: string) => string | undefined
+  syncActiveProfileId: (profileId: string | undefined) => Promise<void>
   saveLastProjectPath: (rootPath: string) => Promise<void>
   removeSavedProject: (rootPath: string) => Promise<void>
+  scanSystemJdks: () => Promise<void>
+  addJdkToRegistry: (path: string, name?: string) => Promise<void>
+  removeJdkFromRegistry: (jdkId: string) => Promise<void>
+  setDefaultJdk: (jdkId: string) => Promise<void>
 }
 
 const emptyEnvironmentSettings = (): EnvironmentSettings => ({
@@ -63,6 +73,7 @@ const createProfileFromEnvironment = (
 
 export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
   savedProjectPaths: [],
+  jdkRegistry: [],
 
   loadSettings: async () => {
     try {
@@ -71,7 +82,11 @@ export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
         ...(settings.projectPaths ?? []),
         ...(settings.lastProjectPath ? [settings.lastProjectPath] : []),
       ])
-      set({savedProjectPaths, environmentSettings: settings})
+      set({
+        savedProjectPaths,
+        environmentSettings: settings,
+        jdkRegistry: settings.jdkRegistry ?? [],
+      })
     } catch {
       // Browser preview or first launch — keep empty.
     }
@@ -172,11 +187,18 @@ export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
       ? undefined
       : environmentSettings?.activeProfileId
 
+    // 清理该方案的所有项目绑定
+    const bindings = environmentSettings?.projectProfileBindings ?? {}
+    const nextBindings = Object.fromEntries(
+      Object.entries(bindings).filter(([, pid]) => pid !== profileId),
+    )
+
     try {
       await api.saveEnvironmentSettings({
         ...(environmentSettings ?? emptyEnvironmentSettings()),
         activeProfileId,
         profiles,
+        projectProfileBindings: nextBindings,
         projectPaths: get().savedProjectPaths,
       })
       const nextSettings = await api.loadEnvironmentSettings()
@@ -184,6 +206,40 @@ export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
       set({environment, environmentSettings: nextSettings})
     } catch (error) {
       set({error: getErrorMessage(error)} as Partial<EnvironmentState>)
+    }
+  },
+
+  bindProjectProfile: async (projectPath: string, profileId: string) => {
+    try {
+      await api.bindProjectProfile(projectPath, profileId)
+      const nextSettings = await api.loadEnvironmentSettings()
+      const environment = await api.detectEnvironment(projectPath)
+      set({environment, environmentSettings: nextSettings})
+    } catch (error) {
+      set({error: getErrorMessage(error)} as Partial<EnvironmentState>)
+    }
+  },
+
+  unbindProjectProfile: async (projectPath: string) => {
+    try {
+      await api.unbindProjectProfile(projectPath)
+      const nextSettings = await api.loadEnvironmentSettings()
+      const environment = await api.detectEnvironment(projectPath)
+      set({environment, environmentSettings: nextSettings})
+    } catch (error) {
+      set({error: getErrorMessage(error)} as Partial<EnvironmentState>)
+    }
+  },
+
+  getBoundProfileId: (projectPath: string) => {
+    const bindings = get().environmentSettings?.projectProfileBindings ?? {}
+    return bindings[projectPath.trim()]
+  },
+
+  syncActiveProfileId: async (profileId: string | undefined) => {
+    const settings = get().environmentSettings
+    if (settings) {
+      set({ environmentSettings: { ...settings, activeProfileId: profileId } })
     }
   },
 
@@ -200,6 +256,47 @@ export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
       set({
         savedProjectPaths: normalizeProjectPaths(settings.projectPaths ?? []),
       })
+    } catch (error) {
+      set({error: getErrorMessage(error)} as Partial<EnvironmentState>)
+    }
+  },
+
+  scanSystemJdks: async () => {
+    try {
+      const entries = await api.scanSystemJdks()
+      set({jdkRegistry: entries})
+      const settings = await api.loadEnvironmentSettings()
+      set({environmentSettings: settings})
+    } catch (error) {
+      set({error: getErrorMessage(error)} as Partial<EnvironmentState>)
+    }
+  },
+
+  addJdkToRegistry: async (path: string, name?: string) => {
+    try {
+      await api.addJdkToRegistry(path, name)
+      const settings = await api.loadEnvironmentSettings()
+      set({jdkRegistry: settings.jdkRegistry ?? [], environmentSettings: settings})
+    } catch (error) {
+      set({error: getErrorMessage(error)} as Partial<EnvironmentState>)
+    }
+  },
+
+  removeJdkFromRegistry: async (jdkId: string) => {
+    try {
+      await api.removeJdkFromRegistry(jdkId)
+      const settings = await api.loadEnvironmentSettings()
+      set({jdkRegistry: settings.jdkRegistry ?? [], environmentSettings: settings})
+    } catch (error) {
+      set({error: getErrorMessage(error)} as Partial<EnvironmentState>)
+    }
+  },
+
+  setDefaultJdk: async (jdkId: string) => {
+    try {
+      await api.setDefaultJdk(jdkId)
+      const settings = await api.loadEnvironmentSettings()
+      set({jdkRegistry: settings.jdkRegistry ?? [], environmentSettings: settings})
     } catch (error) {
       set({error: getErrorMessage(error)} as Partial<EnvironmentState>)
     }

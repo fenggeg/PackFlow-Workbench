@@ -1,5 +1,6 @@
 use crate::models::environment::{
-    BuildEnvironment, EnvironmentSettings, EnvironmentSource, EnvironmentStatus,
+    BuildEnvironment, EnvironmentSettings, EnvironmentSource, EnvironmentStatus, JdkEntry,
+    JdkRequirement,
 };
 use crate::services::process_utils::CREATE_NO_WINDOW;
 use std::env;
@@ -8,19 +9,19 @@ use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Command;
 
-pub fn detect_environment(root_path: &str, settings: EnvironmentSettings) -> BuildEnvironment {
+pub fn detect_environment(
+    root_path: &str,
+    settings: EnvironmentSettings,
+    jdk_requirement: Option<JdkRequirement>,
+) -> BuildEnvironment {
     let mut errors = Vec::new();
-    let active_profile = settings
-        .active_profile_id
-        .as_deref()
-        .and_then(|profile_id| {
-            settings
-                .profiles
-                .iter()
-                .find(|profile| profile.id == profile_id)
-        });
-    let (java_home, java_path, java_source) =
-        resolve_java(active_profile.and_then(|profile| profile.java_home.as_deref()));
+    // 优先查找项目专属绑定方案，再 fallback 到全局 active_profile_id
+    let active_profile = resolve_active_profile(root_path, &settings);
+    let (java_home, java_path, java_source, matched_jdk_id) = resolve_java_with_registry(
+        active_profile.and_then(|profile| profile.java_home.as_deref()),
+        &settings.jdk_registry,
+        jdk_requirement.as_ref(),
+    );
     let java_version = java_path
         .as_deref()
         .and_then(|path| run_version(path, &["-version"]))
@@ -112,7 +113,34 @@ pub fn detect_environment(root_path: &str, settings: EnvironmentSettings) -> Bui
         git_source,
         status,
         errors,
+        project_jdk_requirement: jdk_requirement,
+        available_jdks: settings.jdk_registry,
+        matched_jdk_id,
     }
+}
+
+/// 解析当前生效的环境方案：
+/// 1. 优先查找 project_profile_bindings[root_path] 项目专属绑定
+/// 2. 若无绑定，fallback 到全局 active_profile_id
+/// 3. 若都没有，返回 None（走自动识别）
+fn resolve_active_profile<'a>(
+    root_path: &str,
+    settings: &'a EnvironmentSettings,
+) -> Option<&'a crate::models::environment::EnvironmentProfile> {
+    let trimmed = root_path.trim();
+    // 项目专属绑定优先
+    if !trimmed.is_empty() {
+        if let Some(profile_id) = settings.project_profile_bindings.get(trimmed) {
+            if let Some(profile) = settings.profiles.iter().find(|p| p.id == *profile_id) {
+                return Some(profile);
+            }
+        }
+    }
+    // fallback 全局 active_profile_id
+    settings
+        .active_profile_id
+        .as_deref()
+        .and_then(|profile_id| settings.profiles.iter().find(|p| p.id == profile_id))
 }
 
 fn resolve_java(saved: Option<&str>) -> (Option<String>, Option<String>, EnvironmentSource) {
@@ -140,6 +168,86 @@ fn resolve_java(saved: Option<&str>) -> (Option<String>, Option<String>, Environ
         ),
         None => (None, None, source),
     }
+}
+
+/// 扩展的 JDK 解析：profile.javaHome → registry 匹配 → registry 默认 → JAVA_HOME → PATH → Missing
+fn resolve_java_with_registry(
+    saved: Option<&str>,
+    registry: &[JdkEntry],
+    jdk_requirement: Option<&JdkRequirement>,
+) -> (Option<String>, Option<String>, EnvironmentSource, Option<String>) {
+    // 1. 优先用 profile 中手工指定的 javaHome
+    let (home, path, source) = resolve_java(saved);
+    if source == EnvironmentSource::Manual && home.is_some() {
+        return (home, path, source, None);
+    }
+
+    // 2. 尝试从注册表匹配
+    if !registry.is_empty() {
+        // 2a. 有 JDK 需求时，尝试精确匹配
+        if let Some(requirement) = jdk_requirement {
+            if let Some(matched) = match_jdk_for_requirement(requirement, registry) {
+                if let Some((jdk_home, java_exe)) = resolve_jdk_entry_path(&matched) {
+                    return (
+                        Some(jdk_home),
+                        Some(java_exe),
+                        EnvironmentSource::Auto,
+                        Some(matched.id.clone()),
+                    );
+                }
+            }
+        }
+        // 2b. 使用注册表中的默认 JDK
+        if let Some(default_jdk) = registry.iter().find(|e| e.is_default) {
+            if let Some((jdk_home, java_exe)) = resolve_jdk_entry_path(default_jdk) {
+                return (
+                    Some(jdk_home),
+                    Some(java_exe),
+                    EnvironmentSource::Auto,
+                    Some(default_jdk.id.clone()),
+                );
+            }
+        }
+    }
+
+    // 3. fallback: JAVA_HOME → PATH
+    if home.is_some() {
+        return (home, path, source, None);
+    }
+    (None, None, EnvironmentSource::Missing, None)
+}
+
+/// 根据 JDK 需求从注册表中匹配最佳 JDK
+/// 优先级：精确匹配 major_version → 向上兼容（>= requirement 中最小的）
+fn match_jdk_for_requirement(requirement: &JdkRequirement, registry: &[JdkEntry]) -> Option<JdkEntry> {
+    let required_major = requirement.resolved_major?;
+
+    // 1. 精确匹配
+    if let Some(exact) = registry.iter().find(|e| e.major_version == Some(required_major)) {
+        return Some(exact.clone());
+    }
+
+    // 2. 向上兼容：>= required_major 中最小的
+    registry
+        .iter()
+        .filter(|e| e.major_version.is_some_and(|v| v >= required_major))
+        .min_by_key(|e| e.major_version.unwrap_or(u32::MAX))
+        .cloned()
+}
+
+/// 从 JdkEntry 的 path 解析出 JDK home 和 java.exe 路径
+fn resolve_jdk_entry_path(entry: &JdkEntry) -> Option<(String, String)> {
+    let jdk_home = PathBuf::from(&entry.path);
+    let bin_java = jdk_home.join("bin").join("java.exe");
+    if bin_java.exists() {
+        return Some((path_to_string(&jdk_home), path_to_string(&bin_java)));
+    }
+    let direct_java = jdk_home.join("java.exe");
+    if direct_java.exists() {
+        let home = jdk_home.parent().map(PathBuf::from).unwrap_or(jdk_home.clone());
+        return Some((path_to_string(&home), path_to_string(&direct_java)));
+    }
+    None
 }
 
 fn normalize_java_path(path: PathBuf) -> Option<(PathBuf, PathBuf)> {
@@ -470,6 +578,11 @@ fn is_windows_script(program: &str) -> bool {
         .unwrap_or_default()
         .to_ascii_lowercase();
     extension == "cmd" || extension == "bat"
+}
+
+/// 公共版本检测接口，供其他模块调用
+pub fn run_version_public(program: &str, args: &[&str]) -> Option<String> {
+    run_version(program, args)
 }
 
 fn path_to_string(path: impl Into<PathBuf>) -> String {

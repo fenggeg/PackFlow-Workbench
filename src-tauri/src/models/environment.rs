@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -9,6 +10,12 @@ pub struct EnvironmentSettings {
     pub last_project_path: Option<String>,
     #[serde(default)]
     pub project_paths: Vec<String>,
+    /// projectPath -> profileId，项目专属环境方案绑定
+    #[serde(default)]
+    pub project_profile_bindings: HashMap<String, String>,
+    /// JDK 注册表：全局可用 JDK 列表
+    #[serde(default)]
+    pub jdk_registry: Vec<JdkEntry>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -32,7 +39,7 @@ pub enum EnvironmentStatus {
     Error,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum EnvironmentSource {
     Auto,
@@ -65,4 +72,56 @@ pub struct BuildEnvironment {
     pub git_source: EnvironmentSource,
     pub status: EnvironmentStatus,
     pub errors: Vec<String>,
+    /// pom.xml 解析出的 JDK 版本需求
+    pub project_jdk_requirement: Option<JdkRequirement>,
+    /// 注册表中的可用 JDK 列表
+    #[serde(default)]
+    pub available_jdks: Vec<JdkEntry>,
+    /// 自动匹配命中的 JDK 注册表 ID
+    pub matched_jdk_id: Option<String>,
+}
+
+/// JDK 注册表条目
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JdkEntry {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub version: Option<String>,
+    pub major_version: Option<u32>,
+    pub vendor: Option<String>,
+    pub is_default: bool,
+    pub source: JdkSource,
+}
+
+/// JDK 来源标记
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum JdkSource {
+    Scan,
+    Manual,
+    EnvVar,
+    Path,
+}
+
+/// pom.xml JDK 版本需求
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JdkRequirement {
+    pub version_spec: String,
+    pub source: JdkRequirementSource,
+    pub resolved_major: Option<u32>,
+}
+
+/// JDK 需求来源
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum JdkRequirementSource {
+    MavenCompilerRelease,
+    MavenCompilerTarget,
+    MavenCompilerSource,
+    JavaVersion,
+    MavenCompilerPlugin,
+    Unspecified,
 }

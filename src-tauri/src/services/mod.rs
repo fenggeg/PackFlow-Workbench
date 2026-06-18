@@ -5,6 +5,7 @@ pub mod deployment_common;
 pub mod dependency_graph_service;
 pub mod deployment_executor;
 pub mod env_detector;
+pub mod jdk_scanner;
 pub mod pom_parser;
 pub mod process_runner;
 pub mod process_utils;

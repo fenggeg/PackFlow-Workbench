@@ -755,22 +755,86 @@
   min-width: 0;
 }
 
+.env-jdk-clickable {
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background-color 0.15s;
+}
+
+.env-jdk-clickable:hover {
+  background: #f0f9ff;
+}
+
+/* JDK Popover Content */
+.jdk-popover-content {
+  min-width: 0;
+}
+
+.jdk-popover-list {
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+
+.jdk-popover-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid #f3f4f6;
+  transition: background-color 0.1s;
+}
+
+.jdk-popover-item:last-child {
+  border-bottom: none;
+}
+
+.jdk-popover-item:hover {
+  background: #f0f9ff;
+}
+
+.jdk-popover-item-active {
+  background: #f0fdf4;
+}
+
+.jdk-popover-item-active:hover {
+  background: #dcfce7;
+}
+
+.jdk-popover-item-info {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.jdk-popover-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.jdk-popover-item-actions > .ant-typography {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .build-column {
   overflow: hidden;
 }
 
-.env-profile-actions {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) 34px;
-  gap: 8px;
-  min-width: 0;
-}
-
-.env-profile-select,
-.env-profile-name,
-.env-profile-actions .ant-btn {
+.env-profile-select {
   min-height: 32px;
   min-width: 0;
+  display: none;
 }
 
 .env-executor {
@@ -889,6 +953,11 @@
 .env-row .ant-input {
   min-width: 0;
   text-overflow: ellipsis;
+}
+
+/* JDK Popover */
+.jdk-popover-content {
+  min-width: 0;
 }
 
 .command-textarea textarea {
