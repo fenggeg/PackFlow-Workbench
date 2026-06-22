@@ -1,6 +1,43 @@
 # 更新日志
 
-本文件用于记录每个正式版本的更新内容。GitHub Actions 发布 `v*` 标签时，会读取对应版本小节并写入 GitHub Release 和 `latest.json.notes`，应用内“检查更新”弹窗也会展示这里的内容。
+本文件用于记录每个正式版本的更新内容。GitHub Actions 发布 `v*` 标签时，会读取对应版本小节并写入 GitHub Release 和 `latest.json.notes`，应用内"检查更新"弹窗也会展示这里的内容。
+
+## [3.0.0] - 2026-06-23
+
+### 新增
+
+- **命令调度中心**：全新的命令驱动调度平台，替代原有复杂部署系统。
+  - 命令模板系统：支持创建可复用的命令模板，每个步骤为 shell 命令或文件上传。
+  - 模板管理面板：独立的模板列表视图，支持新建、编辑、复制、删除操作。
+  - 命令执行器：支持按顺序执行模板步骤，实时日志输出，支持取消执行。
+  - 变量替换系统：支持 `{{variable}}` 语法，内置常用变量（artifactPath、serverHost、timestamp 等）。
+  - 等待步骤类型：支持在命令链中添加等待时间，可配置等待秒数。
+  - 文件选择器：上传步骤支持通过系统文件管理器选择本地文件。
+  - 执行历史：记录所有命令执行记录，支持查看日志和删除。
+- **服务器搜索**：命令调度中心的服务器选择支持搜索过滤。
+- **构建产物快捷传递**：构建成功后可直接将产物路径发送到命令调度中心。
+
+### 优化
+
+- **模板管理独立化**：模板管理与执行控制分离，左侧显示模板列表，右侧显示执行配置。
+- **远程路径自动校验**：自动将反斜杠转为正斜杠，提示 Linux 路径格式。
+- **上传进度防抖动**：使用等宽字体、固定宽度容器和节流更新（100ms）避免 UI 抖动。
+- **日志样式统一**：命令执行日志使用项目统一的 `.log-panel` 和 `.log-line` CSS 类。
+- **导航配置迁移**：新增 persist 迁移逻辑，自动清除已删除页面的缓存配置。
+
+### 移除
+
+- **发布向导服务**：删除 ReleasePage、useReleaseStore 及相关引用。
+- **服务运维页面**：删除 ServicePage，导航中移除"服务"入口。
+- **旧部署系统**：删除 deployment_executor、startup_probe_service、deployment_common 等后端服务。
+- **旧前端组件**：删除 Deployment 目录、deploymentRuntime、deploymentTopologyService 等。
+- **旧状态管理**：删除 useDeploymentLogStore、useDeploymentTemplateStore、useUploadProgressStore。
+
+### 说明
+
+- 本次为大版本升级，部署系统完全重构为命令调度平台。
+- 远程路径必须使用 Linux 格式（正斜杠 `/`），例如 `/home/data/app.jar`。
+- 命令调度中心支持三种步骤类型：命令（command）、上传（upload）、等待（wait）。
 
 ## [2.0.13] - 2026-06-19
 
@@ -272,8 +309,8 @@
 
 ### 新增
 
-- 环境中心新增“环境方案”能力，支持保存、切换和删除多套 JDK、Maven、settings.xml、本地仓库与 Maven Wrapper 配置。
-- 支持“自动识别 / 指定环境方案”两种环境模式，切换方案后会自动刷新环境检测结果并重新生成构建命令。
+- 环境中心新增"环境方案"能力，支持保存、切换和删除多套 JDK、Maven、settings.xml、本地仓库与 Maven Wrapper 配置。
+- 支持"自动识别 / 指定环境方案"两种环境模式，切换方案后会自动刷新环境检测结果并重新生成构建命令。
 
 ### 优化
 
@@ -291,7 +328,7 @@
 
 ### 新增
 
-- 将原“环境检测”升级为“环境中心”，统一展示 JDK、Maven、Maven Wrapper、settings.xml、本地仓库和 Git 状态。
+- 将原"环境检测"升级为"环境中心"，统一展示 JDK、Maven、Maven Wrapper、settings.xml、本地仓库和 Git 状态。
 - 环境中心支持一键刷新检测，并展示环境来源，包括自动识别、手动覆盖、Wrapper 和未识别状态。
 - 支持手动覆盖 JDK、Maven、settings.xml 和本地仓库路径，覆盖后会立即刷新环境并重新生成构建命令。
 - 手动指定 `settings.xml` 和本地仓库后，构建命令会自动追加 `-s` 与 `-Dmaven.repo.local` 参数。
