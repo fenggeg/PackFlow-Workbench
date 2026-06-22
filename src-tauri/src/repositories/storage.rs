@@ -208,6 +208,34 @@ fn initialize_database(connection: &Connection) -> AppResult<()> {
 
             CREATE INDEX IF NOT EXISTS idx_highlight_rules_scope
                 ON highlight_rules(scope, server_id, app_id);
+
+            CREATE TABLE IF NOT EXISTS command_templates (
+                id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                created_at TEXT,
+                updated_at TEXT,
+                payload TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_command_templates_name
+                ON command_templates(name ASC);
+
+            CREATE TABLE IF NOT EXISTS command_executions (
+                id TEXT PRIMARY KEY NOT NULL,
+                template_id TEXT,
+                template_name TEXT,
+                server_id TEXT,
+                status TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                payload TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_command_executions_started_at
+                ON command_executions(started_at DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_command_executions_template
+                ON command_executions(template_id);
             "#,
         )
         .map_err(|error| to_user_error(format!("无法初始化本地数据库：{}", error)))

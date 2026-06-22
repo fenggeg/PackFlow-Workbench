@@ -7,22 +7,11 @@ import {RemoteLogViewer} from '../features/service-ops/components/RemoteLogViewe
 import {useServiceOperationStore} from '../features/service-ops/stores/serviceOperationStore'
 import {useAppStore} from '../store/useAppStore'
 import {type InspectorTab, useNavigationStore} from '../store/navigationStore'
-import {useWorkflowStore} from '../store/useWorkflowStore'
 import {
     diagnosisCategoryText,
-    probeStatusColor,
-    probeTypeText,
-    stageMetaText,
-    stageStatusColor,
-    stageStatusText,
-    stepTypeText,
-    deploymentStatusText,
 } from '../utils/format'
 
 const {Text} = Typography
-
-const deploymentRunning = (status?: string) =>
-  Boolean(status && !['success', 'failed', 'cancelled'].includes(status))
 
 const classifyServiceOpsLine = (line: string) => {
   const lower = line.toLowerCase()
@@ -44,9 +33,6 @@ export function InspectorDrawer() {
   const logs = useAppStore((state) => state.logs)
   const artifacts = useAppStore((state) => state.artifacts)
   const selectedModules = useAppStore((state) => state.selectedModules)
-  const currentDeploymentTask = useWorkflowStore((state) => state.currentDeploymentTask)
-  const serverProfiles = useWorkflowStore((state) => state.serverProfiles)
-  const deploymentProfiles = useWorkflowStore((state) => state.deploymentProfiles)
   const currentServiceTaskId = useServiceOperationStore((state) => state.currentTaskId)
   const serviceTasksById = useServiceOperationStore((state) => state.tasksById)
   const serviceLogsByTaskId = useServiceOperationStore((state) => state.logsByTaskId)
@@ -84,12 +70,7 @@ export function InspectorDrawer() {
       setInspectorTab('diagnosis')
       setInspectorLogSource('build')
     }
-    if (deploymentRunning(currentDeploymentTask?.status)) {
-      setInspectorOpen(true)
-      setInspectorTab('logs')
-      setInspectorLogSource('deployment')
-    }
-  }, [buildStatus, currentDeploymentTask?.status, setInspectorOpen, setInspectorTab, setInspectorLogSource])
+  }, [buildStatus, setInspectorOpen, setInspectorTab, setInspectorLogSource])
 
   const currentServiceTask = currentServiceTaskId ? serviceTasksById[currentServiceTaskId] : undefined
   const currentServiceLogs = useMemo(
@@ -200,43 +181,12 @@ export function InspectorDrawer() {
       )
     }
 
-    const task = currentDeploymentTask
-    const currentStage = task?.stages.find((s) => ['running', 'checking', 'waiting'].includes(s.status)) ?? task?.stages.find((s) => ['failed', 'timeout'].includes(s.status))
-    const server = serverProfiles.find((s) => s.id === task?.serverId)
-    const profile = deploymentProfiles.find((p) => p.id === task?.deploymentProfileId)
     return (
       <Card title="部署诊断" className="panel-card" size="small">
-        {!task ? (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无运行中的部署任务" />
-        ) : (
-          <Space direction="vertical" size={10} style={{width: '100%'}}>
-            <Space size={8} wrap>
-              <Tag color={task.status === 'success' ? 'success' : task.status === 'pending' ? 'processing' : task.status === 'cancelled' ? 'warning' : 'error'}>
-                {deploymentStatusText(task.status)}
-              </Tag>
-              <Text strong>{task.artifactName}</Text>
-            </Space>
-            <Text type="secondary">目标服务器：{server?.name ?? task.serverId} ({server?.host ?? '-'})</Text>
-            <Text type="secondary">部署配置：{profile?.name ?? task.deploymentProfileId}</Text>
-            {currentStage && (
-              <>
-                <Text strong type={currentStage.status === 'failed' ? 'danger' : undefined}>
-                  当前阶段：{currentStage.label} · {stageStatusText(currentStage.status)}
-                </Text>
-                {task.log && task.log.length > 0 && (
-                  <div className="diagnosis-keyword-lines">
-                    {task.log.slice(-6).map((line, index) => (
-                      <pre key={`${task.id}-${index}`}>{line}</pre>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-          </Space>
-        )}
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="部署功能已重构为命令调度模式" />
       </Card>
     )
-  }, [inspectorLogSource, diagnosis, diagnosisText, currentDeploymentTask, serverProfiles, deploymentProfiles, currentServiceTask])
+  }, [inspectorLogSource, diagnosis, diagnosisText, currentServiceTask])
 
   // ---- Dynamic details content based on log source ----
   const detailsContent = useMemo(() => {
@@ -271,64 +221,12 @@ export function InspectorDrawer() {
       )
     }
 
-    const task = currentDeploymentTask
-    const server = serverProfiles.find((s) => s.id === task?.serverId)
-    const profile = deploymentProfiles.find((p) => p.id === task?.deploymentProfileId)
     return (
       <Card title="部署上下文" className="panel-card" size="small">
-        {!task ? (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无部署任务记录" />
-        ) : (
-          <Space direction="vertical" size={8} style={{width: '100%'}}>
-            <Text type="secondary">部署产物：{task.artifactName}</Text>
-            <Text type="secondary">目标服务器：{server?.name ?? task.serverId} ({server?.host ?? '-'})</Text>
-            <Text type="secondary">部署配置：{profile?.name ?? task.deploymentProfileId}</Text>
-            <Text type="secondary">状态：{deploymentStatusText(task.status)}</Text>
-            <div className="inspector-deploy-flow">
-              <Text strong>部署流程</Text>
-              <List
-                size="small"
-                dataSource={task.stages}
-                locale={{emptyText: '暂无部署步骤'}}
-                renderItem={(stage, index) => (
-                  <List.Item className="inspector-deploy-step">
-                    <div className="inspector-deploy-step-index">{index + 1}</div>
-                    <div className="inspector-deploy-step-body">
-                      <Space size={6} wrap className="inspector-deploy-step-title">
-                        <Text strong>{stage.label}</Text>
-                        <Tag color={stageStatusColor(stage.status)}>{stageStatusText(stage.status)}</Tag>
-                      </Space>
-                      <Text type="secondary" className="inspector-deploy-step-meta">
-                        {stageMetaText(stage) || stepTypeText(stage.type)}
-                      </Text>
-                      {stage.message ? (
-                        <Text className="inspector-deploy-step-message">
-                          {stage.message}
-                        </Text>
-                      ) : null}
-                      {stage.probeStatuses && stage.probeStatuses.length > 0 ? (
-                        <div className="inspector-probe-list">
-                          {stage.probeStatuses.map((probe, probeIndex) => (
-                            <div className="inspector-probe-row" key={`${stage.key}-${probeIndex}`}>
-                              <Tag color={probeStatusColor(probe.status)}>{probe.status}</Tag>
-                              <Text className="inspector-probe-text">
-                                {probeTypeText(probe.probeType)}：{probe.message ?? probe.status}
-                                {probe.checkCount ? `（已检测 ${probe.checkCount} 次）` : ''}
-                              </Text>
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  </List.Item>
-                )}
-              />
-            </div>
-          </Space>
-        )}
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="部署功能已重构为命令调度模式" />
       </Card>
     )
-  }, [inspectorLogSource, buildStatus, logs.length, selectedModules.length, artifacts.length, currentDeploymentTask, serverProfiles, deploymentProfiles, currentServiceTask])
+  }, [inspectorLogSource, buildStatus, logs.length, selectedModules.length, artifacts.length, currentServiceTask])
 
   if (!inspectorOpen) {
     return (

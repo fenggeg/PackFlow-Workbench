@@ -1,11 +1,11 @@
 use crate::error::AppResult;
-use crate::models::deployment::{
-    DeploymentProfile, DeploymentTask, SaveServerProfilePayload, ServerProfile,
-    StartDeploymentPayload,
-};
-use crate::repositories::deployment_repo;
-use crate::services::{app_logger, blocking, deployment_executor, ssh_transport_service};
+use crate::models::command_template::{CommandExecution, CommandTemplate, SaveCommandTemplatePayload};
+use crate::models::deployment::{SaveServerProfilePayload, ServerProfile};
+use crate::repositories::{command_template_repo, deployment_repo};
+use crate::services::{app_logger, blocking, command_runner, ssh_transport_service};
 use tauri::AppHandle;
+
+// ==================== 服务器管理命令 ====================
 
 #[tauri::command]
 pub async fn list_server_profiles(app: AppHandle) -> AppResult<Vec<ServerProfile>> {
@@ -60,114 +60,6 @@ pub async fn delete_server_profile(app: AppHandle, server_id: String) -> AppResu
 }
 
 #[tauri::command]
-pub async fn list_deployment_profiles(app: AppHandle) -> AppResult<Vec<DeploymentProfile>> {
-    let task_app = app.clone();
-    let result = blocking::run(move || deployment_repo::list_deployment_profiles(&task_app)).await;
-    match &result {
-        Ok(items) => app_logger::log_info(
-            &app,
-            "deployment.profile.list.success",
-            format!("count={}", items.len()),
-        ),
-        Err(error) => app_logger::log_error(
-            &app,
-            "deployment.profile.list.failed",
-            format!("error={}", error),
-        ),
-    }
-    result
-}
-
-#[tauri::command]
-pub async fn save_deployment_profile(
-    app: AppHandle,
-    profile: DeploymentProfile,
-) -> AppResult<DeploymentProfile> {
-    let task_app = app.clone();
-    let result =
-        blocking::run(move || deployment_repo::save_deployment_profile(&task_app, profile)).await;
-    if let Err(error) = &result {
-        app_logger::log_error(
-            &app,
-            "deployment.profile.save.failed",
-            format!("error={}", error),
-        );
-    }
-    result
-}
-
-#[tauri::command]
-pub async fn delete_deployment_profile(app: AppHandle, profile_id: String) -> AppResult<()> {
-    let task_app = app.clone();
-    let result =
-        blocking::run(move || deployment_repo::delete_deployment_profile(&task_app, &profile_id))
-            .await;
-    if let Err(error) = &result {
-        app_logger::log_error(
-            &app,
-            "deployment.profile.delete.failed",
-            format!("error={}", error),
-        );
-    }
-    result
-}
-
-#[tauri::command]
-pub async fn list_deployment_tasks(app: AppHandle) -> AppResult<Vec<DeploymentTask>> {
-    let task_app = app.clone();
-    let result = blocking::run(move || deployment_repo::list_deployment_tasks(&task_app)).await;
-    match &result {
-        Ok(items) => app_logger::log_info(
-            &app,
-            "deployment.history.success",
-            format!("count={}", items.len()),
-        ),
-        Err(error) => app_logger::log_error(
-            &app,
-            "deployment.history.failed",
-            format!("error={}", error),
-        ),
-    }
-    result
-}
-
-#[tauri::command]
-pub fn start_deployment(app: AppHandle, payload: StartDeploymentPayload) -> AppResult<String> {
-    app_logger::log_info(
-        &app,
-        "deployment.start",
-        format!("deployment_profile_id={}", payload.deployment_profile_id),
-    );
-    deployment_executor::start_deployment(app, payload)
-}
-
-#[tauri::command]
-pub fn cancel_deployment(app: AppHandle, task_id: String) -> AppResult<()> {
-    app_logger::log_info(&app, "deployment.cancel", format!("task_id={}", task_id));
-    deployment_executor::cancel_deployment(app, task_id)
-}
-
-#[tauri::command]
-pub async fn delete_deployment_task(app: AppHandle, task_id: String) -> AppResult<()> {
-    app_logger::log_info(
-        &app,
-        "deployment.task.delete.start",
-        format!("task_id={}", task_id),
-    );
-    let task_app = app.clone();
-    let result =
-        blocking::run(move || deployment_repo::delete_deployment_task(&task_app, &task_id)).await;
-    if let Err(error) = &result {
-        app_logger::log_error(
-            &app,
-            "deployment.task.delete.failed",
-            format!("error={}", error),
-        );
-    }
-    result
-}
-
-#[tauri::command]
 pub async fn test_server_connection(app: AppHandle, server_id: String) -> AppResult<String> {
     app_logger::log_info(
         &app,
@@ -191,6 +83,121 @@ pub async fn test_server_connection(app: AppHandle, server_id: String) -> AppRes
             "deployment.server.test.failed",
             format!("error={}", error),
         ),
+    }
+    result
+}
+
+// ==================== 命令模板管理命令 ====================
+
+#[tauri::command]
+pub async fn list_command_templates(app: AppHandle) -> AppResult<Vec<CommandTemplate>> {
+    let task_app = app.clone();
+    let result = blocking::run(move || command_template_repo::list_templates(&task_app)).await;
+    match &result {
+        Ok(items) => app_logger::log_info(
+            &app,
+            "command.template.list.success",
+            format!("count={}", items.len()),
+        ),
+        Err(error) => app_logger::log_error(
+            &app,
+            "command.template.list.failed",
+            format!("error={}", error),
+        ),
+    }
+    result
+}
+
+#[tauri::command]
+pub async fn save_command_template(
+    app: AppHandle,
+    payload: SaveCommandTemplatePayload,
+) -> AppResult<CommandTemplate> {
+    let task_app = app.clone();
+    let result =
+        blocking::run(move || command_template_repo::save_template(&task_app, &payload)).await;
+    if let Err(error) = &result {
+        app_logger::log_error(
+            &app,
+            "command.template.save.failed",
+            format!("error={}", error),
+        );
+    }
+    result
+}
+
+#[tauri::command]
+pub async fn delete_command_template(app: AppHandle, template_id: String) -> AppResult<()> {
+    let task_app = app.clone();
+    let result =
+        blocking::run(move || command_template_repo::delete_template(&task_app, &template_id))
+            .await;
+    if let Err(error) = &result {
+        app_logger::log_error(
+            &app,
+            "command.template.delete.failed",
+            format!("error={}", error),
+        );
+    }
+    result
+}
+
+// ==================== 命令执行命令 ====================
+
+#[tauri::command]
+pub fn start_command_execution(
+    app: AppHandle,
+    payload: command_runner::ExecuteTemplatePayload,
+) -> AppResult<String> {
+    app_logger::log_info(
+        &app,
+        "command.execution.start",
+        format!("template_id={}", payload.template_id),
+    );
+    command_runner::execute_template(app, payload)
+}
+
+#[tauri::command]
+pub fn cancel_command_execution(app: AppHandle, execution_id: String) -> AppResult<()> {
+    app_logger::log_info(
+        &app,
+        "command.execution.cancel",
+        format!("execution_id={}", execution_id),
+    );
+    command_runner::cancel_execution(app, execution_id)
+}
+
+#[tauri::command]
+pub async fn list_command_executions(app: AppHandle) -> AppResult<Vec<CommandExecution>> {
+    let task_app = app.clone();
+    let result = blocking::run(move || command_template_repo::list_executions(&task_app)).await;
+    match &result {
+        Ok(items) => app_logger::log_info(
+            &app,
+            "command.execution.list.success",
+            format!("count={}", items.len()),
+        ),
+        Err(error) => app_logger::log_error(
+            &app,
+            "command.execution.list.failed",
+            format!("error={}", error),
+        ),
+    }
+    result
+}
+
+#[tauri::command]
+pub async fn delete_command_execution(app: AppHandle, execution_id: String) -> AppResult<()> {
+    let task_app = app.clone();
+    let result =
+        blocking::run(move || command_template_repo::delete_execution(&task_app, &execution_id))
+            .await;
+    if let Err(error) = &result {
+        app_logger::log_error(
+            &app,
+            "command.execution.delete.failed",
+            format!("error={}", error),
+        );
     }
     result
 }

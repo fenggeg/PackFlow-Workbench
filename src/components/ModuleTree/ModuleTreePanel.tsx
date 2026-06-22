@@ -13,7 +13,6 @@ import {useMemo, useState} from 'react'
 import {useAppStore} from '../../store/useAppStore'
 import {useWorkflowStore} from '../../store/useWorkflowStore'
 import type {MavenModule} from '../../types/domain'
-import {flattenModules} from '../../services/deploymentTopologyService'
 
 const { Text } = Typography
 
@@ -100,10 +99,17 @@ export function ModuleTreePanel() {
   )
   const shouldExpandSearch = Boolean(keyword.trim()) || showCheckedOnly
   const selectedSummary = dependencyGraph?.summaries.find((item) => item.moduleId === selectedModule?.id)
-  const idToModule = useMemo(
-    () => Object.fromEntries(flattenModules(project?.modules ?? []).map((module) => [module.id, module])),
-    [project?.modules],
-  )
+  const idToModule = useMemo(() => {
+    const map: Record<string, MavenModule> = {}
+    const collect = (modules: MavenModule[]) => {
+      for (const mod of modules) {
+        map[mod.id] = mod
+        if (mod.children) collect(mod.children)
+      }
+    }
+    collect(project?.modules ?? [])
+    return map
+  }, [project?.modules])
 
   const renderModuleTags = (moduleIds: string[], color: string) =>
     moduleIds.length > 0 ? (

@@ -11,10 +11,11 @@ import type {
   BuildLogEvent,
   BuildOptions,
   BuildTemplate,
+  CommandExecution,
+  CommandExecutionLogEvent,
+  CommandExecutionUploadProgressEvent,
+  CommandTemplate,
   CommonCommand,
-  DeploymentLogEvent,
-  DeploymentProfile,
-  DeploymentTask,
   EnvironmentSettings,
   FavoritePath,
   GitCommit,
@@ -26,13 +27,13 @@ import type {
   LogSource,
   MavenProject,
   ModuleDependencyGraph,
-  ProbeStatusEvent,
   ReleaseRecord,
   ReleaseTemplate,
   RemoteCommandResult,
   RemoteFileEntry,
   RemoteLogLineEvent,
   RemoteLogSession,
+  SaveCommandTemplatePayload,
   SaveServerProfilePayload,
   ServerGroup,
   ServerProfile,
@@ -41,8 +42,7 @@ import type {
   ServiceOperationTask,
   ServiceRuntimeConfig,
   StartBuildPayload,
-  StartDeploymentPayload,
-  UploadProgressEvent,
+  StartCommandExecutionPayload,
 } from '../types/domain'
 
 type TauriWindow = Window & { __TAURI_INTERNALS__?: unknown }
@@ -236,26 +236,28 @@ export const api = {
   testServerConnection: (serverId: string) =>
     invoke<string>('test_server_connection', { serverId }),
 
-  listDeploymentProfiles: () =>
-    invoke<DeploymentProfile[]>('list_deployment_profiles'),
+  // Command Templates
+  listCommandTemplates: () =>
+    invoke<CommandTemplate[]>('list_command_templates'),
 
-  saveDeploymentProfile: (profile: DeploymentProfile) =>
-    invoke<DeploymentProfile>('save_deployment_profile', { profile }),
+  saveCommandTemplate: (payload: SaveCommandTemplatePayload) =>
+    invoke<CommandTemplate>('save_command_template', { payload }),
 
-  deleteDeploymentProfile: (profileId: string) =>
-    invoke<void>('delete_deployment_profile', { profileId }),
+  deleteCommandTemplate: (templateId: string) =>
+    invoke<void>('delete_command_template', { templateId }),
 
-  listDeploymentTasks: () =>
-    invoke<DeploymentTask[]>('list_deployment_tasks'),
+  // Command Executions
+  startCommandExecution: (payload: StartCommandExecutionPayload) =>
+    invoke<string>('start_command_execution', { payload }),
 
-  startDeployment: (payload: StartDeploymentPayload) =>
-    invoke<string>('start_deployment', { payload }),
+  cancelCommandExecution: (executionId: string) =>
+    invoke<void>('cancel_command_execution', { executionId }),
 
-  cancelDeployment: (taskId: string) =>
-    invoke<void>('cancel_deployment', { taskId }),
+  listCommandExecutions: () =>
+    invoke<CommandExecution[]>('list_command_executions'),
 
-  deleteDeploymentTask: (taskId: string) =>
-    invoke<void>('delete_deployment_task', { taskId }),
+  deleteCommandExecution: (executionId: string) =>
+    invoke<void>('delete_command_execution', { executionId }),
 
   listServiceRuntimeConfigs: () =>
     invoke<ServiceRuntimeConfig[]>('list_service_runtime_configs'),
@@ -440,42 +442,30 @@ export async function registerBuildEvents(
   }
 }
 
-export async function registerDeploymentEvents(
-  onLog: (event: DeploymentLogEvent) => void,
-  onUpdated: (event: DeploymentTask) => void,
-  onFinished: (event: DeploymentTask) => void,
-  onProbeStatus?: (event: ProbeStatusEvent) => void,
-  onUploadProgress?: (event: UploadProgressEvent) => void,
+export async function registerCommandExecutionEvents(
+  onLog: (event: CommandExecutionLogEvent) => void,
+  onFinished: (event: CommandExecution) => void,
+  onUploadProgress?: (event: CommandExecutionUploadProgressEvent) => void,
 ) {
   if (!isTauriRuntime()) {
     return () => undefined
   }
 
-  const unlistenLog = await listen<DeploymentLogEvent>('deployment-log', (event) => {
+  const unlistenLog = await listen<CommandExecutionLogEvent>('command-execution-log', (event) => {
     onLog(event.payload)
   })
-  const unlistenUpdated = await listen<DeploymentTask>('deployment-updated', (event) => {
-    onUpdated(event.payload)
-  })
-  const unlistenFinished = await listen<DeploymentTask>('deployment-finished', (event) => {
+  const unlistenFinished = await listen<CommandExecution>('command-execution-finished', (event) => {
     onFinished(event.payload)
   })
-  const unlistenProbeStatus = onProbeStatus
-    ? await listen<ProbeStatusEvent>('probe-status', (event) => {
-        onProbeStatus(event.payload)
-      })
-    : undefined
   const unlistenUploadProgress = onUploadProgress
-    ? await listen<UploadProgressEvent>('deployment_upload_progress', (event) => {
+    ? await listen<CommandExecutionUploadProgressEvent>('command-execution-upload-progress', (event) => {
         onUploadProgress(event.payload)
       })
     : undefined
 
   return () => {
     unlistenLog()
-    unlistenUpdated()
     unlistenFinished()
-    unlistenProbeStatus?.()
     unlistenUploadProgress?.()
   }
 }

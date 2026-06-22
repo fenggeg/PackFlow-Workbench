@@ -1,4 +1,4 @@
-import type {BuildDiagnosis, DeploymentStage} from '../types/domain'
+import type {BuildDiagnosis, BuildLogEvent, DeploymentStage} from '../types/domain'
 
 export const formatDuration = (durationMs?: number, fallback = ''): string => {
   if (!durationMs) {
@@ -134,3 +134,38 @@ export const stageMetaText = (stage: DeploymentStage): string =>
     stage.durationMs ? `耗时 ${formatDuration(stage.durationMs)}` : '',
     stage.retryCount ? `重试 ${stage.currentRetry ?? 0}/${stage.retryCount}` : '',
   ].filter(Boolean).join(' · ')
+
+export const splitArgs = (value: string): string[] =>
+  value
+    .split(/[,\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+
+type LogClassification = 'success' | 'error' | 'warn' | ''
+
+export const classifyLogLine = (line: string): LogClassification => {
+  const lower = line.toLowerCase()
+  if (lower.includes('build success') || lower.includes('exit code 0') || lower.includes('部署完成')) {
+    return 'success'
+  }
+  if (
+    lower.includes('[error]') ||
+    lower.includes('build failure') ||
+    lower.includes('could not resolve dependencies') ||
+    lower.includes('java_home is not defined correctly') ||
+    lower.includes('non-resolvable parent pom') ||
+    lower.includes('命令执行失败') ||
+    lower.includes('部署失败') ||
+    lower.includes('timeout') ||
+    lower.includes('failed')
+  ) {
+    return 'error'
+  }
+  if (lower.includes('[warning]') || lower.includes('warn')) {
+    return 'warn'
+  }
+  return ''
+}
+
+export const classifyBuildLogEvent = (event: BuildLogEvent): LogClassification =>
+  classifyLogLine(event.line)

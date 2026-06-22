@@ -3,7 +3,6 @@ import {api, createDefaultBuildOptions, selectProjectDirectory} from '../service
 import {diagnoseBuildFailure} from '../services/buildDiagnosisService'
 import {appendBoundedItems} from '../utils/boundedBuffer'
 import {getErrorMessage} from '../utils/errors'
-import {flattenModules} from '../services/deploymentTopologyService'
 import {useEnvironmentStore} from './useEnvironmentStore'
 import type {
     BuildArtifact,
@@ -23,6 +22,9 @@ import type {
     MavenProject,
     PersistedBuildStatus,
 } from '../types/domain'
+
+const flattenModules = (modules: MavenModule[]): MavenModule[] =>
+  modules.flatMap((moduleItem) => [moduleItem, ...flattenModules(moduleItem.children ?? [])])
 
 interface AppState {
   project?: MavenProject
@@ -855,14 +857,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       artifacts: [],
     }
     void (async () => {
-      const artifacts = event.status === 'SUCCESS'
-        ? await api.scanBuildArtifacts(record.projectRoot, record.modulePath).catch(() => [])
-        : []
-      const recordWithArtifacts = { ...record, artifacts }
-      set({ artifacts })
-      notifyBuildFinished(event.status, event.durationMs, artifacts.length)
-      await api.saveBuildHistory(recordWithArtifacts)
-      await get().loadHistoryAndTemplates()
+      try {
+        const artifacts = event.status === 'SUCCESS'
+          ? await api.scanBuildArtifacts(record.projectRoot, record.modulePath).catch(() => [])
+          : []
+        const recordWithArtifacts = { ...record, artifacts }
+        set({ artifacts })
+        notifyBuildFinished(event.status, event.durationMs, artifacts.length)
+        await api.saveBuildHistory(recordWithArtifacts)
+        await get().loadHistoryAndTemplates()
+      } catch (error) {
+        console.error('Failed to save build history:', error)
+      }
     })()
     set({
       buildStatus: toHistoryStatus(event.status),

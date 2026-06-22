@@ -1,118 +1,64 @@
-import {Alert, App, Button, Card, Empty, Input, List, Modal, Select, Space, Tag, Tooltip, Typography} from 'antd'
+import {Alert, App, Button, Card, Empty, List, Result, Space, Tag, Tooltip, Typography} from 'antd'
 import {
-  CheckOutlined,
   CopyOutlined,
-  FileTextOutlined,
   FolderOpenOutlined,
-  RocketOutlined,
-  SettingOutlined
+  ReloadOutlined,
+  SendOutlined,
 } from '@ant-design/icons'
-import {useMemo, useState} from 'react'
-import {deriveRuntimeConfig} from '../../features/service-ops/services/serviceRuntimeConfigService'
-import {useRemoteLogSessionStore} from '../../features/service-ops/stores/remoteLogSessionStore'
-import {useServiceOperationStore} from '../../features/service-ops/stores/serviceOperationStore'
-import {api} from '../../services/tauri-api'
-import {
-  belongsToProject,
-  findDeployableArtifacts,
-  flattenModules,
-  normalizeProjectRoot,
-  pickDefaultTestServer,
-} from '../../services/deploymentTopologyService'
+import {useState} from 'react'
 import {useAppStore} from '../../store/useAppStore'
 import {useNavigationStore} from '../../store/navigationStore'
-import {useWorkflowStore} from '../../store/useWorkflowStore'
+import {useCommandStore} from '../../store/useCommandStore'
+import {api} from '../../services/tauri-api'
 
 const {Text} = Typography
 
-const deploymentFinished = (status?: string) =>
-  Boolean(status && ['success', 'failed', 'cancelled'].includes(status))
-
 export function BuildNextActionsPanel() {
   const {message} = App.useApp()
-  const project = useAppStore((state) => state.project)
   const buildStatus = useAppStore((state) => state.buildStatus)
+  const buildCancelling = useAppStore((state) => state.buildCancelling)
   const artifacts = useAppStore((state) => state.artifacts)
-  const currentBuildId = useAppStore((state) => state.currentBuildId)
-  const deploymentProfiles = useWorkflowStore((state) => state.deploymentProfiles)
-  const serverProfiles = useWorkflowStore((state) => state.serverProfiles)
-  const currentDeploymentTask = useWorkflowStore((state) => state.currentDeploymentTask)
-  const startDeployment = useWorkflowStore((state) => state.startDeployment)
-  const saveRuntimeConfig = useServiceOperationStore((state) => state.saveRuntimeConfig)
-  const openLogSession = useRemoteLogSessionStore((state) => state.openSession)
-  const setInspectorOpen = useNavigationStore((state) => state.setInspectorOpen)
-  const setInspectorTab = useNavigationStore((state) => state.setInspectorTab)
-  const setInspectorLogSource = useNavigationStore((state) => state.setInspectorLogSource)
-  const [selectedDeploymentProfileId, setSelectedDeploymentProfileId] = useState<string>()
-  const [selectedServerId, setSelectedServerId] = useState<string>()
+  const diagnosis = useAppStore((state) => state.diagnosis)
+  const startBuild = useAppStore((state) => state.startBuild)
+  const setActivePage = useNavigationStore((state) => state.setActivePage)
   const [selectedArtifactPath, setSelectedArtifactPath] = useState<string>()
-  const [serverPickerOpen, setServerPickerOpen] = useState(false)
-  const [serverPickerKeyword, setServerPickerKeyword] = useState('')
 
-  const modules = useMemo(() => flattenModules(project?.modules ?? []), [project?.modules])
-  const mappedProfiles = useMemo(
-    () => deploymentProfiles.filter((profile) =>
-      belongsToProject(profile, project?.rootPath) &&
-      artifacts.some((artifact) => findDeployableArtifacts([artifact], profile, modules).length > 0)),
-    [artifacts, deploymentProfiles, modules, project?.rootPath],
-  )
-  const effectiveDeploymentProfileId = mappedProfiles.some((profile) => profile.id === selectedDeploymentProfileId)
-    ? selectedDeploymentProfileId
-    : mappedProfiles[0]?.id
-  const selectedProfile = mappedProfiles.find((profile) => profile.id === effectiveDeploymentProfileId)
-  const visibleDeploymentTask = currentDeploymentTask
-    && normalizeProjectRoot(currentDeploymentTask.projectRoot) === normalizeProjectRoot(project?.rootPath)
-    ? currentDeploymentTask
-    : undefined
-  const artifactOptions = useMemo(
-    () => selectedProfile
-      ? findDeployableArtifacts(artifacts, selectedProfile, modules).map((artifact) => ({
-          label: `${artifact.fileName}${artifact.modulePath ? ` · ${artifact.modulePath}` : ''}`,
-          value: artifact.path,
-        }))
-      : [],
-    [artifacts, modules, selectedProfile],
-  )
-  const deploymentRunning = Boolean(visibleDeploymentTask && !deploymentFinished(visibleDeploymentTask.status))
-  const hasServiceMapping = mappedProfiles.length > 0
-  const defaultTestServer = useMemo(() => pickDefaultTestServer(serverProfiles), [serverProfiles])
-  const effectiveServerId = serverProfiles.some((server) => server.id === selectedServerId)
-    ? selectedServerId
-    : defaultTestServer?.id
-  const effectiveServer = serverProfiles.find((server) => server.id === effectiveServerId)
-  const filteredServers = useMemo(() => {
-    const keyword = serverPickerKeyword.trim().toLowerCase()
-    if (!keyword) {
-      return serverProfiles
-    }
-    return serverProfiles.filter((server) =>
-      [server.name, server.group, server.host, server.username, String(server.port)]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(keyword)))
-  }, [serverPickerKeyword, serverProfiles])
-  const effectiveArtifactPath = artifactOptions.some((artifact) => artifact.value === selectedArtifactPath)
-    ? selectedArtifactPath
-    : artifactOptions[0]?.value
+  if (buildStatus === 'RUNNING' || buildCancelling) {
+    return null
+  }
 
-  const handleViewServiceLog = async () => {
-    if (!selectedProfile || !effectiveServer) {
-      return
-    }
-    try {
-      const config = deriveRuntimeConfig(selectedProfile, effectiveServer)
-      const saved = await saveRuntimeConfig(config)
-      await openLogSession(saved)
-      setInspectorLogSource('remoteLog')
-      setInspectorTab('logs')
-      setInspectorOpen(true)
-      message.success('已打开服务日志会话')
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error))
-    }
+  if (buildStatus === 'FAILED' || buildStatus === 'CANCELLED') {
+    return (
+      <Card title="下一步操作" className="panel-card next-action-panel" size="small">
+        <Result
+          status={buildStatus === 'FAILED' ? 'error' : 'warning'}
+          title={buildStatus === 'FAILED' ? '构建失败' : '构建已停止'}
+          subTitle={diagnosis?.summary ?? '请查看构建日志了解详情。'}
+          extra={[
+            <Button
+              key="retry"
+              type="primary"
+              icon={<ReloadOutlined />}
+              onClick={() => void startBuild()}
+            >
+              重新构建
+            </Button>,
+          ]}
+        />
+      </Card>
+    )
   }
 
   if (buildStatus !== 'SUCCESS') {
     return null
+  }
+
+  const handleSendToCommandCenter = (artifactPath: string) => {
+    // 设置变量编辑器中的 artifactPath
+    useCommandStore.getState().setPresetVariable('artifactPath', artifactPath)
+    // 导航到命令调度中心
+    setActivePage('deployment')
+    message.success('已发送到命令调度中心')
   }
 
   return (
@@ -126,79 +72,24 @@ export function BuildNextActionsPanel() {
           />
         ) : null}
 
-        {hasServiceMapping ? (
-          <div className="next-action-deploy">
-            <Space direction="vertical" size={10} style={{width: '100%'}}>
-              <Space size={8} wrap>
-                <Tag color="green">已有发布映射</Tag>
-                <Text strong>可直接部署到测试环境</Text>
-              </Space>
-              <Space wrap>
-                <Select
-                  placeholder="发布映射"
-                  style={{minWidth: 220}}
-                  value={effectiveDeploymentProfileId}
-                  options={mappedProfiles.map((profile) => ({label: profile.name, value: profile.id}))}
-                  onChange={(value) => {
-                    setSelectedDeploymentProfileId(value)
-                    setSelectedArtifactPath(undefined)
-                  }}
-                />
-                <div className="deployment-server-select">
-                  <Button onClick={() => setServerPickerOpen(true)}>
-                    {effectiveServer
-                      ? `${effectiveServer.name}（${effectiveServer.username}@${effectiveServer.host}:${effectiveServer.port}）`
-                      : '选择测试服务器'}
-                  </Button>
-                  <Text type="secondary">当前仅支持单服务器部署</Text>
-                </div>
-                <Select
-                  placeholder="构建产物"
-                  style={{minWidth: 260}}
-                  value={effectiveArtifactPath}
-                  options={artifactOptions}
-                  onChange={setSelectedArtifactPath}
-                  notFoundContent="当前映射没有匹配产物"
-                />
-                <Button
-                  type="primary"
-                  icon={<RocketOutlined />}
-                  disabled={!effectiveDeploymentProfileId || !effectiveServerId || !effectiveArtifactPath || deploymentRunning}
-                  onClick={() => {
-                    if (effectiveDeploymentProfileId && effectiveServerId && effectiveArtifactPath) {
-                      void startDeployment(
-                        effectiveDeploymentProfileId,
-                        effectiveServerId,
-                        effectiveArtifactPath,
-                        currentBuildId,
-                      )
-                    }
-                  }}
-                >
-                  部署到测试
-                </Button>
-                <Tooltip title="查看关联服务日志">
-                  <Button
-                    size="small"
-                    type="text"
-                    aria-label="查看关联服务日志"
-                    icon={<FileTextOutlined />}
-                    disabled={!selectedProfile || !effectiveServer}
-                    onClick={() => void handleViewServiceLog()}
-                  />
-                </Tooltip>
-              </Space>
+        <div className="next-action-deploy">
+          <Space direction="vertical" size={10} style={{width: '100%'}}>
+            <Space size={8} wrap>
+              <Tag color="blue">命令调度模式</Tag>
+              <Text strong>可发送产物到命令调度中心</Text>
             </Space>
-          </div>
-        ) : (
-          <Alert
-            type="info"
-            showIcon
-            icon={<SettingOutlined />}
-            message="未找到当前产物的后端发布映射"
-            description="请在部署中心的“发布映射”中绑定模块、产物规则、服务名称和部署配置。"
-          />
-        )}
+            <Space wrap>
+              <Button
+                type="primary"
+                icon={<SendOutlined />}
+                disabled={!selectedArtifactPath}
+                onClick={() => selectedArtifactPath && handleSendToCommandCenter(selectedArtifactPath)}
+              >
+                发送到命令中心
+              </Button>
+            </Space>
+          </Space>
+        </div>
 
         {artifacts.length > 0 ? (
           <List
@@ -227,6 +118,17 @@ export function BuildNextActionsPanel() {
                       onClick={() => void api.openPathInExplorer(artifact.path)}
                     />
                   </Tooltip>,
+                  <Tooltip key="send" title="发送到命令中心">
+                    <Button
+                      size="small"
+                      type="primary"
+                      icon={<SendOutlined />}
+                      onClick={() => {
+                        setSelectedArtifactPath(artifact.path)
+                        handleSendToCommandCenter(artifact.path)
+                      }}
+                    />
+                  </Tooltip>,
                 ]}
               >
                 <Space direction="vertical" size={0} className="artifact-item">
@@ -242,57 +144,6 @@ export function BuildNextActionsPanel() {
           <Empty description="暂无可操作产物" image={Empty.PRESENTED_IMAGE_SIMPLE} />
         )}
       </Space>
-      <Modal
-        title="选择测试服务器"
-        open={serverPickerOpen}
-        width={720}
-        footer={null}
-        onCancel={() => setServerPickerOpen(false)}
-      >
-        <Space direction="vertical" size={12} style={{width: '100%'}}>
-          <Input
-            allowClear
-            placeholder="搜索服务器名称、分组、主机、用户名或端口"
-            value={serverPickerKeyword}
-            onChange={(event) => setServerPickerKeyword(event.target.value)}
-          />
-          <List
-            bordered
-            className="deployment-server-list"
-            dataSource={filteredServers}
-            locale={{emptyText: '没有匹配的服务器'}}
-            renderItem={(server) => (
-              <List.Item
-                className={server.id === effectiveServerId ? 'deployment-server-item active' : 'deployment-server-item'}
-                actions={[
-                  <Tooltip key="select" title={server.id === effectiveServerId ? '已选择' : '选择服务器'}>
-                    <Button
-                      type={server.id === effectiveServerId ? 'primary' : 'default'}
-                      size="small"
-                      icon={<CheckOutlined />}
-                      onClick={() => {
-                        setSelectedServerId(server.id)
-                        setServerPickerOpen(false)
-                      }}
-                    />
-                  </Tooltip>,
-                ]}
-              >
-                <Space direction="vertical" size={2} className="artifact-item">
-                  <Space size={8} wrap>
-                    <Text strong>{server.name}</Text>
-                    <Tag>{server.group || '默认环境'}</Tag>
-                    <Tag>{server.authType === 'password' ? '密码' : '私钥'}</Tag>
-                  </Space>
-                  <Text type="secondary">
-                    {server.username}@{server.host}:{server.port}
-                  </Text>
-                </Space>
-              </List.Item>
-            )}
-          />
-        </Space>
-      </Modal>
     </Card>
   )
 }

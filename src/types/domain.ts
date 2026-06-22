@@ -907,3 +907,77 @@ export interface ServerConnectionState {
   lastCheckedAt?: string
   errorMessage?: string
 }
+
+// ==================== 命令模板系统类型 ====================
+
+export interface CommandTemplate {
+  id: string
+  name: string
+  description?: string
+  steps: CommandStep[]
+  variables: TemplateVariable[]
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface SaveCommandTemplatePayload {
+  id?: string
+  name: string
+  description?: string
+  steps: CommandStep[]
+  variables: TemplateVariable[]
+}
+
+export interface CommandStep {
+  id: string
+  type: 'upload' | 'command' | 'wait'
+  name?: string
+  localPath?: string
+  remotePath?: string
+  command?: string
+  shell?: string
+  workingDir?: string
+  ignoreError: boolean
+  privileged: boolean
+  waitSeconds?: number
+}
+
+export interface TemplateVariable {
+  key: string
+  label: string
+  defaultValue?: string
+  required: boolean
+}
+
+export interface CommandExecution {
+  id: string
+  templateId: string
+  templateName: string
+  serverId: string
+  serverName?: string
+  status: 'running' | 'success' | 'failed' | 'cancelled'
+  logs: string[]
+  startedAt: string
+  finishedAt?: string
+  variablesUsed: Record<string, string>
+}
+
+export interface StartCommandExecutionPayload {
+  templateId: string
+  serverId: string
+  variables?: Record<string, string>
+  localArtifactPath?: string
+}
+
+export interface CommandExecutionLogEvent {
+  executionId: string
+  line: string
+}
+
+export interface CommandExecutionUploadProgressEvent {
+  executionId: string
+  percent: number
+  uploaded: number
+  total: number
+  speed?: string
+}

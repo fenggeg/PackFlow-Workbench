@@ -1,15 +1,10 @@
 import {Card, Input, InputNumber, Space, Typography} from 'antd'
 import {useMemo} from 'react'
 import {useAppStore} from '../../store/useAppStore'
+import {splitArgs} from '../../utils/format'
 
 const { Text, Paragraph } = Typography
 const { TextArea } = Input
-
-const splitArgs = (value: string) =>
-  value
-    .split(/\s+/)
-    .map((item) => item.trim())
-    .filter(Boolean)
 
 const withoutThreadArg = (args: string[]) =>
   args.filter((arg) => arg !== '-T' && !arg.startsWith('-T'))

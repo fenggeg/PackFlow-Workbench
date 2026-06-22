@@ -1,3 +1,4 @@
+pub mod command_template_repo;
 pub mod deployment_repo;
 pub mod history_repo;
 pub mod release_repo;

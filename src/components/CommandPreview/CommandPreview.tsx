@@ -60,12 +60,17 @@ export function CommandPreview() {
   const running = buildStatus === 'RUNNING'
   const durationText = durationMs ? `${(durationMs / 1000).toFixed(1)} 秒` : '暂无'
   const commandReady = Boolean(buildOptions.projectRoot && buildOptions.editableCommand.trim())
-  const displayStatus = buildStatus === 'IDLE' && commandReady ? 'READY' : buildStatus
+  const isReady = buildStatus === 'IDLE' && commandReady
   const statusLabel = buildCancelling
     ? '停止中'
-    : displayStatus === 'READY'
+    : isReady
       ? '待执行'
       : statusText[buildStatus]
+  const statusColorValue = buildCancelling
+    ? 'warning'
+    : isReady
+      ? 'blue'
+      : statusColor[buildStatus]
   const moduleSummary = selectedModules.length > 0
     ? selectedModules.length === 1
       ? selectedModules[0].artifactId
@@ -79,7 +84,7 @@ export function CommandPreview() {
       <div className="command-dock-main">
         <div className="command-dock-status">
           <Tag
-            color={buildCancelling ? 'warning' : displayStatus === 'READY' ? 'blue' : statusColor[buildStatus]}
+            color={statusColorValue}
             className="status-tag"
           >
             {statusLabel}

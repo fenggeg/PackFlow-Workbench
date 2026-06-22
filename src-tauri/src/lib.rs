@@ -4,7 +4,7 @@ mod models;
 mod repositories;
 mod services;
 
-use services::deployment_common::DeploymentControlState;
+use services::command_runner::CommandControlState;
 use services::process_runner::BuildProcessState;
 use services::remote_log_session_service::RemoteLogSessionState;
 use services::terminal_session_service::TerminalManager;
@@ -28,7 +28,7 @@ pub fn run() {
             Ok(())
         })
         .manage(BuildProcessState::default())
-        .manage(DeploymentControlState::default())
+        .manage(CommandControlState::default())
         .manage(RemoteLogSessionState::default())
         .manage(TerminalManager::new())
         .invoke_handler(tauri::generate_handler![
@@ -72,14 +72,14 @@ pub fn run() {
             commands::deployment::list_server_profiles,
             commands::deployment::save_server_profile,
             commands::deployment::delete_server_profile,
-            commands::deployment::list_deployment_profiles,
-            commands::deployment::save_deployment_profile,
-            commands::deployment::delete_deployment_profile,
-            commands::deployment::list_deployment_tasks,
-            commands::deployment::start_deployment,
-            commands::deployment::cancel_deployment,
-            commands::deployment::delete_deployment_task,
             commands::deployment::test_server_connection,
+            commands::deployment::list_command_templates,
+            commands::deployment::save_command_template,
+            commands::deployment::delete_command_template,
+            commands::deployment::start_command_execution,
+            commands::deployment::cancel_command_execution,
+            commands::deployment::list_command_executions,
+            commands::deployment::delete_command_execution,
             commands::service_ops::list_service_runtime_configs,
             commands::service_ops::save_service_runtime_config,
             commands::service_ops::delete_service_runtime_config,

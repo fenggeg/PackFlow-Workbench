@@ -5,7 +5,6 @@ import {ModuleTreePanel} from '../components/ModuleTree/ModuleTreePanel'
 import {ProjectSelector} from '../components/ProjectSelector/ProjectSelector'
 import {useAppStore} from '../store/useAppStore'
 import {type AppPage, useNavigationStore} from '../store/navigationStore'
-import {useWorkflowStore} from '../store/useWorkflowStore'
 
 const {Text} = Typography
 
@@ -15,7 +14,6 @@ interface SidebarPanelProps {
 
 export function SidebarPanel({activePage}: SidebarPanelProps) {
   const history = useAppStore((state) => state.history)
-  const deploymentTasks = useWorkflowStore((state) => state.deploymentTasks)
   const buildSidebarTab = useNavigationStore((state) => state.buildSidebarTab)
   const setBuildSidebarTab = useNavigationStore((state) => state.setBuildSidebarTab)
 
@@ -55,10 +53,8 @@ export function SidebarPanel({activePage}: SidebarPanelProps) {
 
   if (
     activePage === 'dashboard'
-    || activePage === 'release'
     || activePage === 'deployment'
     || activePage === 'artifacts'
-    || activePage === 'services'
     || activePage === 'servers'
   ) {
     return null
@@ -68,11 +64,10 @@ export function SidebarPanel({activePage}: SidebarPanelProps) {
     const buildSuccess = history.filter((h) => h.status === 'SUCCESS').length
     const buildFailed = history.filter((h) => h.status === 'FAILED').length
     const lastBuild = history[0]
-    const lastDeployment = deploymentTasks[0]
 
     return (
       <aside className="sidebar-panel">
-        <Card title="历史摘要" className="panel-card" size="small">
+        <Card title="构建统计" className="panel-card" size="small">
           <Space direction="vertical" size={16} style={{width: '100%'}}>
             <div>
               <Text type="secondary">构建记录</Text>
@@ -84,17 +79,6 @@ export function SidebarPanel({activePage}: SidebarPanelProps) {
               {lastBuild ? (
                 <Text type="secondary" style={{fontSize: 12, marginTop: 4, display: 'block'}}>
                   最近：{new Date(lastBuild.createdAt).toLocaleString()} · {lastBuild.status === 'SUCCESS' ? '成功' : lastBuild.status === 'FAILED' ? '失败' : '已取消'}
-                </Text>
-              ) : null}
-            </div>
-            <div>
-              <Text type="secondary">部署记录</Text>
-              <div style={{marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap'}}>
-                <Tag color="blue">总计 {deploymentTasks.length}</Tag>
-              </div>
-              {lastDeployment ? (
-                <Text type="secondary" style={{fontSize: 12, marginTop: 4, display: 'block'}}>
-                  最近：{lastDeployment.deploymentProfileName ?? '-'} · {lastDeployment.status}
                 </Text>
               ) : null}
             </div>

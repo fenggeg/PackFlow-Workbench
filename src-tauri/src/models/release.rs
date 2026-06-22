@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 use super::build::{BuildOptions, BuildArtifact};
-use super::deployment::StartupProbeConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,7 +38,7 @@ pub struct ReleaseTemplate {
     #[serde(default)]
     pub start_command: String,
     #[serde(default)]
-    pub health_check: Option<StartupProbeConfig>,
+    pub health_check: Option<serde_json::Value>,
     #[serde(default)]
     pub log_config: Option<ReleaseLogConfig>,
     #[serde(default)]

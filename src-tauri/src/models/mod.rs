@@ -1,4 +1,5 @@
 pub mod build;
+pub mod command_template;
 pub mod dependency;
 pub mod deployment;
 pub mod environment;

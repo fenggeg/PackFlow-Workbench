@@ -1,5 +1,5 @@
 import {Alert, Button, Card, Empty, List, Select, Space, Tag, Tooltip, Typography} from 'antd'
-import {DownloadOutlined, ReloadOutlined} from '@ant-design/icons'
+import {DownloadOutlined, HistoryOutlined, SyncOutlined} from '@ant-design/icons'
 import {useAppStore} from '../../store/useAppStore'
 
 const { Text } = Typography
@@ -87,7 +87,7 @@ export function GitStatusCard() {
           <Tooltip title="检查远端">
             <Button
               size="small"
-              icon={<ReloadOutlined />}
+              icon={<SyncOutlined />}
               loading={gitChecking}
               onClick={() => void fetchGitUpdates()}
             />
@@ -95,7 +95,7 @@ export function GitStatusCard() {
           <Tooltip title="刷新提交">
             <Button
               size="small"
-              icon={<ReloadOutlined />}
+              icon={<HistoryOutlined />}
               loading={gitCommitsLoading}
               onClick={() => void loadGitCommits()}
             />

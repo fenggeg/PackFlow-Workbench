@@ -21,14 +21,14 @@ interface NavigationConfigState {
 
 const defaultItems: NavigationItemConfig[] = [
   { key: 'dashboard', label: '首页', visible: true, order: 0 },
-  { key: 'release', label: '发布', visible: true, order: 1 },
-  { key: 'build', label: '构建', visible: true, order: 2 },
-  { key: 'artifacts', label: '产物', visible: true, order: 3 },
-  { key: 'deployment', label: '部署', visible: true, order: 4 },
-  { key: 'services', label: '服务', visible: true, order: 5 },
-  { key: 'servers', label: '服务器', visible: true, order: 6 },
-  { key: 'history', label: '历史', visible: true, order: 7 },
+  { key: 'build', label: '构建', visible: true, order: 1 },
+  { key: 'artifacts', label: '产物', visible: true, order: 2 },
+  { key: 'deployment', label: '部署', visible: true, order: 3 },
+  { key: 'servers', label: '服务器', visible: true, order: 4 },
+  { key: 'history', label: '历史', visible: true, order: 5 },
 ]
+
+const VALID_PAGE_KEYS: AppPage[] = ['dashboard', 'build', 'artifacts', 'deployment', 'servers', 'history']
 
 const defaultPage: AppPage = 'dashboard'
 
@@ -58,6 +58,20 @@ export const useNavigationConfigStore = create<NavigationConfigState>()(
     }),
     {
       name: 'navigation-config',
+      // 迁移：过滤掉已删除的页面（如 'release', 'services'）
+      migrate: (persistedState: unknown, _version: number) => {
+        const state = persistedState as Partial<NavigationConfigState>
+        if (state.items) {
+          // 过滤掉无效的页面 key
+          state.items = state.items.filter((item) => VALID_PAGE_KEYS.includes(item.key))
+          // 确保 defaultPage 有效
+          if (state.defaultPage && !VALID_PAGE_KEYS.includes(state.defaultPage)) {
+            state.defaultPage = defaultPage
+          }
+        }
+        return state as NavigationConfigState
+      },
+      version: 2,
     }
   )
 )

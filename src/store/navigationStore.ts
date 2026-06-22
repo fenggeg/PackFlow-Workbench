@@ -1,6 +1,6 @@
 import {create} from 'zustand'
 
-export type AppPage = 'dashboard' | 'release' | 'build' | 'artifacts' | 'deployment' | 'services' | 'servers' | 'history'
+export type AppPage = 'dashboard' | 'build' | 'artifacts' | 'deployment' | 'servers' | 'history'
 export type BuildSidebarTab = 'project' | 'git' | 'modules' | 'favorites'
 
 export type InspectorTab = 'logs' | 'diagnosis' | 'details'

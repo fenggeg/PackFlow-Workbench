@@ -1,12 +1,12 @@
 use crate::error::AppResult;
 use crate::models::deployment::{
-    DeploymentProfile, DeploymentTask, SaveServerProfilePayload, ServerPrivilegeConfig,
+    DeploymentProfile, SaveServerProfilePayload, ServerPrivilegeConfig,
     ServerProfile,
 };
 use crate::repositories::storage::open_database;
 use crate::services::secure_storage;
 use chrono::Utc;
-use rusqlite::{params, OptionalExtension};
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 use uuid::Uuid;
@@ -195,147 +195,9 @@ pub fn update_server_last_connected(app: &AppHandle, server_id: &str) -> AppResu
     Ok(())
 }
 
-pub fn list_deployment_profiles(app: &AppHandle) -> AppResult<Vec<DeploymentProfile>> {
-    let connection = open_database(app)?;
-    let mut statement = connection
-        .prepare("SELECT payload FROM deployment_profiles ORDER BY updated_at DESC, name ASC")
-        .map_err(|error| format!("无法读取部署配置：{}", error))?;
-    let rows = statement
-        .query_map([], |row| row.get::<_, String>(0))
-        .map_err(|error| format!("无法读取部署配置：{}", error))?;
 
-    let mut profiles = Vec::new();
-    for row in rows {
-        let payload = row.map_err(|error| format!("无法读取部署配置：{}", error))?;
-        let profile = serde_json::from_str(&payload)
-            .map_err(|error| format!("部署配置数据格式异常：{}", error))?;
-        profiles.push(profile);
-    }
-    Ok(profiles)
-}
 
-pub fn save_deployment_profile(
-    app: &AppHandle,
-    mut profile: DeploymentProfile,
-) -> AppResult<DeploymentProfile> {
-    let connection = open_database(app)?;
-    let now = Utc::now().to_rfc3339();
-    let existing: Option<String> = connection
-        .query_row(
-            "SELECT created_at FROM deployment_profiles WHERE id = ?1",
-            params![profile.id],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(|error| format!("无法读取部署配置：{}", error))?;
 
-    profile.created_at = existing.or_else(|| Some(now.clone()));
-    profile.updated_at = Some(now);
-    let payload = serde_json::to_string(&profile)
-        .map_err(|error| format!("无法序列化部署配置：{}", error))?;
-    connection
-        .execute(
-            r#"
-            INSERT INTO deployment_profiles (id, name, created_at, updated_at, payload)
-            VALUES (?1, ?2, ?3, ?4, ?5)
-            ON CONFLICT(id) DO UPDATE SET
-                name = excluded.name,
-                created_at = excluded.created_at,
-                updated_at = excluded.updated_at,
-                payload = excluded.payload
-            "#,
-            params![
-                profile.id,
-                profile.name,
-                profile.created_at,
-                profile.updated_at,
-                payload
-            ],
-        )
-        .map_err(|error| format!("无法保存部署配置：{}", error))?;
-
-    Ok(profile)
-}
-
-pub fn delete_deployment_profile(app: &AppHandle, profile_id: &str) -> AppResult<()> {
-    let connection = open_database(app)?;
-    connection
-        .execute(
-            "DELETE FROM deployment_profiles WHERE id = ?1",
-            params![profile_id],
-        )
-        .map_err(|error| format!("无法删除部署配置：{}", error))?;
-    Ok(())
-}
-
-pub fn list_deployment_tasks(app: &AppHandle) -> AppResult<Vec<DeploymentTask>> {
-    let connection = open_database(app)?;
-    let mut statement = connection
-        .prepare("SELECT payload FROM deployment_tasks ORDER BY created_at DESC")
-        .map_err(|error| format!("无法读取部署历史：{}", error))?;
-    let rows = statement
-        .query_map([], |row| row.get::<_, String>(0))
-        .map_err(|error| format!("无法读取部署历史：{}", error))?;
-
-    let mut tasks = Vec::new();
-    for row in rows {
-        let payload = row.map_err(|error| format!("无法读取部署历史：{}", error))?;
-        let task = serde_json::from_str(&payload)
-            .map_err(|error| format!("部署历史数据格式异常：{}", error))?;
-        tasks.push(task);
-    }
-    Ok(tasks)
-}
-
-pub fn save_deployment_task(app: &AppHandle, task: DeploymentTask) -> AppResult<()> {
-    let connection = open_database(app)?;
-    let payload =
-        serde_json::to_string(&task).map_err(|error| format!("无法序列化部署历史：{}", error))?;
-    connection
-        .execute(
-            r#"
-            INSERT INTO deployment_tasks (id, deployment_profile_id, created_at, payload)
-            VALUES (?1, ?2, ?3, ?4)
-            ON CONFLICT(id) DO UPDATE SET
-                deployment_profile_id = excluded.deployment_profile_id,
-                created_at = excluded.created_at,
-                payload = excluded.payload
-            "#,
-            params![
-                task.id,
-                task.deployment_profile_id,
-                task.created_at,
-                payload
-            ],
-        )
-        .map_err(|error| format!("无法保存部署历史：{}", error))?;
-
-    connection
-        .execute(
-            r#"
-            DELETE FROM deployment_tasks
-            WHERE id NOT IN (
-                SELECT id FROM deployment_tasks
-                ORDER BY created_at DESC
-                LIMIT 100
-            )
-            "#,
-            [],
-        )
-        .map_err(|error| format!("无法清理部署历史：{}", error))?;
-    Ok(())
-}
-
-pub fn delete_deployment_task(app: &AppHandle, task_id: &str) -> AppResult<()> {
-    let connection = open_database(app)?;
-    connection
-        .execute(
-            "DELETE FROM deployment_tasks WHERE id = ?1",
-            params![task_id],
-        )
-        .map_err(|error| format!("无法删除部署记录：{}", error))?;
-    Ok(())
-}
 
 pub fn get_deployment_profile(app: &AppHandle, profile_id: &str) -> AppResult<DeploymentProfile> {
     let connection = open_database(app)?;

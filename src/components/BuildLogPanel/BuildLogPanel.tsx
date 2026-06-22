@@ -6,21 +6,17 @@ import {
     PauseCircleOutlined,
     PlayCircleOutlined
 } from '@ant-design/icons'
-import {Button, Card, Input, List, Modal, Radio, Select, Space, Tag, Tooltip, Typography} from 'antd'
+import {Button, Card, Input, List, Modal, Select, Space, Tag, Tooltip, Typography} from 'antd'
 import {useEffect, useMemo, useRef, useState} from 'react'
 import {LogConsole} from '../common/LogConsole'
 import {useAppStore} from '../../store/useAppStore'
-import {useDeploymentLogStore} from '../../store/useDeploymentLogStore'
 import {useNavigationStore} from '../../store/navigationStore'
-import {useWorkflowStore} from '../../store/useWorkflowStore'
-import type {BuildLogEvent, BuildStatus} from '../../types/domain'
-import {diagnosisCategoryText, deploymentStatusText} from '../../utils/format'
+import type {BuildStatus} from '../../types/domain'
+import {classifyBuildLogEvent, classifyLogLine, diagnosisCategoryText} from '../../utils/format'
 
 const { Text } = Typography
 
-type LogSource = 'build' | 'deployment'
 type LogFilter = 'all' | 'error' | 'warn' | 'success'
-const EMPTY_DEPLOYMENT_LOGS: string[] = []
 
 const statusText: Record<BuildStatus, string> = {
   IDLE: '未开始',
@@ -38,40 +34,6 @@ const statusColor: Record<BuildStatus, string> = {
   CANCELLED: 'warning',
 }
 
-const classifyBuildLog = (event: BuildLogEvent) => {
-  const line = event.line.toLowerCase()
-  if (line.includes('build success')) {
-    return 'success'
-  }
-  if (
-    line.includes('[error]') ||
-    line.includes('build failure') ||
-    line.includes('could not resolve dependencies') ||
-    line.includes('java_home is not defined correctly') ||
-    line.includes('non-resolvable parent pom')
-  ) {
-    return 'error'
-  }
-  if (line.includes('[warning]')) {
-    return 'warn'
-  }
-  return ''
-}
-
-const classifyLine = (line: string) => {
-  const lower = line.toLowerCase()
-  if (lower.includes('build success') || lower.includes('exit code 0') || lower.includes('部署完成')) {
-    return 'success'
-  }
-  if (lower.includes('[error]') || lower.includes('build failure') || lower.includes('命令执行失败') || lower.includes('部署失败') || lower.includes('timeout') || lower.includes('failed')) {
-    return 'error'
-  }
-  if (lower.includes('[warning]') || lower.includes('warn')) {
-    return 'warn'
-  }
-  return ''
-}
-
 export function BuildLogPanel() {
   // Build logs
   const logs = useAppStore((state) => state.logs)
@@ -82,14 +44,6 @@ export function BuildLogPanel() {
   const cancelBuild = useAppStore((state) => state.cancelBuild)
   const clearBuildLogs = useAppStore((state) => state.clearBuildLogs)
 
-  // Deployment logs
-  const currentDeploymentTask = useWorkflowStore((state) => state.currentDeploymentTask)
-  const deploymentTaskId = currentDeploymentTask?.id
-  const deploymentLogs = useDeploymentLogStore(
-    (state) => state.logsByTaskId[deploymentTaskId ?? ''] ?? EMPTY_DEPLOYMENT_LOGS,
-  )
-  const clearDeploymentLogs = useDeploymentLogStore((state) => state.clearLogs)
-
   const panelRef = useRef<HTMLDivElement>(null)
   const modalPanelRef = useRef<HTMLDivElement>(null)
   const [expanded, setExpanded] = useState(false)
@@ -99,44 +53,27 @@ export function BuildLogPanel() {
   const activeSource = useNavigationStore((state) => state.inspectorLogSource)
   const setActiveSource = useNavigationStore((state) => state.setInspectorLogSource)
 
-  const isDeploymentRunning = currentDeploymentTask != null && !['success', 'failed', 'cancelled'].includes(currentDeploymentTask.status)
-
-  // Alias for local readability
-  const setActiveSourceLocal = (source: LogSource) => setActiveSource(source)
-
   const lastLaunchRef = useRef<{
     buildStartedAt?: number
-    deploymentTaskId?: string
   }>({})
 
   useEffect(() => {
     const previous = lastLaunchRef.current
-    let nextSource: LogSource | undefined
 
     if (buildStartedAt && buildStatus === 'RUNNING' && buildStartedAt !== previous.buildStartedAt) {
-      nextSource = 'build'
-    }
-    if (deploymentTaskId && isDeploymentRunning && deploymentTaskId !== previous.deploymentTaskId) {
-      nextSource = 'deployment'
+      setActiveSource('build')
     }
 
     lastLaunchRef.current = {
       buildStartedAt,
-      deploymentTaskId,
-    }
-
-    if (nextSource) {
-      setActiveSource(nextSource)
     }
   }, [
     buildStartedAt,
     buildStatus,
-    deploymentTaskId,
-    isDeploymentRunning,
     setActiveSource,
   ])
 
-  const currentLogCount = activeSource === 'build' ? logs.length : deploymentLogs.length
+  const currentLogCount = logs.length
 
   // Auto-scroll
   useEffect(() => {
@@ -162,72 +99,44 @@ export function BuildLogPanel() {
   // Filter by keyword
   const keywordValue = keyword.trim().toLowerCase()
   const visibleBuildLogs = useMemo(() => logs.filter((event) => {
-    if (logFilter !== 'all' && classifyBuildLog(event) !== logFilter) return false
+    if (logFilter !== 'all' && classifyBuildLogEvent(event) !== logFilter) return false
     if (keywordValue && !event.line.toLowerCase().includes(keywordValue)) return false
     return true
   }), [keywordValue, logFilter, logs])
-
-  const visibleDeploymentLogs = useMemo(() => deploymentLogs.filter((line) => {
-    if (logFilter !== 'all' && classifyLine(line) !== logFilter) return false
-    if (keywordValue && !line.toLowerCase().includes(keywordValue)) return false
-    return true
-  }), [deploymentLogs, keywordValue, logFilter])
 
   const visibleBuildLogLines = useMemo(
     () => visibleBuildLogs.map((event) => event.line),
     [visibleBuildLogs],
   )
 
-  const copyLogs = () => {
-    let text = ''
-    if (activeSource === 'build') {
-      text = logs.map((event) => event.line).join('\n')
-    } else {
-      text = deploymentLogs.join('\n')
+  const copyLogs = async () => {
+    const text = logs.map((event) => event.line).join('\n')
+    try {
+      await navigator.clipboard?.writeText(text)
+    } catch {
+      // Clipboard API unavailable or denied
     }
-    void navigator.clipboard?.writeText(text)
   }
 
   const downloadLogs = () => {
-    const text = activeSource === 'build'
-      ? logs.map((event) => event.line).join('\n')
-      : deploymentLogs.join('\n')
+    const text = logs.map((event) => event.line).join('\n')
     if (!text) return
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = activeSource === 'build' ? 'build-log.txt' : 'deployment-log.txt'
+    a.download = 'build-log.txt'
     a.click()
-    URL.revokeObjectURL(url)
+    setTimeout(() => URL.revokeObjectURL(url), 100)
   }
 
   const clearLogs = () => {
-    if (activeSource === 'build') {
-      clearBuildLogs()
-    } else if (deploymentTaskId) {
-      clearDeploymentLogs(deploymentTaskId)
-    }
+    clearBuildLogs()
   }
 
   // Build status tag for header
   const renderStatusTag = () => {
-    if (activeSource === 'build') {
-      return <Tag color={statusColor[buildStatus]}>{statusText[buildStatus]}</Tag>
-    }
-    if (activeSource === 'deployment' && currentDeploymentTask) {
-      const isRunning = !['success', 'failed', 'cancelled'].includes(currentDeploymentTask.status)
-      const color = currentDeploymentTask.status === 'success' ? 'success' : currentDeploymentTask.status === 'cancelled' ? 'warning' : isRunning ? 'processing' : 'error'
-      const label = `${currentDeploymentTask.artifactName} · ${deploymentStatusText(currentDeploymentTask.status)}`
-      return (
-        <Tooltip title={label}>
-          <Tag color={color} className="log-status-tag">
-            <span>{label}</span>
-          </Tag>
-        </Tooltip>
-      )
-    }
-    return null
+    return <Tag color={statusColor[buildStatus]}>{statusText[buildStatus]}</Tag>
   }
 
   const copyDiagnosis = () => {
@@ -276,11 +185,6 @@ export function BuildLogPanel() {
                 <Button size="small" type="text" icon={<DeleteOutlined />} onClick={clearLogs} />
               </Tooltip>
             )}
-            {activeSource === 'deployment' && (
-              <Tooltip title="清空当前部署日志">
-                <Button size="small" type="text" icon={<DeleteOutlined />} disabled={!deploymentTaskId} onClick={clearLogs} />
-              </Tooltip>
-            )}
             <Tooltip title="复制日志">
               <Button
                 size="small"
@@ -319,15 +223,6 @@ export function BuildLogPanel() {
           </Space>
         }
       >
-        <Radio.Group
-          value={activeSource}
-          onChange={(event) => setActiveSourceLocal(event.target.value)}
-          size="small"
-          style={{ marginBottom: 8 }}
-        >
-          <Radio.Button value="build">构建</Radio.Button>
-          <Radio.Button value="deployment">部署</Radio.Button>
-        </Radio.Group>
         <Space size={4}>
           <Select
             size="small"
@@ -350,53 +245,30 @@ export function BuildLogPanel() {
             onChange={(event) => setKeyword(event.target.value)}
           />
         </Space>
-        {activeSource === 'build' ? (
-          <LogConsole
-            ref={panelRef}
-            lines={visibleBuildLogLines}
-            classifyLine={classifyLine}
-            emptyTitle="准备开始构建"
-            emptyDescription="请选择模块并点击开始打包。"
-            keyPrefix="build-log"
-          />
-        ) : (
-          <LogConsole
-            ref={panelRef}
-            lines={visibleDeploymentLogs}
-            classifyLine={classifyLine}
-            emptyTitle="暂无部署日志"
-            emptyDescription="执行部署后日志将在此实时展示。"
-            keyPrefix="deployment-log"
-          />
-        )}
+        <LogConsole
+          ref={panelRef}
+          lines={visibleBuildLogLines}
+          classifyLine={classifyLogLine}
+          emptyTitle="准备开始构建"
+          emptyDescription="请选择模块并点击开始打包。"
+          keyPrefix="build-log"
+        />
         <Modal
-          title={`日志输出 · ${activeSource === 'build' ? '构建' : '部署'}`}
+          title="日志输出 · 构建"
           open={expanded}
           footer={null}
           width="88vw"
           onCancel={() => setExpanded(false)}
         >
-          {activeSource === 'build' ? (
-            <LogConsole
-              ref={modalPanelRef}
-              className="log-panel log-panel-large"
-              lines={visibleBuildLogLines}
-              classifyLine={classifyLine}
-              emptyTitle="准备开始构建"
-              emptyDescription="请选择模块并点击开始打包。"
-              keyPrefix="build-log-modal"
-            />
-          ) : (
-            <LogConsole
-              ref={modalPanelRef}
-              className="log-panel log-panel-large"
-              lines={visibleDeploymentLogs}
-              classifyLine={classifyLine}
-              emptyTitle="暂无部署日志"
-              emptyDescription="执行部署后日志将在此实时展示。"
-              keyPrefix="deployment-log-modal"
-            />
-          )}
+          <LogConsole
+            ref={modalPanelRef}
+            className="log-panel log-panel-large"
+            lines={visibleBuildLogLines}
+            classifyLine={classifyLogLine}
+            emptyTitle="准备开始构建"
+            emptyDescription="请选择模块并点击开始打包。"
+            keyPrefix="build-log-modal"
+          />
         </Modal>
       </Card>
 

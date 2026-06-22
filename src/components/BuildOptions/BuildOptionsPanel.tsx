@@ -1,6 +1,8 @@
 import {Card, Checkbox, Input, Space, Tooltip, Typography} from 'antd'
 import {InfoCircleOutlined} from '@ant-design/icons'
+import {useMemo} from 'react'
 import {useAppStore} from '../../store/useAppStore'
+import {splitArgs} from '../../utils/format'
 
 const { Text } = Typography
 
@@ -12,12 +14,6 @@ const AddonHelp = ({ label, help }: { label: string; help: string }) => (
     </Tooltip>
   </Space>
 )
-
-const splitArgs = (value: string) =>
-  value
-    .split(/[,\s]+/)
-    .map((item) => item.trim())
-    .filter(Boolean)
 
 const commonArgs = [
   {
@@ -57,11 +53,13 @@ const commonArgValues = commonArgs.map((item) => item.value)
 export function BuildOptionsPanel() {
   const buildOptions = useAppStore((state) => state.buildOptions)
   const setBuildOption = useAppStore((state) => state.setBuildOption)
-  const checkedCommonArgs = buildOptions.customArgs.filter((arg) =>
-    commonArgValues.includes(arg),
+  const checkedCommonArgs = useMemo(
+    () => buildOptions.customArgs.filter((arg) => commonArgValues.includes(arg)),
+    [buildOptions.customArgs],
   )
-  const manualCustomArgs = buildOptions.customArgs.filter(
-    (arg) => !commonArgValues.includes(arg),
+  const manualCustomArgs = useMemo(
+    () => buildOptions.customArgs.filter((arg) => !commonArgValues.includes(arg)),
+    [buildOptions.customArgs],
   )
 
   const setCommonArgs = (values: string[]) => {
