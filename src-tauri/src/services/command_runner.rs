@@ -6,6 +6,7 @@ use crate::services::token_expansion::expand_template;
 use chrono::Utc;
 use serde_json::json;
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::Path;
 use std::sync::Mutex;
 use std::thread;
@@ -198,6 +199,8 @@ fn run_steps(
     variables: &HashMap<String, String>,
     state: &CommandControlState,
 ) -> AppResult<()> {
+    let total_steps = steps.len();
+    
     for (index, step) in steps.iter().enumerate() {
         // 检查取消
         if state.is_cancelled(execution_id) {
@@ -206,16 +209,73 @@ fn run_steps(
 
         let step_num = index + 1;
         let step_name = step.name.as_deref().unwrap_or("未命名步骤");
+        let is_last_step = step_num == total_steps;
+        let is_non_blocking = !step.affects_status;
 
         emit_log(
             app,
             execution_id,
-            &format!("[步骤 {}/{}] 开始执行: {}", step_num, steps.len(), step_name),
+            &format!("[步骤 {}/{}] 开始执行: {}", step_num, total_steps, step_name),
         );
+
+        // 对于最后一步且不影响状态的步骤，在后台运行
+        if is_last_step && is_non_blocking && step.step_type == "command" {
+            emit_log(
+                app,
+                execution_id,
+                &format!("[步骤 {}/{}] 后台运行（不影响状态）: {}", step_num, total_steps, step_name),
+            );
+            // 启动后台任务，使用 ssh2 command_session
+            if let Some(cmd_session) = &connection.command_session {
+                let cmd_session_clone = cmd_session.clone();
+                let app_clone = app.clone();
+                let eid = execution_id.to_string();
+                let cmd = step.command.clone().unwrap_or_default();
+                let expanded_cmd = expand_template(&cmd, variables);
+                
+                std::thread::spawn(move || {
+                    if let Ok(guard) = cmd_session_clone.lock() {
+                        if let Ok(mut channel) = guard.channel_session() {
+                            if channel.exec(&expanded_cmd).is_ok() {
+                                let app_handle = app_clone;
+                                let eid_clone = eid;
+                                let mut buf = [0u8; 4096];
+                                loop {
+                                    match channel.read(&mut buf) {
+                                        Ok(0) => break,
+                                        Ok(n) => {
+                                            let line = String::from_utf8_lossy(&buf[..n]);
+                                            for l in line.lines() {
+                                                let _ = app_handle.emit(
+                                                    "command-execution-log",
+                                                    json!({
+                                                        "executionId": eid_clone,
+                                                        "line": l
+                                                    }),
+                                                );
+                                            }
+                                        }
+                                        Err(_) => break,
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+            continue;
+        }
 
         let result = match step.step_type.as_str() {
             "upload" => execute_upload_step(app, execution_id, step, connection, variables, state),
             "command" => execute_command_step(app, execution_id, step, connection, variables, state),
+            "wait" => {
+                let wait_seconds = step.wait_seconds.unwrap_or(5);
+                emit_log(app, execution_id, &format!("[等待] 等待 {} 秒...", wait_seconds));
+                thread::sleep(std::time::Duration::from_secs(wait_seconds));
+                emit_log(app, execution_id, "[等待] 等待完成");
+                Ok(())
+            },
             _ => Err(to_user_error(&format!("未知的步骤类型: {}", step.step_type))),
         };
 
@@ -224,17 +284,18 @@ fn run_steps(
                 emit_log(
                     app,
                     execution_id,
-                    &format!("[步骤 {}/{}] 执行成功: {}", step_num, steps.len(), step_name),
+                    &format!("[步骤 {}/{}] 执行成功: {}", step_num, total_steps, step_name),
                 );
             }
             Err(error) => {
-                if step.ignore_error {
+                if step.ignore_error || !step.affects_status {
+                    let tag = if !step.affects_status { "不影响状态" } else { "已忽略" };
                     emit_log(
                         app,
                         execution_id,
                         &format!(
-                            "[步骤 {}/{}] 执行失败（已忽略）: {}",
-                            step_num, steps.len(), error
+                            "[步骤 {}/{}] 执行失败（{}）: {}",
+                            step_num, total_steps, tag, error
                         ),
                     );
                 } else {
@@ -256,6 +317,8 @@ fn execute_upload_step(
     variables: &HashMap<String, String>,
     state: &CommandControlState,
 ) -> AppResult<()> {
+    eprintln!("[上传] execute_upload_step 开始执行");
+    
     let local_path = step
         .local_path
         .as_deref()
@@ -265,20 +328,40 @@ fn execute_upload_step(
         .as_deref()
         .ok_or_else(|| to_user_error("上传步骤缺少远程路径"))?;
 
+    eprintln!("[上传] 本地路径: {}", local_path);
+    eprintln!("[上传] 远程路径: {}", remote_path);
+
     // 展开变量
     let expanded_local = expand_template(local_path, variables);
     let expanded_remote = expand_template(remote_path, variables);
 
-    emit_log(
-        app,
-        execution_id,
-        &format!("[上传] {} -> {}", expanded_local, expanded_remote),
-    );
+    eprintln!("[上传] 展开后本地路径: {}", expanded_local);
+    eprintln!("[上传] 展开后远程路径: {}", expanded_remote);
 
     // 检查本地文件是否存在
     if !Path::new(&expanded_local).exists() {
-        return Err(to_user_error(&format!("本地文件不存在: {}", expanded_local)));
+        let error_msg = format!("本地文件不存在: {}", expanded_local);
+        eprintln!("[上传] 错误: {}", error_msg);
+        emit_log(app, execution_id, &format!("[上传] ❌ 错误: {}", error_msg));
+        return Err(to_user_error(&error_msg));
     }
+
+    // 获取文件大小
+    let file_size = std::fs::metadata(&expanded_local)
+        .map(|m| m.len())
+        .unwrap_or(0);
+    let file_size_mb = file_size as f64 / 1024.0 / 1024.0;
+
+    eprintln!("[上传] 文件大小: {:.1} MB", file_size_mb);
+
+    emit_log(
+        app,
+        execution_id,
+        &format!("[上传] {} -> {} ({:.1} MB)", expanded_local, expanded_remote, file_size_mb),
+    );
+    emit_log(app, execution_id, "[上传] 开始上传...");
+
+    eprintln!("[上传] 调用 upload_file_with_progress...");
 
     // 上传文件
     let app_handle = app.clone();
@@ -310,7 +393,7 @@ fn execute_upload_step(
         },
     )?;
 
-    emit_log(app, execution_id, "[上传] 文件上传完成");
+    emit_log(app, execution_id, &format!("[上传] 文件上传完成 ({:.1} MB)", file_size_mb));
 
     Ok(())
 }
@@ -340,11 +423,27 @@ fn execute_command_step(
         expanded_command.clone()
     };
 
+    // 如果有超时，包装命令
+    let final_command = if let Some(timeout) = step.timeout_seconds {
+        if timeout > 0 {
+            format!("timeout {}s {}", timeout, full_command)
+        } else {
+            full_command
+        }
+    } else {
+        full_command
+    };
+
     emit_log(
         app,
         execution_id,
         &format!("[命令] {}", expanded_command),
     );
+    if let Some(timeout) = step.timeout_seconds {
+        if timeout > 0 {
+            emit_log(app, execution_id, &format!("[命令] 超时设置: {} 秒", timeout));
+        }
+    }
 
     // 执行命令并流式输出
     let app_handle = app.clone();
@@ -352,7 +451,7 @@ fn execute_command_step(
 
     let exit_code = if step.privileged {
         connection.stream_privileged_with_cancel(
-            &full_command,
+            &final_command,
             || state.is_cancelled(execution_id),
             move |line| {
                 let _ = app_handle.emit(
@@ -366,7 +465,7 @@ fn execute_command_step(
         )?
     } else {
         connection.stream_with_cancel(
-            &full_command,
+            &final_command,
             || state.is_cancelled(execution_id),
             move |line| {
                 let _ = app_handle.emit(

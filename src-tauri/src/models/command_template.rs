@@ -50,6 +50,12 @@ pub struct CommandStep {
     pub ignore_error: bool,
     #[serde(default)]
     pub privileged: bool,
+    #[serde(default = "default_true")]
+    pub affects_status: bool, // 是否影响执行状态判断，默认 true
+    #[serde(default)]
+    pub timeout_seconds: Option<u64>, // 步骤超时时间，None 表示不限制
+    #[serde(default)]
+    pub wait_seconds: Option<u64>, // 等待步骤的等待秒数
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

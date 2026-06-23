@@ -1412,6 +1412,25 @@
   white-space: pre-wrap;
 }
 
+/* 统一滚动条样式 */
+.log-panel::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.log-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.log-panel::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 3px;
+}
+
+.log-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+
 .log-panel-card .ant-card-head-wrapper {
   min-width: 0;
   gap: 8px;

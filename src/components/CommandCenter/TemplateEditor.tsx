@@ -1,5 +1,5 @@
 import {useState, useEffect} from 'react'
-import {Modal, Form, Input, Button, Space, Card, Select, Switch, message} from 'antd'
+import {Modal, Form, Input, InputNumber, Button, Space, Card, Select, Switch, message} from 'antd'
 import {PlusOutlined, DeleteOutlined, FolderOpenOutlined} from '@ant-design/icons'
 import type {CommandTemplate, CommandStep, TemplateVariable, SaveCommandTemplatePayload} from '../../types/domain'
 import {useCommandStore} from '../../store/useCommandStore'
@@ -174,6 +174,28 @@ export function TemplateEditor({visible, template, onClose}: TemplateEditorProps
                     checkedChildren="提权"
                     unCheckedChildren="普通"
                   />
+                  <Switch
+                    checked={step.affectsStatus !== false}
+                    onChange={checked => handleStepChange(index, 'affectsStatus', checked)}
+                    checkedChildren="影响状态"
+                    unCheckedChildren="不影响"
+                    title="关闭后此步骤失败不影响整体执行状态"
+                  />
+                  {step.type === 'command' && (
+                    <Space size={4}>
+                      <span style={{fontSize: 12, color: '#666'}}>超时:</span>
+                      <InputNumber
+                        size="small"
+                        min={0}
+                        max={3600}
+                        value={step.timeoutSeconds}
+                        onChange={(value: number | null) => handleStepChange(index, 'timeoutSeconds', value || undefined)}
+                        placeholder="不限"
+                        style={{width: 70}}
+                        addonAfter="秒"
+                      />
+                    </Space>
+                  )}
                   <Button
                     type="text"
                     danger

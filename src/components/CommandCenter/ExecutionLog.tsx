@@ -1,22 +1,26 @@
-import {useEffect, useRef} from 'react'
-import {Card, Tag, Space, Progress, Empty} from 'antd'
+import {useEffect, useRef, useState} from 'react'
+import {Card, Tag, Space, Progress, Empty, Button, Tooltip, Popconfirm} from 'antd'
+import {PauseCircleOutlined, PlayCircleOutlined, DisconnectOutlined} from '@ant-design/icons'
 import {useCommandStore} from '../../store/useCommandStore'
 
 export function ExecutionLog() {
   const {
+    currentExecutionId,
     currentExecutionLogs,
     currentExecutionStatus,
     uploadProgress,
+    cancelExecution,
   } = useCommandStore()
 
   const logContainerRef = useRef<HTMLDivElement>(null)
+  const [autoScroll, setAutoScroll] = useState(true)
 
   // 自动滚动到底部
   useEffect(() => {
-    if (logContainerRef.current) {
+    if (autoScroll && logContainerRef.current) {
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
     }
-  }, [currentExecutionLogs])
+  }, [currentExecutionLogs, autoScroll])
 
   const statusTag = {
     idle: <Tag>空闲</Tag>,
@@ -26,21 +30,56 @@ export function ExecutionLog() {
     cancelled: <Tag color="warning">已取消</Tag>,
   }
 
+  const logCount = currentExecutionLogs.length
+  const isRunning = currentExecutionStatus === 'running'
+
   return (
     <Card
       title={
         <Space>
           <span>执行日志</span>
           {statusTag[currentExecutionStatus]}
+          {logCount > 0 && <Tag>{logCount} 行</Tag>}
         </Space>
       }
       size="small"
       className="panel-card"
+      extra={
+        <Space size={4}>
+          {isRunning && currentExecutionId && (
+            <Popconfirm
+              title="确定要停止当前执行吗？"
+              description="这将中断正在运行的命令"
+              onConfirm={() => cancelExecution(currentExecutionId)}
+              okText="停止"
+              cancelText="取消"
+            >
+              <Tooltip title="停止执行">
+                <Button
+                  size="small"
+                  danger
+                  icon={<DisconnectOutlined />}
+                >
+                  停止
+                </Button>
+              </Tooltip>
+            </Popconfirm>
+          )}
+          <Tooltip title={autoScroll ? '关闭自动滚动' : '开启自动滚动'}>
+            <Button
+              size="small"
+              type={autoScroll ? 'primary' : 'text'}
+              icon={autoScroll ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
+              onClick={() => setAutoScroll(!autoScroll)}
+            />
+          </Tooltip>
+        </Space>
+      }
       style={{height: '100%', display: 'flex', flexDirection: 'column'}}
       styles={{body: {flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column'}}}
     >
       {uploadProgress && (
-        <div style={{marginBottom: 12, fontFamily: 'Consolas, "Cascadia Mono", monospace'}}>
+        <div style={{marginBottom: 8, fontFamily: 'Consolas, "Cascadia Mono", monospace', flexShrink: 0}}>
           <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4}}>
             <span style={{fontFamily: 'inherit'}}>上传进度</span>
             <span style={{minWidth: 60, textAlign: 'right', fontVariantNumeric: 'tabular-nums'}}>
@@ -51,6 +90,7 @@ export function ExecutionLog() {
             percent={uploadProgress.percent != null ? Math.round(uploadProgress.percent) : 0}
             status={uploadProgress.percent != null && uploadProgress.percent >= 100 ? 'success' : 'active'}
             showInfo={false}
+            size="small"
           />
           <div style={{display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666', fontVariantNumeric: 'tabular-nums'}}>
             <span style={{minWidth: 160}}>{formatBytes(uploadProgress.uploaded)} / {formatBytes(uploadProgress.total)}</span>
@@ -63,12 +103,13 @@ export function ExecutionLog() {
         <Empty
           description="暂无日志"
           style={{margin: 'auto'}}
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
         />
       ) : (
         <div
           ref={logContainerRef}
           className="log-panel"
-          style={{flex: 1, minHeight: 0}}
+          style={{flex: 1, minHeight: 0, maxHeight: '400px'}}
         >
           {currentExecutionLogs.map((line, index) => (
             <div
@@ -85,13 +126,13 @@ export function ExecutionLog() {
 }
 
 function getLineClass(line: string): string {
-  if (line.includes('[错误]') || line.includes('[执行失败]') || line.includes('Error')) {
+  if (line.includes('[错误]') || line.includes('[执行失败]') || line.includes('Error') || line.includes('❌')) {
     return 'error'
   }
   if (line.includes('[警告]') || line.includes('Warning')) {
     return 'warn'
   }
-  if (line.includes('[执行完成]') || line.includes('[成功]')) {
+  if (line.includes('[执行完成]') || line.includes('[成功]') || line.includes('✅')) {
     return 'success'
   }
   return ''

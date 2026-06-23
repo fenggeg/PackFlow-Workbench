@@ -19,7 +19,7 @@ pub struct CommandResult {
 pub struct SshConnection {
     session: ssh::LocalSession<TcpStream>,
     sftp_session: Option<Arc<Mutex<SftpSession>>>,
-    command_session: Option<Arc<Mutex<Session>>>,
+    pub command_session: Option<Arc<Mutex<Session>>>,
     privilege: Option<PrivilegeCommandConfig>,
 }
 
@@ -71,8 +71,14 @@ impl SshConnection {
         };
 
         let sftp_session = match open_sftp_session(profile) {
-            Ok(session) => Some(session),
-            Err(_) => None,
+            Ok(session) => {
+                eprintln!("[SSH] SFTP 会话创建成功");
+                Some(session)
+            },
+            Err(error) => {
+                eprintln!("[SSH] SFTP 会话创建失败: {}", error);
+                None
+            },
         };
         let command_session = match open_ssh2_session(profile) {
             Ok(session) => Some(session),
@@ -406,14 +412,25 @@ impl SshConnection {
             .unwrap_or_else(|| "/tmp".to_string());
 
         let mkdir_cmd = format!("mkdir -p {}", shell_quote(&remote_dir));
-        let mut mkdir_channel = self
-            .session
-            .open_exec()
-            .map_err(|error| to_user_error(format!("无法打开 SSH 命令通道：{}", error)))?;
-        mkdir_channel
-            .exec_command(&mkdir_cmd)
-            .map_err(|error| to_user_error(format!("创建远端目录失败：{}", error)))?;
-        let _ = mkdir_channel.get_output();
+        eprintln!("[上传] 创建远程目录: {}", remote_dir);
+        
+        // 使用 ssh2 的 command_session 来执行目录创建命令
+        if let Some(cmd_session) = &self.command_session {
+            let guard = cmd_session.lock().map_err(|_| to_user_error("无法获取命令会话锁。"))?;
+            let mut channel = guard.channel_session().map_err(|error| to_user_error(format!("无法打开命令通道：{}", error)))?;
+            channel.exec(&mkdir_cmd).map_err(|error| to_user_error(format!("创建远端目录失败：{}", error)))?;
+            eprintln!("[上传] 等待目录创建完成...");
+            // 不等待输出，直接关闭通道
+            let _ = channel.send_eof();
+            let _ = channel.wait_eof();
+            let _ = channel.wait_close();
+            eprintln!("[上传] 目录创建完成");
+        } else {
+            eprintln!("[上传] 警告: 无命令会话，跳过目录创建");
+        }
+
+        let use_sftp = self.sftp_session.is_some();
+        eprintln!("[上传] 使用 {} 方式上传", if use_sftp { "SFTP" } else { "Base64" });
 
         if let Some(sftp_arc) = &self.sftp_session {
             upload_via_sftp(
@@ -439,8 +456,10 @@ impl SshConnection {
 }
 
 fn open_sftp_session(profile: &ExecutionServerProfile) -> AppResult<Arc<Mutex<SftpSession>>> {
+    eprintln!("[SFTP] 创建新的 SSH 连接用于 SFTP...");
     let session = open_ssh2_session(profile)?;
 
+    eprintln!("[SFTP] 创建 SFTP 通道...");
     let sftp = {
         let guard = session
             .lock()
@@ -450,6 +469,7 @@ fn open_sftp_session(profile: &ExecutionServerProfile) -> AppResult<Arc<Mutex<Sf
             .map_err(|error| to_user_error(format!("创建 SFTP 通道失败：{}", error)))?
     };
 
+    eprintln!("[SFTP] SFTP 通道创建成功");
     let session = Arc::try_unwrap(session)
         .map_err(|_| to_user_error("无法初始化 SFTP 会话。"))?
         .into_inner()
@@ -514,11 +534,14 @@ where
     C: FnMut() -> bool,
     P: FnMut(u64, u64, Option<f64>),
 {
+    eprintln!("[SFTP] 开始上传，文件大小: {} bytes", file_size);
+    
     let sftp_guard = sftp_arc
         .lock()
         .map_err(|_| to_user_error("无法获取 SFTP 锁。"))?;
 
     let remote = std::path::Path::new(remote_path);
+    eprintln!("[SFTP] 创建远程文件: {}", remote_path);
     let mut sftp_file = sftp_guard
         .sftp
         .create(remote)
@@ -529,6 +552,7 @@ where
     let start_time = Instant::now();
     let mut last_progress_time = Instant::now();
     let mut last_uploaded: u64 = 0;
+    let mut chunk_count: u64 = 0;
 
     loop {
         if is_cancelled() {
@@ -541,6 +565,11 @@ where
 
         if bytes_read == 0 {
             break;
+        }
+
+        chunk_count += 1;
+        if chunk_count % 100 == 0 {
+            eprintln!("[SFTP] 已上传 {} chunks, 共 {} bytes", chunk_count, uploaded);
         }
 
         sftp_file

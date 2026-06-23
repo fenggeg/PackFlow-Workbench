@@ -940,6 +940,8 @@ export interface CommandStep {
   ignoreError: boolean
   privileged: boolean
   waitSeconds?: number
+  affectsStatus?: boolean // 是否影响执行状态判断，默认 true
+  timeoutSeconds?: number // 步骤超时时间，不设置则不限制
 }
 
 export interface TemplateVariable {
