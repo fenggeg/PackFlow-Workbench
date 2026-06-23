@@ -272,7 +272,7 @@ export function TemplateEditor({visible, template, onClose}: TemplateEditorProps
           </div>
 
           {variables.map((variable, index) => (
-            <Card key={variable.key} size="small" style={{marginBottom: 8}}>
+            <Card key={index} size="small" style={{marginBottom: 8}}>
               <Space>
                 <Input
                   placeholder="变量标识"

@@ -1,18 +1,23 @@
-import {useEffect} from 'react'
+import {useEffect, useCallback} from 'react'
 import {Form, Input, Space, Tag, Alert} from 'antd'
 import {useCommandStore} from '../../store/useCommandStore'
 
-export function VariableEditor() {
+
+interface VariableEditorProps {
+  selectedTemplateId?: string
+  onVariablesChange?: (variables: Record<string, string>) => void
+}
+
+export function VariableEditor({selectedTemplateId, onVariablesChange}: VariableEditorProps) {
   const {templates, presetVariables} = useCommandStore()
   const [form] = Form.useForm()
 
-  // 获取当前选中的模板（从TemplateSelector传递的状态）
-  // 这里简化处理，实际应该通过props或context传递
-  const currentTemplate = templates[0] // 临时处理
+  // 根据selectedTemplateId获取当前模板
+  const currentTemplate = templates.find(t => t.id === selectedTemplateId)
 
+  // 初始化表单值，包含预设变量
   useEffect(() => {
     if (currentTemplate) {
-      // 初始化表单值，包含预设变量
       const initialValues: Record<string, string> = {}
       currentTemplate.variables.forEach(v => {
         initialValues[v.key] = presetVariables[v.key] || v.defaultValue || ''
@@ -24,8 +29,15 @@ export function VariableEditor() {
         }
       })
       form.setFieldsValue(initialValues)
+      // 通知父组件变量值
+      onVariablesChange?.(initialValues)
     }
-  }, [currentTemplate, form, presetVariables])
+  }, [currentTemplate?.id, presetVariables]) // 移除form依赖，使用currentTemplate?.id
+
+  // 表单值变化时通知父组件
+  const handleValuesChange = useCallback((_changedValues: Record<string, string>, allValues: Record<string, string>) => {
+    onVariablesChange?.(allValues)
+  }, [onVariablesChange])
 
   // 获取所有变量键（包括模板定义的和预设的）
   const allVariableKeys = [
@@ -70,6 +82,7 @@ export function VariableEditor() {
         form={form}
         layout="inline"
         style={{flexWrap: 'wrap', gap: 8}}
+        onValuesChange={handleValuesChange}
       >
         {allVariableKeys.map(key => (
           <Form.Item

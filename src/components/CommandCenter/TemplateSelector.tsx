@@ -18,6 +18,7 @@ interface TemplateSelectorProps {
   onSelectTemplate: (templateId: string | undefined) => void
   onRefresh: () => void
   onReset: () => void
+  variables?: Record<string, string>
 }
 
 export function TemplateSelector({
@@ -30,6 +31,7 @@ export function TemplateSelector({
   onSelectTemplate,
   onRefresh,
   onReset,
+  variables = {},
 }: TemplateSelectorProps) {
   const [selectedServerId, setSelectedServerId] = useState<string>()
 
@@ -50,14 +52,14 @@ export function TemplateSelector({
       const payload: StartCommandExecutionPayload = {
         templateId: selectedTemplateId,
         serverId: selectedServerId,
-        variables: {},
+        variables,
       }
       await startExecution(payload)
       message.success('执行已开始')
     } catch (error) {
       message.error(`执行失败: ${error}`)
     }
-  }, [selectedTemplateId, selectedServerId, startExecution])
+  }, [selectedTemplateId, selectedServerId, startExecution, variables])
 
   const handleCancel = useCallback(async () => {
     if (!currentExecutionId) return

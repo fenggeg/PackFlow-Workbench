@@ -20,6 +20,7 @@ export function CommandCenterPanel() {
 
   const {serverProfiles, initialize: initWorkflow} = useWorkflowStore()
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>()
+  const [templateVariables, setTemplateVariables] = useState<Record<string, string>>({})
 
   useEffect(() => {
     loadTemplates()
@@ -56,6 +57,7 @@ export function CommandCenterPanel() {
               onSelectTemplate={setSelectedTemplateId}
               onRefresh={loadTemplates}
               onReset={resetCurrentExecution}
+              variables={templateVariables}
             />
           </Card>
         </Col>
@@ -63,7 +65,10 @@ export function CommandCenterPanel() {
 
       {/* 中部变量编辑区 */}
       <Card size="small" style={{flexShrink: 0}}>
-        <VariableEditor />
+        <VariableEditor
+          selectedTemplateId={selectedTemplateId}
+          onVariablesChange={setTemplateVariables}
+        />
       </Card>
 
       {/* 下部日志和历史区 */}
