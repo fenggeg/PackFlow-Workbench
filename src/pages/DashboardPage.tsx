@@ -13,7 +13,6 @@ const {Title, Text} = Typography
 export function DashboardPage() {
   const setActivePage = useNavigationStore((state) => state.setActivePage)
   const navigateToDeployment = useNavigationStore((state) => state.navigateToDeployment)
-  const navigateToServerDetail = useNavigationStore((state) => state.navigateToServerDetail)
   const project = useAppStore((state) => state.project)
   const environment = useAppStore((state) => state.environment)
   const buildStatus = useAppStore((state) => state.buildStatus)
@@ -70,12 +69,7 @@ export function DashboardPage() {
               <Button icon={<CloudServerOutlined />} onClick={() => navigateToDeployment()}>部署管理</Button>
               <Button
                 disabled={serverProfiles.length === 0}
-                onClick={() => {
-                  const firstServer = serverProfiles[0]
-                  if (firstServer) {
-                    navigateToServerDetail(firstServer.id, 'commands')
-                  }
-                }}
+                onClick={() => setActivePage('servers')}
               >
                 服务器管理
               </Button>
