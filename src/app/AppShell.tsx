@@ -40,7 +40,7 @@ export function AppShell() {
 
   const sidebarHidden = noSidebarPages.has(activePage)
   const bodyStyle = useMemo(
-    () => ({gridTemplateColumns: sidebarHidden ? '56px minmax(0, 1fr) auto' : undefined}),
+    () => ({gridTemplateColumns: sidebarHidden ? '56px minmax(0, 1fr)' : undefined}),
     [sidebarHidden],
   )
 

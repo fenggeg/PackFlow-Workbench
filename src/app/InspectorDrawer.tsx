@@ -1,5 +1,5 @@
-import {CopyOutlined, FullscreenOutlined, MenuFoldOutlined, MenuUnfoldOutlined} from '@ant-design/icons'
-import {Button, Card, Empty, List, Modal, Space, Tabs, Tag, Typography} from 'antd'
+import {CopyOutlined, FullscreenOutlined, MenuUnfoldOutlined} from '@ant-design/icons'
+import {Button, Card, Drawer, Empty, List, Modal, Space, Tabs, Tag, Typography} from 'antd'
 import {useEffect, useMemo, useState} from 'react'
 import {BuildLogPanel} from '../components/BuildLogPanel/BuildLogPanel'
 import {LogConsole} from '../components/common/LogConsole'
@@ -37,27 +37,6 @@ export function InspectorDrawer() {
   const serviceTasksById = useServiceOperationStore((state) => state.tasksById)
   const serviceLogsByTaskId = useServiceOperationStore((state) => state.logsByTaskId)
   const [expanded, setExpanded] = useState(false)
-  const [inspectorWidth, setInspectorWidth] = useState(520)
-  const [resizing, setResizing] = useState(false)
-
-  useEffect(() => {
-    if (!resizing) {
-      return undefined
-    }
-    const onMouseMove = (event: MouseEvent) => {
-      const nextWidth = Math.min(840, Math.max(420, window.innerWidth - event.clientX))
-      setInspectorWidth(nextWidth)
-    }
-    const onMouseUp = () => setResizing(false)
-    document.body.classList.add('inspector-resizing')
-    window.addEventListener('mousemove', onMouseMove)
-    window.addEventListener('mouseup', onMouseUp)
-    return () => {
-      document.body.classList.remove('inspector-resizing')
-      window.removeEventListener('mousemove', onMouseMove)
-      window.removeEventListener('mouseup', onMouseUp)
-    }
-  }, [resizing])
 
   useEffect(() => {
     if (buildStatus === 'RUNNING') {
@@ -228,30 +207,28 @@ export function InspectorDrawer() {
     )
   }, [inspectorLogSource, buildStatus, logs.length, selectedModules.length, artifacts.length, currentServiceTask])
 
-  if (!inspectorOpen) {
-    return (
-      <aside className="inspector-collapsed">
+  return (
+    <>
+      {!inspectorOpen && (
         <Button
-          type="text"
+          className="inspector-floating-toggle"
+          type="default"
           icon={<MenuUnfoldOutlined />}
           aria-label="展开详情面板"
           onClick={() => setInspectorOpen(true)}
         />
-      </aside>
-    )
-  }
-
-  return (
-    <aside className="inspector-drawer" style={{width: inspectorWidth}}>
-      <div
-        className="inspector-resize-handle"
-        role="separator"
-        aria-label="拖动调整右侧面板宽度"
-        onMouseDown={() => setResizing(true)}
-      />
-      <div className="inspector-header">
-        <Text strong>检查器</Text>
-        <Space size={4}>
+      )}
+      <Drawer
+        title="检查器"
+        open={inspectorOpen}
+        onClose={() => setInspectorOpen(false)}
+        width={520}
+        styles={{
+          body: {
+            padding: '16px',
+          },
+        }}
+        extra={
           <Button
             size="small"
             type="text"
@@ -259,37 +236,31 @@ export function InspectorDrawer() {
             aria-label="全屏查看"
             onClick={() => setExpanded(true)}
           />
-          <Button
-            size="small"
-            type="text"
-            icon={<MenuFoldOutlined />}
-            aria-label="收起详情面板"
-            onClick={() => setInspectorOpen(false)}
-          />
-        </Space>
-      </div>
-      <Tabs
-        className="inspector-tabs"
-        activeKey={inspectorTab}
-        onChange={(key) => setInspectorTab(key as InspectorTab)}
-        items={[
-          {
-            key: 'logs',
-            label: '日志',
-            children: logContent,
-          },
-          {
-            key: 'diagnosis',
-            label: inspectorLogSource === 'build' ? '构建诊断' : inspectorLogSource === 'deployment' ? '部署诊断' : '服务诊断',
-            children: diagnosisContent,
-          },
-          {
-            key: 'details',
-            label: inspectorLogSource === 'build' ? '构建详情' : inspectorLogSource === 'deployment' ? '部署详情' : '服务详情',
-            children: detailsContent,
-          },
-        ]}
-      />
+        }
+      >
+        <Tabs
+          className="inspector-tabs"
+          activeKey={inspectorTab}
+          onChange={(key) => setInspectorTab(key as InspectorTab)}
+          items={[
+            {
+              key: 'logs',
+              label: '日志',
+              children: logContent,
+            },
+            {
+              key: 'diagnosis',
+              label: inspectorLogSource === 'build' ? '构建诊断' : inspectorLogSource === 'deployment' ? '部署诊断' : '服务诊断',
+              children: diagnosisContent,
+            },
+            {
+              key: 'details',
+              label: inspectorLogSource === 'build' ? '构建详情' : inspectorLogSource === 'deployment' ? '部署详情' : '服务详情',
+              children: detailsContent,
+            },
+          ]}
+        />
+      </Drawer>
       <Modal
         title="检查器"
         open={expanded}
@@ -299,6 +270,6 @@ export function InspectorDrawer() {
       >
         {logContent}
       </Modal>
-    </aside>
+    </>
   )
 }

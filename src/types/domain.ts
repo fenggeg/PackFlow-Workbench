@@ -949,6 +949,10 @@ export interface TemplateVariable {
   label: string
   defaultValue?: string
   required: boolean
+  /** 变量类型：text=文本输入，select=下拉选择 */
+  type?: 'text' | 'select'
+  /** 下拉选项列表，仅当 type='select' 时有效 */
+  options?: string[]
 }
 
 export interface CommandExecution {

@@ -223,12 +223,12 @@ export function BuildLogPanel() {
           </Space>
         }
       >
-        <Space size={4}>
+        <div style={{display: 'flex', gap: 4, marginBottom: 10}}>
           <Select
             size="small"
             value={logFilter}
             onChange={setLogFilter}
-            style={{ width: 100 }}
+            style={{width: 100, flexShrink: 0}}
             options={[
               { value: 'all', label: '全部' },
               { value: 'error', label: '错误' },
@@ -239,12 +239,12 @@ export function BuildLogPanel() {
           <Input
             allowClear
             size="small"
-            className="log-search"
             placeholder="搜索日志关键词"
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
+            style={{flex: 1, minWidth: 0}}
           />
-        </Space>
+        </div>
         <LogConsole
           ref={panelRef}
           lines={visibleBuildLogLines}

@@ -1,5 +1,5 @@
 import {useEffect, useCallback} from 'react'
-import {Form, Input, Space, Tag, Alert} from 'antd'
+import {Form, Input, Select, Space, Tag, Alert} from 'antd'
 import {useCommandStore} from '../../store/useCommandStore'
 
 
@@ -75,6 +75,18 @@ export function VariableEditor({selectedTemplateId, onVariablesChange}: Variable
     return key in presetVariables && !currentTemplate?.variables.some(v => v.key === key)
   }
 
+  // 获取变量类型
+  const getVariableType = (key: string) => {
+    const variable = currentTemplate?.variables.find(v => v.key === key)
+    return variable?.type || 'text'
+  }
+
+  // 获取变量下拉选项
+  const getVariableOptions = (key: string) => {
+    const variable = currentTemplate?.variables.find(v => v.key === key)
+    return variable?.options || []
+  }
+
   return (
     <div>
       <div style={{marginBottom: 8, fontWeight: 500}}>模板变量</div>
@@ -84,26 +96,41 @@ export function VariableEditor({selectedTemplateId, onVariablesChange}: Variable
         style={{flexWrap: 'wrap', gap: 8}}
         onValuesChange={handleValuesChange}
       >
-        {allVariableKeys.map(key => (
-          <Form.Item
-            key={key}
-            name={key}
-            label={
-              <Space>
-                <span>{getVariableLabel(key)}</span>
-                <Tag color="blue">{`{{${key}}}`}</Tag>
-                {isPresetVariable(key) && <Tag color="green">自动填充</Tag>}
-              </Space>
-            }
-            rules={isVariableRequired(key) ? [{required: true, message: `${getVariableLabel(key)}不能为空`}] : []}
-          >
-            <Input
-              placeholder={`输入${getVariableLabel(key)}`}
-              style={{width: 250}}
-              disabled={isPresetVariable(key)}
-            />
-          </Form.Item>
-        ))}
+        {allVariableKeys.map(key => {
+          const varType = getVariableType(key)
+          const varOptions = getVariableOptions(key)
+          const isSelect = varType === 'select' && varOptions.length > 0
+          
+          return (
+            <Form.Item
+              key={key}
+              name={key}
+              label={
+                <Space>
+                  <span>{getVariableLabel(key)}</span>
+                  <Tag color="blue">{`{{${key}}}`}</Tag>
+                  {isPresetVariable(key) && <Tag color="green">自动填充</Tag>}
+                </Space>
+              }
+              rules={isVariableRequired(key) ? [{required: true, message: `${getVariableLabel(key)}不能为空`}] : []}
+            >
+              {isSelect ? (
+                <Select
+                  placeholder={`选择${getVariableLabel(key)}`}
+                  style={{width: 250}}
+                  disabled={isPresetVariable(key)}
+                  options={varOptions.map(opt => ({label: opt, value: opt}))}
+                />
+              ) : (
+                <Input
+                  placeholder={`输入${getVariableLabel(key)}`}
+                  style={{width: 250}}
+                  disabled={isPresetVariable(key)}
+                />
+              )}
+            </Form.Item>
+          )
+        })}
       </Form>
     </div>
   )

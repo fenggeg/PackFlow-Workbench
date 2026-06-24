@@ -20,7 +20,7 @@
 
 .v3-body {
   display: grid;
-  grid-template-columns: 56px 312px minmax(0, 1fr) auto;
+  grid-template-columns: 56px 312px minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -224,6 +224,20 @@
   padding-top: 12px;
   background: #ffffff;
   border-left: 1px solid #e5e7eb;
+}
+
+.inspector-floating-toggle {
+  position: fixed;
+  top: 84px;
+  right: 16px;
+  z-index: 10;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.92);
+  border-color: var(--pf-color-border);
+  box-shadow: var(--pf-shadow-panel);
+  backdrop-filter: blur(6px);
 }
 
 .inspector-header {

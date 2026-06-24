@@ -67,6 +67,12 @@ pub struct TemplateVariable {
     pub default_value: Option<String>,
     #[serde(default = "default_true")]
     pub required: bool,
+    /// 变量类型：text=文本输入，select=下拉选择
+    #[serde(default)]
+    pub r#type: Option<String>,
+    /// 下拉选项列表，仅当 type="select" 时有效
+    #[serde(default)]
+    pub options: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

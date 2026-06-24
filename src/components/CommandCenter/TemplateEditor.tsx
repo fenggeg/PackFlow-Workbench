@@ -76,6 +76,8 @@ export function TemplateEditor({visible, template, onClose}: TemplateEditorProps
       key: `var_${variables.length + 1}`,
       label: `变量 ${variables.length + 1}`,
       required: false,
+      type: 'text',
+      options: [],
     }
     setVariables([...variables, newVar])
   }
@@ -84,7 +86,7 @@ export function TemplateEditor({visible, template, onClose}: TemplateEditorProps
     setVariables(variables.filter((_, i) => i !== index))
   }
 
-  const handleVariableChange = (index: number, field: string, value: string | boolean | undefined) => {
+  const handleVariableChange = (index: number, field: string, value: string | boolean | string[] | undefined) => {
     const newVars = [...variables]
     newVars[index] = {...newVars[index], [field]: value}
     setVariables(newVars)
@@ -118,6 +120,16 @@ export function TemplateEditor({visible, template, onClose}: TemplateEditorProps
       onOk={handleSubmit}
       width={800}
       destroyOnClose
+      centered
+      styles={{
+        wrapper: {
+          overflow: 'hidden',
+        },
+        body: {
+          maxHeight: 'calc(100vh - 200px)',
+          overflowY: 'auto',
+        },
+      }}
     >
       <Form form={form} layout="vertical">
         <Form.Item
@@ -273,37 +285,62 @@ export function TemplateEditor({visible, template, onClose}: TemplateEditorProps
 
           {variables.map((variable, index) => (
             <Card key={index} size="small" style={{marginBottom: 8}}>
-              <Space>
-                <Input
-                  placeholder="变量标识"
-                  value={variable.key}
-                  onChange={e => handleVariableChange(index, 'key', e.target.value)}
-                  style={{width: 120}}
-                />
-                <Input
-                  placeholder="显示名称"
-                  value={variable.label}
-                  onChange={e => handleVariableChange(index, 'label', e.target.value)}
-                  style={{width: 120}}
-                />
-                <Input
-                  placeholder="默认值"
-                  value={variable.defaultValue}
-                  onChange={e => handleVariableChange(index, 'defaultValue', e.target.value)}
-                  style={{width: 150}}
-                />
-                <Switch
-                  checked={variable.required}
-                  onChange={checked => handleVariableChange(index, 'required', checked)}
-                  checkedChildren="必填"
-                  unCheckedChildren="可选"
-                />
-                <Button
-                  type="text"
-                  danger
-                  icon={<DeleteOutlined />}
-                  onClick={() => handleRemoveVariable(index)}
-                />
+              <Space direction="vertical" style={{width: '100%'}}>
+                <Space>
+                  <Input
+                    placeholder="变量标识"
+                    value={variable.key}
+                    onChange={e => handleVariableChange(index, 'key', e.target.value)}
+                    style={{width: 120}}
+                  />
+                  <Input
+                    placeholder="显示名称"
+                    value={variable.label}
+                    onChange={e => handleVariableChange(index, 'label', e.target.value)}
+                    style={{width: 120}}
+                  />
+                  <Select
+                    value={variable.type || 'text'}
+                    onChange={value => handleVariableChange(index, 'type', value)}
+                    style={{width: 100}}
+                    options={[
+                      {label: '文本输入', value: 'text'},
+                      {label: '下拉选择', value: 'select'},
+                    ]}
+                  />
+                  <Input
+                    placeholder="默认值"
+                    value={variable.defaultValue}
+                    onChange={e => handleVariableChange(index, 'defaultValue', e.target.value)}
+                    style={{width: 150}}
+                  />
+                  <Switch
+                    checked={variable.required}
+                    onChange={checked => handleVariableChange(index, 'required', checked)}
+                    checkedChildren="必填"
+                    unCheckedChildren="可选"
+                  />
+                  <Button
+                    type="text"
+                    danger
+                    icon={<DeleteOutlined />}
+                    onClick={() => handleRemoveVariable(index)}
+                  />
+                </Space>
+                {(variable.type || 'text') === 'select' && (
+                  <div>
+                    <div style={{fontSize: 12, color: '#666', marginBottom: 4}}>下拉选项（每行一个选项）：</div>
+                    <TextArea
+                      placeholder={'选项1\n选项2\n选项3'}
+                      value={(variable.options || []).join('\n')}
+                      onChange={e => {
+                        const options = e.target.value.split('\n').map(s => s.trim()).filter(Boolean)
+                        handleVariableChange(index, 'options', options as unknown as string)
+                      }}
+                      autoSize={{minRows: 2, maxRows: 6}}
+                    />
+                  </div>
+                )}
               </Space>
             </Card>
           ))}
