@@ -35,7 +35,7 @@ export function VariableEditor({selectedTemplateId, onVariablesChange}: Variable
   }, [currentTemplate?.id, presetVariables]) // 移除form依赖，使用currentTemplate?.id
 
   // 表单值变化时通知父组件
-  const handleValuesChange = useCallback((_changedValues: Record<string, string>, allValues: Record<string, string>) => {
+  const handleValuesChange = useCallback((_changedValues: Partial<Record<string, string>>, allValues: Record<string, string>) => {
     onVariablesChange?.(allValues)
   }, [onVariablesChange])
 
