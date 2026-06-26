@@ -1,6 +1,8 @@
-import {Breadcrumb, Button, Card, Empty, Input, message, Modal, Popconfirm, Space, Table, Tag, Typography,} from 'antd'
+import {Breadcrumb, Button, Card, Empty, Input, message, Modal, Popconfirm, Progress, Space, Table, Tag, Typography,} from 'antd'
 import {
   ArrowUpOutlined,
+  CloudDownloadOutlined,
+  CloudUploadOutlined,
   DeleteOutlined,
   FileOutlined,
   FolderOutlined,
@@ -10,14 +12,21 @@ import {
   StarFilled,
   StarOutlined,
 } from '@ant-design/icons'
-import {useCallback, useEffect, useMemo, useState} from 'react'
-import {api} from '../../../services/tauri-api'
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import {api, selectLocalFile, selectSavePath} from '../../../services/tauri-api'
 import type {FavoritePath, RemoteFileEntry, ServerProfile} from '../../../types/domain'
+import {listen} from '@tauri-apps/api/event'
 
 const {Text} = Typography
 
 interface RemoteFilesTabProps {
   server: ServerProfile
+}
+
+interface TransferState {
+  direction: 'upload' | 'download'
+  filename: string
+  percent: number
 }
 
 export function RemoteFilesTab({server}: RemoteFilesTabProps) {
@@ -27,6 +36,8 @@ export function RemoteFilesTab({server}: RemoteFilesTabProps) {
   const [favoritePaths, setFavoritePaths] = useState<FavoritePath[]>([])
   const [newDirModalOpen, setNewDirModalOpen] = useState(false)
   const [newDirName, setNewDirName] = useState('')
+  const [transfer, setTransfer] = useState<TransferState | null>(null)
+  const transferRef = useRef<TransferState | null>(null)
 
   const loadFiles = useCallback(
     async (path: string) => {
@@ -59,6 +70,28 @@ export function RemoteFilesTab({server}: RemoteFilesTabProps) {
       void loadFavorites()
     })
   }, [loadFiles, loadFavorites, currentPath])
+
+  // 监听文件传输进度事件
+  useEffect(() => {
+    const unlisten = listen<{
+      serverId: string
+      direction: string
+      percent: number
+      transferred: number
+      total: number
+    }>('remote-file-transfer-progress', (event) => {
+      if (event.payload.serverId !== server.id) return
+      const current = transferRef.current
+      if (!current) return
+      setTransfer({
+        ...current,
+        percent: event.payload.percent,
+      })
+    })
+    return () => {
+      void unlisten.then(fn => fn())
+    }
+  }, [server.id])
 
   const pathParts = useMemo(() => {
     return currentPath.split('/').filter(Boolean)
@@ -100,6 +133,48 @@ export function RemoteFilesTab({server}: RemoteFilesTabProps) {
       await loadFiles(currentPath)
     } catch (error) {
       message.error(`创建失败：${error}`)
+    }
+  }
+
+  const handleUpload = async () => {
+    const localPath = await selectLocalFile('选择要上传的文件')
+    if (!localPath) return
+    const filename = localPath.split(/[/\\]/).pop() ?? localPath
+    const remotePath = currentPath.endsWith('/')
+      ? `${currentPath}${filename}`
+      : `${currentPath}/${filename}`
+
+    const state: TransferState = {direction: 'upload', filename, percent: 0}
+    transferRef.current = state
+    setTransfer(state)
+    try {
+      await api.uploadRemoteFile(server.id, localPath, remotePath)
+      message.success(`上传成功：${filename}`)
+      await loadFiles(currentPath)
+    } catch (error) {
+      message.error(`上传失败：${error}`)
+    } finally {
+      transferRef.current = null
+      setTransfer(null)
+    }
+  }
+
+  const handleDownload = async (record: RemoteFileEntry) => {
+    if (record.isDirectory) return
+    const savePath = await selectSavePath('选择保存位置', record.name)
+    if (!savePath) return
+
+    const state: TransferState = {direction: 'download', filename: record.name, percent: 0}
+    transferRef.current = state
+    setTransfer(state)
+    try {
+      await api.downloadRemoteFile(server.id, record.path, savePath)
+      message.success(`下载完成：${record.name}`)
+    } catch (error) {
+      message.error(`下载失败：${error}`)
+    } finally {
+      transferRef.current = null
+      setTransfer(null)
     }
   }
 
@@ -174,9 +249,17 @@ export function RemoteFilesTab({server}: RemoteFilesTabProps) {
     {
       title: '操作',
       key: 'actions',
-      width: 120,
+      width: 100,
       render: (_: unknown, record: RemoteFileEntry) => (
         <Space size="small">
+          {!record.isDirectory && (
+            <Popconfirm
+              title="确定下载？"
+              onConfirm={() => void handleDownload(record)}
+            >
+              <Button size="small" icon={<CloudDownloadOutlined />} />
+            </Popconfirm>
+          )}
           <Popconfirm
             title="确定删除？"
             onConfirm={() => void handleDelete(record.path)}
@@ -206,6 +289,15 @@ export function RemoteFilesTab({server}: RemoteFilesTabProps) {
           >
             {isFavorited ? '已收藏' : '收藏'}
           </Button>
+          <Button
+            size="small"
+            icon={<CloudUploadOutlined />}
+            onClick={() => void handleUpload()}
+            loading={transfer?.direction === 'upload'}
+            disabled={!!transfer}
+          >
+            上传
+          </Button>
           <Button size="small" icon={<PlusOutlined />} onClick={() => setNewDirModalOpen(true)}>
             新建目录
           </Button>
@@ -216,6 +308,28 @@ export function RemoteFilesTab({server}: RemoteFilesTabProps) {
       }
     >
       <Space direction="vertical" size={8} style={{width: '100%'}}>
+        {transfer && (
+          <div style={{
+            padding: '8px 12px',
+            background: 'var(--pf-color-surface-muted)',
+            borderRadius: 'var(--pf-radius-md)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+          }}>
+            {transfer.direction === 'upload' ? <CloudUploadOutlined /> : <CloudDownloadOutlined />}
+            <Text ellipsis style={{flex: 1}}>
+              {transfer.direction === 'upload' ? '上传中' : '下载中'}：{transfer.filename}
+            </Text>
+            <Progress
+              percent={Math.round(transfer.percent)}
+              size="small"
+              style={{width: 200, margin: 0}}
+              strokeColor="var(--pf-color-primary)"
+            />
+          </div>
+        )}
+
         <Space style={{width: '100%'}}>
           <Button
             size="small"

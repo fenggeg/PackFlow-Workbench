@@ -1,12 +1,13 @@
-use crate::error::AppResult;
+use crate::error::{to_user_error, AppResult};
 use crate::models::server_ops::{
     CommonCommand, FavoritePath, HighlightRule, LogSource, RemoteCommandResult, RemoteFileEntry,
     ServerGroup,
 };
 use crate::repositories::{deployment_repo, server_ops_repo};
 use crate::services::{blocking, ssh_transport_service, terminal_session_service};
-use tauri::AppHandle;
-use tauri::State;
+use serde_json::json;
+use std::path::Path;
+use tauri::{AppHandle, Emitter, State};
 
 // ==================== Server Groups ====================
 
@@ -333,6 +334,95 @@ pub async fn read_remote_log_lines(
         let result = connection.execute_with_cancel(&cmd, || false)?;
 
         Ok(result.output.lines().map(String::from).collect())
+    })
+    .await
+}
+
+// ==================== File Transfer ====================
+
+#[tauri::command]
+pub async fn upload_remote_file(
+    app: AppHandle,
+    server_id: String,
+    local_path: String,
+    remote_path: String,
+) -> AppResult<()> {
+    let task_app = app.clone();
+    blocking::run(move || {
+        let profile = deployment_repo::get_server_profile_for_execution(&task_app, &server_id)?;
+        let mut connection =
+            ssh_transport_service::SshConnection::connect(&profile, || false)?;
+
+        let local = Path::new(&local_path);
+        if !local.exists() {
+            return Err(to_user_error(format!("本地文件不存在：{}", local_path)));
+        }
+
+        connection.upload_file_with_progress(
+            local,
+            &remote_path,
+            || false,
+            |uploaded, total, _speed| {
+                let percent = if total > 0 {
+                    (uploaded as f64 / total as f64 * 100.0).round()
+                } else {
+                    0.0
+                };
+                let _ = task_app.emit(
+                    "remote-file-transfer-progress",
+                    json!({
+                        "serverId": server_id,
+                        "direction": "upload",
+                        "percent": percent,
+                        "transferred": uploaded,
+                        "total": total,
+                    }),
+                );
+            },
+        )?;
+
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn download_remote_file(
+    app: AppHandle,
+    server_id: String,
+    remote_path: String,
+    local_path: String,
+) -> AppResult<()> {
+    let task_app = app.clone();
+    blocking::run(move || {
+        let profile = deployment_repo::get_server_profile_for_execution(&task_app, &server_id)?;
+        let mut connection =
+            ssh_transport_service::SshConnection::connect(&profile, || false)?;
+
+        connection.download_file_with_progress(
+            &remote_path,
+            Path::new(&local_path),
+            || false,
+            |downloaded, total, _speed| {
+                let percent = if total > 0 {
+                    (downloaded as f64 / total as f64 * 100.0).round()
+                } else {
+                    0.0
+                };
+                let _ = task_app.emit(
+                    "remote-file-transfer-progress",
+                    json!({
+                        "serverId": server_id,
+                        "direction": "download",
+                        "percent": percent,
+                        "transferred": downloaded,
+                        "total": total,
+                    }),
+                );
+            },
+        )?;
+
+        Ok(())
     })
     .await
 }

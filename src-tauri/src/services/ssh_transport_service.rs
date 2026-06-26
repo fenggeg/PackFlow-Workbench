@@ -384,6 +384,102 @@ impl SshConnection {
         Ok(exit_status)
     }
 
+    pub fn download_file_with_progress<C, P>(
+        &mut self,
+        remote_path: &str,
+        local_path: &Path,
+        mut is_cancelled: C,
+        mut on_progress: P,
+    ) -> AppResult<()>
+    where
+        C: FnMut() -> bool,
+        P: FnMut(u64, u64, Option<f64>),
+    {
+        let sftp_arc = self
+            .sftp_session
+            .as_ref()
+            .ok_or_else(|| to_user_error("SFTP 不可用，无法下载文件。"))?;
+
+        let sftp_guard = sftp_arc
+            .lock()
+            .map_err(|_| to_user_error("无法获取 SFTP 锁。"))?;
+
+        let remote = std::path::Path::new(remote_path);
+        let mut sftp_file = sftp_guard
+            .sftp
+            .open(remote)
+            .map_err(|error| to_user_error(format!("SFTP 打开远程文件失败：{}", error)))?;
+
+        let stat = sftp_file
+            .stat()
+            .map_err(|error| to_user_error(format!("SFTP 获取远程文件信息失败：{}", error)))?;
+        let file_size = stat.size.unwrap_or(0);
+
+        // 确保本地目录存在
+        if let Some(parent) = local_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+
+        let mut local_file = File::create(local_path)
+            .map_err(|error| to_user_error(format!("无法创建本地文件：{}", error)))?;
+
+        let mut buffer = [0u8; 256 * 1024];
+        let mut downloaded: u64 = 0;
+        let start_time = Instant::now();
+        let mut last_progress_time = Instant::now();
+        let mut last_downloaded: u64 = 0;
+
+        loop {
+            if is_cancelled() {
+                return Err(to_user_error("下载已取消。"));
+            }
+
+            let bytes_read = sftp_file
+                .read(&mut buffer)
+                .map_err(|error| to_user_error(format!("SFTP 读取远程文件失败：{}", error)))?;
+
+            if bytes_read == 0 {
+                break;
+            }
+
+            local_file
+                .write_all(&buffer[..bytes_read])
+                .map_err(|error| to_user_error(format!("写入本地文件失败：{}", error)))?;
+
+            downloaded += bytes_read as u64;
+
+            let now = Instant::now();
+            let speed = if now.duration_since(last_progress_time) >= Duration::from_millis(200) {
+                let elapsed_secs = now.duration_since(last_progress_time).as_secs_f64();
+                let bytes_delta = downloaded.saturating_sub(last_downloaded) as f64;
+                let speed = if elapsed_secs > 0.0 {
+                    Some(bytes_delta / elapsed_secs)
+                } else {
+                    None
+                };
+                last_progress_time = now;
+                last_downloaded = downloaded;
+                speed
+            } else {
+                let total_elapsed = start_time.elapsed().as_secs_f64();
+                if total_elapsed > 0.0 {
+                    Some(downloaded as f64 / total_elapsed)
+                } else {
+                    None
+                }
+            };
+
+            on_progress(downloaded, file_size, speed);
+        }
+
+        drop(local_file);
+        drop(sftp_file);
+        drop(sftp_guard);
+
+        on_progress(file_size, file_size, None);
+        Ok(())
+    }
+
     pub fn upload_file_with_progress<C, P>(
         &mut self,
         local_path: &Path,

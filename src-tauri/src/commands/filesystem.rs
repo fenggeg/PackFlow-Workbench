@@ -269,6 +269,14 @@ pub fn delete_build_artifact(app: AppHandle, path: String, record_only: Option<b
     Ok(())
 }
 
+#[tauri::command]
+pub fn check_files_exist(paths: Vec<String>) -> Vec<String> {
+    paths
+        .into_iter()
+        .filter(|p| Path::new(p).exists())
+        .collect()
+}
+
 fn nearest_existing_parent(path: &Path) -> Option<PathBuf> {
     path.ancestors()
         .skip(1)

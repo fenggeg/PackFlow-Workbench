@@ -5,6 +5,12 @@
   overflow: hidden;
   color: var(--pf-color-text);
   background: var(--pf-color-bg);
+  animation: shell-fade-in 0.4s ease-out;
+}
+
+@keyframes shell-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .v3-header {
@@ -131,6 +137,7 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden auto;
+  scrollbar-gutter: stable;
 }
 
 .workspace-loading {
@@ -2206,4 +2213,104 @@
   margin-top: 10px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* ── 命令中心 - 步骤卡片 ────────────────────────── */
+
+.cc-step-card {
+  margin-bottom: 12px;
+  border-radius: var(--pf-radius-md);
+}
+
+.cc-step-card:last-child {
+  margin-bottom: 0;
+}
+
+.cc-step-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cc-step-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--pf-color-primary);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.cc-step-meta {
+  display: grid;
+  grid-template-columns: 1fr 120px;
+  gap: 8px;
+}
+
+.cc-step-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cc-step-hint {
+  font-size: 12px;
+  color: var(--pf-color-text-muted);
+  margin-top: 4px;
+}
+
+/* ── 命令中心 - 变量编辑器 ──────────────────────── */
+
+.cc-variable-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.cc-variable-grid .ant-form-item {
+  margin-bottom: 0;
+}
+
+.cc-variable-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cc-variable-label .ant-tag {
+  margin-inline-start: 0;
+}
+
+.cc-path-mode-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+/* ── 命令中心 - 模板列表 ────────────────────────── */
+
+.cc-template-item {
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 4px;
+  border: 1px solid transparent !important;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+
+.cc-template-item:hover {
+  background: var(--pf-color-surface-muted);
+}
+
+.cc-template-item--active {
+  background: #f0fdf4;
+  box-shadow: inset 0 0 0 1px #bbf7d0;
+  border-color: transparent !important;
 }

@@ -1,5 +1,5 @@
 import {useState, useCallback} from 'react'
-import {Card, List, Button, Space, Tag, Modal, Empty, Tooltip, Typography, message} from 'antd'
+import {Card, Button, Space, Tag, Modal, Empty, Tooltip, Typography, Spin, message} from 'antd'
 import {
   PlusOutlined,
   EditOutlined,
@@ -91,9 +91,11 @@ export function TemplateManager({selectedTemplateId, onSelectTemplate}: Template
           </Button>
         }
         style={{height: '100%'}}
-        styles={{body: {overflow: 'auto', maxHeight: 400}}}
+        styles={{body: {overflowY: 'auto', maxHeight: 400, scrollbarGutter: 'stable'}}}
       >
-        {templates.length === 0 ? (
+        {templatesLoading ? (
+          <div style={{textAlign: 'center', padding: 24}}><Spin size="small" /></div>
+        ) : templates.length === 0 ? (
           <Empty
             description="暂无模板"
             image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -103,76 +105,66 @@ export function TemplateManager({selectedTemplateId, onSelectTemplate}: Template
             </Button>
           </Empty>
         ) : (
-          <List
-            loading={templatesLoading}
-            dataSource={templates}
-            renderItem={(template) => (
-              <List.Item
-                style={{
-                  cursor: 'pointer',
-                  padding: '8px 12px',
-                  borderRadius: 6,
-                  marginBottom: 4,
-                  background: selectedTemplateId === template.id ? '#e6f7ff' : 'transparent',
-                  border: selectedTemplateId === template.id ? '1px solid #91d5ff' : '1px solid transparent',
-                  transition: 'all 0.2s',
-                }}
-                onClick={() => onSelectTemplate(template.id)}
-                actions={[
-                  <Tooltip key="edit" title="编辑">
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={<EditOutlined />}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleEdit(template)
-                      }}
-                    />
-                  </Tooltip>,
-                  <Tooltip key="duplicate" title="复制">
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={<CopyOutlined />}
-                      onClick={(e) => handleDuplicate(template, e)}
-                    />
-                  </Tooltip>,
-                  <Tooltip key="delete" title="删除">
-                    <Button
-                      type="text"
-                      size="small"
-                      danger
-                      icon={<DeleteOutlined />}
-                      onClick={(e) => handleDelete(template.id, e)}
-                    />
-                  </Tooltip>,
-                ]}
-              >
-                <List.Item.Meta
-                  title={
-                    <Space>
-                      <ThunderboltOutlined style={{color: selectedTemplateId === template.id ? '#1890ff' : '#999'}} />
-                      <Text strong={selectedTemplateId === template.id}>{template.name}</Text>
-                      {selectedTemplateId === template.id && <Tag color="blue">已选中</Tag>}
-                    </Space>
-                  }
-                  description={
-                    <Space direction="vertical" size={2} style={{width: '100%'}}>
-                      <Text type="secondary" style={{fontSize: 12}}>
-                        {getStepSummary(template)}
-                      </Text>
-                      {template.description && (
-                        <Text type="secondary" style={{fontSize: 12}} ellipsis>
-                          {template.description}
+          <div>
+            {templates.map(template => {
+              const isActive = selectedTemplateId === template.id
+              return (
+                <div
+                  key={template.id}
+                  className={`cc-template-item${isActive ? ' cc-template-item--active' : ''}`}
+                  onClick={() => onSelectTemplate(template.id)}
+                >
+                  <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
+                    <div style={{flex: 1, minWidth: 0}}>
+                      <div style={{display: 'flex', alignItems: 'center', gap: 6}}>
+                        <ThunderboltOutlined style={{color: isActive ? '#16a34a' : '#999'}} />
+                        <Text strong={isActive} ellipsis>{template.name}</Text>
+                        <Tag color="green" style={{visibility: isActive ? 'visible' : 'hidden', flexShrink: 0}}>已选中</Tag>
+                      </div>
+                      <div style={{marginTop: 2}}>
+                        <Text type="secondary" style={{fontSize: 12}}>
+                          {getStepSummary(template)}
                         </Text>
-                      )}
+                        {template.description && (
+                          <Text type="secondary" style={{fontSize: 12}} ellipsis> · {template.description}</Text>
+                        )}
+                      </div>
+                    </div>
+                    <Space size={0} style={{flexShrink: 0, marginLeft: 8}}>
+                      <Tooltip title="编辑">
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<EditOutlined />}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleEdit(template)
+                          }}
+                        />
+                      </Tooltip>
+                      <Tooltip title="复制">
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<CopyOutlined />}
+                          onClick={(e) => handleDuplicate(template, e)}
+                        />
+                      </Tooltip>
+                      <Tooltip title="删除">
+                        <Button
+                          type="text"
+                          size="small"
+                          danger
+                          icon={<DeleteOutlined />}
+                          onClick={(e) => handleDelete(template.id, e)}
+                        />
+                      </Tooltip>
                     </Space>
-                  }
-                />
-              </List.Item>
-            )}
-          />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         )}
       </Card>
 

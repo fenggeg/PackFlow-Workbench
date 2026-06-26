@@ -1,7 +1,7 @@
 import {invoke} from '@tauri-apps/api/core'
 import {listen} from '@tauri-apps/api/event'
 import {getVersion} from '@tauri-apps/api/app'
-import {open} from '@tauri-apps/plugin-dialog'
+import {open, save} from '@tauri-apps/plugin-dialog'
 import type {
   BuildArtifact,
   BuildCommandPayload,
@@ -155,6 +155,16 @@ export async function selectLocalFile(title: string): Promise<string | null> {
   return typeof selected === 'string' ? selected : null
 }
 
+export async function selectSavePath(title: string, defaultFilename?: string): Promise<string | null> {
+  requireTauri()
+  const selected = await save({
+    title,
+    defaultPath: defaultFilename,
+  })
+
+  return typeof selected === 'string' ? selected : null
+}
+
 export const api = {
   parseMavenProject: (rootPath: string) =>
     invoke<MavenProject>('parse_maven_project', { rootPath }),
@@ -295,6 +305,9 @@ export const api = {
   deleteBuildArtifact: (path: string, recordOnly?: boolean) =>
     invoke<void>('delete_build_artifact', { path, recordOnly: recordOnly ?? false }),
 
+  checkFilesExist: (paths: string[]) =>
+    invoke<string[]>('check_files_exist', { paths }),
+
   copyFileToClipboard: (path: string) =>
     invoke<void>('copy_file_to_clipboard', { path }),
 
@@ -378,6 +391,12 @@ export const api = {
 
   createRemoteDirectory: (serverId: string, path: string) =>
     invoke<void>('create_remote_directory', { serverId, path }),
+
+  uploadRemoteFile: (serverId: string, localPath: string, remotePath: string) =>
+    invoke<void>('upload_remote_file', { serverId, localPath, remotePath }),
+
+  downloadRemoteFile: (serverId: string, remotePath: string, localPath: string) =>
+    invoke<void>('download_remote_file', { serverId, remotePath, localPath }),
 
   readRemoteLogLines: (serverId: string, logPath: string, lines: number) =>
     invoke<string[]>('read_remote_log_lines', { serverId, logPath, lines }),
