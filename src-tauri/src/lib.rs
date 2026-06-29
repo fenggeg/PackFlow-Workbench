@@ -8,6 +8,8 @@ use services::command_runner::CommandControlState;
 use services::process_runner::BuildProcessState;
 use services::remote_log_session_service::RemoteLogSessionState;
 use services::terminal_session_service::TerminalManager;
+use tauri::Listener;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -17,6 +19,33 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             services::app_logger::log_info(app.handle(), "app.start", "应用启动");
+
+            // Create a native splash window with app branding
+            let _splash = tauri::WebviewWindowBuilder::new(
+                app,
+                "splash",
+                tauri::WebviewUrl::App("splash.html".into()),
+            )
+            .title("")
+            .decorations(false)
+            .inner_size(480.0, 300.0)
+            .resizable(false)
+            .center()
+            .visible(true)
+            .build()?;
+
+            // When the frontend signals it's ready, close splash and show main window
+            let handle = app.handle().clone();
+            app.listen("app-ready", move |_| {
+                if let Some(sw) = handle.get_webview_window("splash") {
+                    let _ = sw.close();
+                }
+                if let Some(mw) = handle.get_webview_window("main") {
+                    let _ = mw.show();
+                    let _ = mw.set_focus();
+                }
+            });
+
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()

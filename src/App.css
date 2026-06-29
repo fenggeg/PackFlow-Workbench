@@ -5,12 +5,6 @@
   overflow: hidden;
   color: var(--pf-color-text);
   background: var(--pf-color-bg);
-  animation: shell-fade-in 0.4s ease-out;
-}
-
-@keyframes shell-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }
 
 .v3-header {
