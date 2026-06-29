@@ -32,6 +32,7 @@ export function ExecutionLog() {
 
   const logCount = currentExecutionLogs.length
   const isRunning = currentExecutionStatus === 'running'
+  const isTailRunning = currentExecutionStatus === 'success' && currentExecutionId
 
   return (
     <Card
@@ -46,21 +47,21 @@ export function ExecutionLog() {
       className="panel-card"
       extra={
         <Space size={4}>
-          {isRunning && currentExecutionId && (
+          {(isRunning || isTailRunning) && currentExecutionId && (
             <Popconfirm
-              title="确定要停止当前执行吗？"
-              description="这将中断正在运行的命令"
+              title={isRunning ? "确定要停止当前执行吗？" : "确定要断开日志连接吗？"}
+              description={isRunning ? "这将中断正在运行的命令" : "这将断开 tail -f 日志连接"}
               onConfirm={() => cancelExecution(currentExecutionId)}
-              okText="停止"
+              okText={isRunning ? "停止" : "断开"}
               cancelText="取消"
             >
-              <Tooltip title="停止执行">
+              <Tooltip title={isRunning ? "停止执行" : "断开日志"}>
                 <Button
                   size="small"
                   danger
                   icon={<DisconnectOutlined />}
                 >
-                  停止
+                  {isRunning ? "停止" : "断开日志"}
                 </Button>
               </Tooltip>
             </Popconfirm>

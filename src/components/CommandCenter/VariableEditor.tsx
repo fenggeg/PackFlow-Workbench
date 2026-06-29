@@ -51,6 +51,13 @@ export function VariableEditor({selectedTemplateId, onVariablesChange}: Variable
     }
   }, [storeArtifacts, history])
 
+  // 当模板有 artifact 来源的变量时，自动加载产物列表
+  useEffect(() => {
+    if (currentTemplate?.variables.some(v => v.variableSource === 'artifact')) {
+      loadArtifacts()
+    }
+  }, [currentTemplate?.id, loadArtifacts])
+
   // 初始化表单值，包含预设变量
   useEffect(() => {
     if (currentTemplate) {
@@ -169,6 +176,12 @@ export function VariableEditor({selectedTemplateId, onVariablesChange}: Variable
   const getVariableOptions = (key: string) => {
     const variable = currentTemplate?.variables.find(v => v.key === key)
     return variable?.options || []
+  }
+
+  // 获取变量选项来源
+  const getVariableSource = (key: string) => {
+    const variable = currentTemplate?.variables.find(v => v.key === key)
+    return variable?.variableSource || 'manual'
   }
 
   // 判断是否为路径变量
@@ -302,7 +315,9 @@ export function VariableEditor({selectedTemplateId, onVariablesChange}: Variable
         {allVariableKeys.map(key => {
           const varType = getVariableType(key)
           const varOptions = getVariableOptions(key)
+          const varSource = getVariableSource(key)
           const isSelect = varType === 'select' && varOptions.length > 0
+          const isArtifactSelect = isSelect && varSource === 'artifact'
           const isPath = isPathVariable(key)
 
           return (
@@ -313,7 +328,19 @@ export function VariableEditor({selectedTemplateId, onVariablesChange}: Variable
               rules={isVariableRequired(key) ? [{required: true, message: `${getVariableLabel(key)}不能为空`}] : []}
               style={{marginBottom: 0}}
             >
-              {isPath ? renderPathVariableInput(key) : isSelect ? (
+              {isPath ? renderPathVariableInput(key) : isArtifactSelect ? (
+                <Select
+                  placeholder="选择构建产物"
+                  disabled={isPresetVariable(key)}
+                  loading={artifactsLoading}
+                  showSearch
+                  optionFilterProp="label"
+                  options={artifacts.map(a => ({
+                    label: `${a.fileName} (${(a.sizeBytes / 1024 / 1024).toFixed(1)} MB)`,
+                    value: a.fileName,
+                  }))}
+                />
+              ) : isSelect ? (
                 <Select
                   placeholder={`选择${getVariableLabel(key)}`}
                   disabled={isPresetVariable(key)}

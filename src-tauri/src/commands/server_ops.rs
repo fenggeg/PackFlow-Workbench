@@ -4,10 +4,12 @@ use crate::models::server_ops::{
     ServerGroup,
 };
 use crate::repositories::{deployment_repo, server_ops_repo};
-use crate::services::{blocking, ssh_transport_service, terminal_session_service};
-use serde_json::json;
+use crate::services::{
+    blocking, terminal_session_service,
+    ssh_transport_service::{self, SshConnectionPool},
+};
 use std::path::Path;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
 
 // ==================== Server Groups ====================
 
@@ -129,13 +131,14 @@ pub async fn execute_remote_command(
     app: AppHandle,
     server_id: String,
     command: String,
+    pool: State<'_, SshConnectionPool>,
 ) -> AppResult<RemoteCommandResult> {
     let task_app = app.clone();
+    let pool_clone = pool.inner().clone();
     blocking::run(move || {
         let profile = deployment_repo::get_server_profile_for_execution(&task_app, &server_id)?;
-        let mut connection =
-            ssh_transport_service::SshConnection::connect(&profile, || false)?;
-        let result = connection.execute_with_cancel(&command, || false)?;
+        let (_sftp, command_session) = pool_clone.get_or_connect(&server_id, &profile)?;
+        let result = ssh_transport_service::execute_ssh2_command(&command_session, &command)?;
         Ok(RemoteCommandResult {
             success: true,
             output: result.output,
@@ -150,19 +153,20 @@ pub async fn list_remote_files(
     app: AppHandle,
     server_id: String,
     path: String,
+    pool: State<'_, SshConnectionPool>,
 ) -> AppResult<Vec<RemoteFileEntry>> {
     let task_app = app.clone();
+    let pool_clone = pool.inner().clone();
     blocking::run(move || {
         let profile = deployment_repo::get_server_profile_for_execution(&task_app, &server_id)?;
-        let mut connection =
-            ssh_transport_service::SshConnection::connect(&profile, || false)?;
+        let (_sftp, command_session) = pool_clone.get_or_connect(&server_id, &profile)?;
 
         let safe_path = path.replace('\'', "'\\''");
         let cmd = format!(
             "ls -la --time-style=long-iso '{}' 2>/dev/null || echo 'EMPTY'",
             safe_path
         );
-        let result = connection.execute_with_cancel(&cmd, || false)?;
+        let result = ssh_transport_service::execute_ssh2_command(&command_session, &cmd)?;
 
         let mut entries = Vec::new();
         for line in result.output.lines() {
@@ -256,16 +260,17 @@ pub async fn delete_remote_file(
     app: AppHandle,
     server_id: String,
     path: String,
+    pool: State<'_, SshConnectionPool>,
 ) -> AppResult<()> {
     let task_app = app.clone();
+    let pool_clone = pool.inner().clone();
     blocking::run(move || {
         let profile = deployment_repo::get_server_profile_for_execution(&task_app, &server_id)?;
-        let mut connection =
-            ssh_transport_service::SshConnection::connect(&profile, || false)?;
+        let (_sftp, command_session) = pool_clone.get_or_connect(&server_id, &profile)?;
 
         let safe_path = path.replace('\'', "'\\''");
         let cmd = format!("rm -rf '{}'", safe_path);
-        connection.execute_with_cancel(&cmd, || false)?;
+        ssh_transport_service::execute_ssh2_command(&command_session, &cmd)?;
 
         Ok(())
     })
@@ -278,17 +283,18 @@ pub async fn rename_remote_file(
     server_id: String,
     old_path: String,
     new_path: String,
+    pool: State<'_, SshConnectionPool>,
 ) -> AppResult<()> {
     let task_app = app.clone();
+    let pool_clone = pool.inner().clone();
     blocking::run(move || {
         let profile = deployment_repo::get_server_profile_for_execution(&task_app, &server_id)?;
-        let mut connection =
-            ssh_transport_service::SshConnection::connect(&profile, || false)?;
+        let (_sftp, command_session) = pool_clone.get_or_connect(&server_id, &profile)?;
 
         let safe_old = old_path.replace('\'', "'\\''");
         let safe_new = new_path.replace('\'', "'\\''");
         let cmd = format!("mv '{}' '{}'", safe_old, safe_new);
-        connection.execute_with_cancel(&cmd, || false)?;
+        ssh_transport_service::execute_ssh2_command(&command_session, &cmd)?;
 
         Ok(())
     })
@@ -300,16 +306,17 @@ pub async fn create_remote_directory(
     app: AppHandle,
     server_id: String,
     path: String,
+    pool: State<'_, SshConnectionPool>,
 ) -> AppResult<()> {
     let task_app = app.clone();
+    let pool_clone = pool.inner().clone();
     blocking::run(move || {
         let profile = deployment_repo::get_server_profile_for_execution(&task_app, &server_id)?;
-        let mut connection =
-            ssh_transport_service::SshConnection::connect(&profile, || false)?;
+        let (_sftp, command_session) = pool_clone.get_or_connect(&server_id, &profile)?;
 
         let safe_path = path.replace('\'', "'\\''");
         let cmd = format!("mkdir -p '{}'", safe_path);
-        connection.execute_with_cancel(&cmd, || false)?;
+        ssh_transport_service::execute_ssh2_command(&command_session, &cmd)?;
 
         Ok(())
     })
@@ -322,16 +329,17 @@ pub async fn read_remote_log_lines(
     server_id: String,
     log_path: String,
     lines: i32,
+    pool: State<'_, SshConnectionPool>,
 ) -> AppResult<Vec<String>> {
     let task_app = app.clone();
+    let pool_clone = pool.inner().clone();
     blocking::run(move || {
         let profile = deployment_repo::get_server_profile_for_execution(&task_app, &server_id)?;
-        let mut connection =
-            ssh_transport_service::SshConnection::connect(&profile, || false)?;
+        let (_sftp, command_session) = pool_clone.get_or_connect(&server_id, &profile)?;
 
         let safe_path = log_path.replace('\'', "'\\''");
         let cmd = format!("tail -n {} '{}'", lines, safe_path);
-        let result = connection.execute_with_cancel(&cmd, || false)?;
+        let result = ssh_transport_service::execute_ssh2_command(&command_session, &cmd)?;
 
         Ok(result.output.lines().map(String::from).collect())
     })
@@ -346,39 +354,24 @@ pub async fn upload_remote_file(
     server_id: String,
     local_path: String,
     remote_path: String,
+    pool: State<'_, SshConnectionPool>,
 ) -> AppResult<()> {
     let task_app = app.clone();
+    let pool_clone = pool.inner().clone();
     blocking::run(move || {
         let profile = deployment_repo::get_server_profile_for_execution(&task_app, &server_id)?;
-        let mut connection =
-            ssh_transport_service::SshConnection::connect(&profile, || false)?;
+        let (sftp_session, command_session) = pool_clone.get_or_connect(&server_id, &profile)?;
 
         let local = Path::new(&local_path);
         if !local.exists() {
             return Err(to_user_error(format!("本地文件不存在：{}", local_path)));
         }
 
-        connection.upload_file_with_progress(
+        ssh_transport_service::upload_via_pool_sftp(
+            &sftp_session,
+            &command_session,
             local,
             &remote_path,
-            || false,
-            |uploaded, total, _speed| {
-                let percent = if total > 0 {
-                    (uploaded as f64 / total as f64 * 100.0).round()
-                } else {
-                    0.0
-                };
-                let _ = task_app.emit(
-                    "remote-file-transfer-progress",
-                    json!({
-                        "serverId": server_id,
-                        "direction": "upload",
-                        "percent": percent,
-                        "transferred": uploaded,
-                        "total": total,
-                    }),
-                );
-            },
         )?;
 
         Ok(())
@@ -392,34 +385,18 @@ pub async fn download_remote_file(
     server_id: String,
     remote_path: String,
     local_path: String,
+    pool: State<'_, SshConnectionPool>,
 ) -> AppResult<()> {
-    let task_app = app.clone();
+    let _task_app = app.clone();
+    let pool_clone = pool.inner().clone();
     blocking::run(move || {
-        let profile = deployment_repo::get_server_profile_for_execution(&task_app, &server_id)?;
-        let mut connection =
-            ssh_transport_service::SshConnection::connect(&profile, || false)?;
+        let profile = deployment_repo::get_server_profile_for_execution(&_task_app, &server_id)?;
+        let (sftp_session, _command_session) = pool_clone.get_or_connect(&server_id, &profile)?;
 
-        connection.download_file_with_progress(
+        ssh_transport_service::download_via_pool_sftp(
+            &sftp_session,
             &remote_path,
             Path::new(&local_path),
-            || false,
-            |downloaded, total, _speed| {
-                let percent = if total > 0 {
-                    (downloaded as f64 / total as f64 * 100.0).round()
-                } else {
-                    0.0
-                };
-                let _ = task_app.emit(
-                    "remote-file-transfer-progress",
-                    json!({
-                        "serverId": server_id,
-                        "direction": "download",
-                        "percent": percent,
-                        "transferred": downloaded,
-                        "total": total,
-                    }),
-                );
-            },
         )?;
 
         Ok(())

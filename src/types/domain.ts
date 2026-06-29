@@ -953,6 +953,8 @@ export interface TemplateVariable {
   type?: 'text' | 'select'
   /** 下拉选项列表，仅当 type='select' 时有效 */
   options?: string[]
+  /** 选项来源：manual=手动输入，artifact=从项目构建产物加载 */
+  variableSource?: 'manual' | 'artifact'
 }
 
 export interface CommandExecution {

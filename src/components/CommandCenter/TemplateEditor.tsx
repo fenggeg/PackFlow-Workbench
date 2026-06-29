@@ -1,6 +1,6 @@
 import {useState, useEffect} from 'react'
-import {Drawer, Form, Input, InputNumber, Button, Space, Card, Select, Switch, Typography, message} from 'antd'
-import {PlusOutlined, DeleteOutlined, FolderOpenOutlined} from '@ant-design/icons'
+import {Drawer, Form, Input, InputNumber, Button, Space, Card, Select, Switch, Typography, message, Radio} from 'antd'
+import {PlusOutlined, DeleteOutlined, FolderOpenOutlined, InsertRowAboveOutlined} from '@ant-design/icons'
 import type {CommandTemplate, CommandStep, TemplateVariable, SaveCommandTemplatePayload} from '../../types/domain'
 import {useCommandStore} from '../../store/useCommandStore'
 import {selectLocalFile} from '../../services/tauri-api'
@@ -56,7 +56,7 @@ export function TemplateEditor({visible, template, onClose}: TemplateEditorProps
 
   const handleAddStep = () => {
     const newStep: CommandStep = {
-      id: `step_${Date.now()}`,
+      id: `step_${crypto.randomUUID()}`,
       type: 'command',
       name: `步骤 ${steps.length + 1}`,
       command: '',
@@ -64,6 +64,20 @@ export function TemplateEditor({visible, template, onClose}: TemplateEditorProps
       privileged: false,
     }
     setSteps([...steps, newStep])
+  }
+
+  const handleInsertStep = (index: number) => {
+    const newStep: CommandStep = {
+      id: `step_${crypto.randomUUID()}`,
+      type: 'command',
+      name: `步骤 ${index + 1}`,
+      command: '',
+      ignoreError: false,
+      privileged: false,
+    }
+    const newSteps = [...steps]
+    newSteps.splice(index, 0, newStep)
+    setSteps(newSteps)
   }
 
   const handleRemoveStep = (index: number) => {
@@ -222,13 +236,22 @@ export function TemplateEditor({visible, template, onClose}: TemplateEditorProps
                 </div>
               }
               extra={
-                <Button
-                  type="text"
-                  danger
-                  size="small"
-                  icon={<DeleteOutlined />}
-                  onClick={() => handleRemoveStep(index)}
-                />
+                <Space size={4}>
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<InsertRowAboveOutlined />}
+                    onClick={() => handleInsertStep(index)}
+                    title="在此步骤前插入"
+                  />
+                  <Button
+                    type="text"
+                    danger
+                    size="small"
+                    icon={<DeleteOutlined />}
+                    onClick={() => handleRemoveStep(index)}
+                  />
+                </Space>
               }
             >
               <div className="cc-step-meta">
@@ -448,24 +471,42 @@ export function TemplateEditor({visible, template, onClose}: TemplateEditorProps
 
               {(variable.type || 'text') === 'select' && (
                 <div style={{marginTop: 8}}>
-                  <Text type="secondary" style={{fontSize: 12, display: 'block', marginBottom: 4}}>
-                    下拉选项（每行一个）：
-                  </Text>
-                  <TextArea
-                    placeholder={'选项1\n选项2\n选项3'}
-                    value={rawOptionsText[index] ?? (variable.options || []).join('\n')}
-                    onChange={e => {
-                      // 实时更新原始文本，保留换行
-                      setRawOptionsText(prev => ({...prev, [index]: e.target.value}))
-                    }}
-                    onBlur={() => {
-                      // 失焦时解析为数组并同步到变量数据
-                      const raw = rawOptionsText[index] ?? ''
-                      const options = raw.split('\n').map(s => s.trim()).filter(Boolean)
-                      handleVariableChange(index, 'options', options as unknown as string)
-                    }}
-                    autoSize={{minRows: 2, maxRows: 6}}
-                  />
+                  <Radio.Group
+                    size="small"
+                    value={variable.variableSource || 'manual'}
+                    onChange={(e: any) => handleVariableChange(index, 'variableSource', e.target.value)}
+                  >
+                    <Radio.Button value="manual">手动输入</Radio.Button>
+                    <Radio.Button value="artifact">从构建产物加载</Radio.Button>
+                  </Radio.Group>
+
+                  {(!variable.variableSource || variable.variableSource === 'manual') ? (
+                    <>
+                      <Text type="secondary" style={{fontSize: 12, display: 'block', marginBottom: 4, marginTop: 8}}>
+                        下拉选项（每行一个）：
+                      </Text>
+                      <TextArea
+                        placeholder={'选项1\n选项2\n选项3'}
+                        value={rawOptionsText[index] ?? (variable.options || []).join('\n')}
+                        onChange={e => {
+                          // 实时更新原始文本，保留换行
+                          setRawOptionsText(prev => ({...prev, [index]: e.target.value}))
+                        }}
+                        onBlur={() => {
+                          // 失焦时解析为数组并同步到变量数据
+                          const raw = rawOptionsText[index] ?? ''
+                          const options = raw.split('\n').map(s => s.trim()).filter(Boolean)
+                          handleVariableChange(index, 'options', options as unknown as string)
+                        }}
+                        autoSize={{minRows: 2, maxRows: 6}}
+                      />
+                    </>
+                  ) : (
+                    <div style={{marginTop: 8, padding: '8px 12px', background: '#f0fdf4', borderRadius: 6, fontSize: 13, color: '#166534'}}>
+                      <FolderOpenOutlined style={{marginRight: 6}} />
+                      运行时将自动加载当前项目的 JAR 构建产物作为下拉选项
+                    </div>
+                  )}
                 </div>
               )}
             </Card>

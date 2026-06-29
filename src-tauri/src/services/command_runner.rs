@@ -8,15 +8,24 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use tauri::{AppHandle, Emitter, Manager};
 use uuid::Uuid;
 
 /// 命令执行控制状态
-#[derive(Default)]
 pub struct CommandControlState {
     cancel_requests: Mutex<HashMap<String, bool>>,
+    background_channels: Mutex<HashMap<String, Arc<Mutex<ssh2::Session>>>>,
+}
+
+impl Default for CommandControlState {
+    fn default() -> Self {
+        Self {
+            cancel_requests: Mutex::new(HashMap::new()),
+            background_channels: Mutex::new(HashMap::new()),
+        }
+    }
 }
 
 impl CommandControlState {
@@ -24,11 +33,21 @@ impl CommandControlState {
         if let Ok(mut map) = self.cancel_requests.lock() {
             map.remove(execution_id);
         }
+        if let Ok(mut map) = self.background_channels.lock() {
+            map.remove(execution_id);
+        }
     }
 
     pub fn request_cancel(&self, execution_id: &str) -> AppResult<()> {
         if let Ok(mut map) = self.cancel_requests.lock() {
             map.insert(execution_id.to_string(), true);
+        }
+        if let Ok(map) = self.background_channels.lock() {
+            if let Some(session) = map.get(execution_id) {
+                if let Ok(guard) = session.lock() {
+                    let _ = guard.disconnect(None, "cancelled", None);
+                }
+            }
         }
         Ok(())
     }
@@ -38,6 +57,12 @@ impl CommandControlState {
             map.get(execution_id).copied().unwrap_or(false)
         } else {
             false
+        }
+    }
+
+    pub fn register_background_channel(&self, execution_id: &str, session: Arc<Mutex<ssh2::Session>>) {
+        if let Ok(mut map) = self.background_channels.lock() {
+            map.insert(execution_id.to_string(), session);
         }
     }
 }
@@ -225,13 +250,14 @@ fn run_steps(
                 execution_id,
                 &format!("[步骤 {}/{}] 后台运行（不影响状态）: {}", step_num, total_steps, step_name),
             );
-            // 启动后台任务，使用 ssh2 command_session
             if let Some(cmd_session) = &connection.command_session {
                 let cmd_session_clone = cmd_session.clone();
                 let app_clone = app.clone();
                 let eid = execution_id.to_string();
                 let cmd = step.command.clone().unwrap_or_default();
                 let expanded_cmd = expand_template(&cmd, variables);
+                
+                app.state::<CommandControlState>().register_background_channel(&eid, cmd_session_clone.clone());
                 
                 std::thread::spawn(move || {
                     if let Ok(guard) = cmd_session_clone.lock() {
@@ -255,7 +281,18 @@ fn run_steps(
                                                 );
                                             }
                                         }
-                                        Err(_) => break,
+                                        Err(_) => {
+                                            if app_handle.state::<CommandControlState>().is_cancelled(&eid_clone) {
+                                                let _ = app_handle.emit(
+                                                    "command-execution-log",
+                                                    json!({
+                                                        "executionId": eid_clone,
+                                                        "line": "[系统] 日志连接已断开"
+                                                    }),
+                                                );
+                                            }
+                                            break;
+                                        }
                                     }
                                 }
                             }
@@ -332,8 +369,8 @@ fn execute_upload_step(
     eprintln!("[上传] 远程路径: {}", remote_path);
 
     // 展开变量
-    let expanded_local = expand_template(local_path, variables);
-    let expanded_remote = expand_template(remote_path, variables);
+    let expanded_local = expand_template(local_path, variables).trim().to_string();
+    let expanded_remote = expand_template(remote_path, variables).trim().to_string();
 
     eprintln!("[上传] 展开后本地路径: {}", expanded_local);
     eprintln!("[上传] 展开后远程路径: {}", expanded_remote);
@@ -415,9 +452,8 @@ fn execute_command_step(
     // 展开变量
     let expanded_command = expand_template(command, variables);
 
-    // 构建完整命令
     let full_command = if let Some(working_dir) = &step.working_dir {
-        let expanded_dir = expand_template(working_dir, variables);
+        let expanded_dir = expand_template(working_dir, variables).trim().to_string();
         format!("cd {} && {}", shell_quote(&expanded_dir), expanded_command)
     } else {
         expanded_command.clone()

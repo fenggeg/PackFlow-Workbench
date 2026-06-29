@@ -4,6 +4,7 @@ use crate::repositories::deployment_repo::ExecutionServerProfile;
 use crate::services::process_utils::{shell_quote, SSH_ENC_ALGORITHMS, SSH_KEX_ALGORITHMS, SSH_PUBKEY_ALGORITHMS, SSH_TIMEOUT_SECS, SSH_CONNECT_TIMEOUT_SECS};
 use encoding_rs::GBK;
 use ssh2::Session;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{ErrorKind, Read, Write};
 use std::net::TcpStream;
@@ -32,7 +33,7 @@ struct PrivilegeCommandConfig {
     password: Option<String>,
 }
 
-struct SftpSession {
+pub struct SftpSession {
     #[allow(dead_code)]
     session: Session,
     sftp: ssh2::Sftp,
@@ -384,6 +385,7 @@ impl SshConnection {
         Ok(exit_status)
     }
 
+    #[allow(dead_code)]
     pub fn download_file_with_progress<C, P>(
         &mut self,
         remote_path: &str,
@@ -413,7 +415,7 @@ impl SshConnection {
         let stat = sftp_file
             .stat()
             .map_err(|error| to_user_error(format!("SFTP 获取远程文件信息失败：{}", error)))?;
-        let file_size = stat.size.unwrap_or(0);
+    let file_size = stat.size.unwrap_or(0);
 
         // 确保本地目录存在
         if let Some(parent) = local_path.parent() {
@@ -507,22 +509,17 @@ impl SshConnection {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| "/tmp".to_string());
 
-        let mkdir_cmd = format!("mkdir -p {}", shell_quote(&remote_dir));
-        eprintln!("[上传] 创建远程目录: {}", remote_dir);
-        
-        // 使用 ssh2 的 command_session 来执行目录创建命令
         if let Some(cmd_session) = &self.command_session {
             let guard = cmd_session.lock().map_err(|_| to_user_error("无法获取命令会话锁。"))?;
             let mut channel = guard.channel_session().map_err(|error| to_user_error(format!("无法打开命令通道：{}", error)))?;
+            let mkdir_cmd = format!("mkdir -p {}", shell_quote(&remote_dir));
             channel.exec(&mkdir_cmd).map_err(|error| to_user_error(format!("创建远端目录失败：{}", error)))?;
-            eprintln!("[上传] 等待目录创建完成...");
-            // 不等待输出，直接关闭通道
+            eprintln!("[上传] 确保远程目录存在: {}", remote_dir);
             let _ = channel.send_eof();
             let _ = channel.wait_eof();
             let _ = channel.wait_close();
-            eprintln!("[上传] 目录创建完成");
         } else {
-            eprintln!("[上传] 警告: 无命令会话，跳过目录创建");
+            eprintln!("[上传] 警告: 无命令会话，跳过目录检查");
         }
 
         let use_sftp = self.sftp_session.is_some();
@@ -698,7 +695,11 @@ where
         on_progress(uploaded, file_size, speed);
     }
 
-    drop(sftp_file);
+    // 显式关闭远程文件句柄，确保服务端提交文件
+    // 使用 drop() 会静默忽略 close 错误，导致文件实际未写入
+    sftp_file
+        .close()
+        .map_err(|error| to_user_error(format!("SFTP 关闭远程文件失败：{}", error)))?;
     drop(sftp_guard);
 
     on_progress(file_size, file_size, None);
@@ -1083,4 +1084,222 @@ fn decode_output(bytes: &[u8]) -> String {
         let (value, _, _) = GBK.decode(bytes);
         value.into_owned()
     })
+}
+
+const POOL_IDLE_TIMEOUT_SECS: u64 = 10 * 60;
+
+struct PooledSftp {
+    sftp_session: Arc<Mutex<SftpSession>>,
+    command_session: Arc<Mutex<Session>>,
+    last_used: Instant,
+}
+
+#[derive(Clone)]
+pub struct SshConnectionPool {
+    pool: Arc<Mutex<HashMap<String, PooledSftp>>>,
+}
+
+impl SshConnectionPool {
+    pub fn new() -> Self {
+        let pool = Arc::new(Mutex::new(HashMap::<String, PooledSftp>::new()));
+        let pool_clone = pool.clone();
+        std::thread::spawn(move || loop {
+            std::thread::sleep(Duration::from_secs(60));
+            if let Ok(mut guard) = pool_clone.lock() {
+                let before = guard.len();
+                guard.retain(|server_id, entry| {
+                    if entry.last_used.elapsed().as_secs() >= POOL_IDLE_TIMEOUT_SECS {
+                        eprintln!("[连接池] 清理空闲连接: {}", server_id);
+                        false
+                    } else {
+                        true
+                    }
+                });
+                let removed = before - guard.len();
+                if removed > 0 {
+                    eprintln!("[连接池] 清理了 {} 个空闲连接", removed);
+                }
+            }
+        });
+        Self { pool }
+    }
+
+    pub fn get_or_connect(
+        &self,
+        server_id: &str,
+        profile: &ExecutionServerProfile,
+    ) -> AppResult<(Arc<Mutex<SftpSession>>, Arc<Mutex<Session>>)> {
+        let mut guard = self.pool.lock().map_err(|_| to_user_error("无法获取连接池锁。"))?;
+
+        if let Some(entry) = guard.get_mut(server_id) {
+            if is_pooled_alive(&entry.sftp_session, &entry.command_session) {
+                entry.last_used = Instant::now();
+                eprintln!("[连接池] 复用现有连接: {}", server_id);
+                return Ok((entry.sftp_session.clone(), entry.command_session.clone()));
+            }
+            eprintln!("[连接池] 现有连接已断开，重新连接: {}", server_id);
+            guard.remove(server_id);
+        }
+
+        eprintln!("[连接池] 创建新连接: {}", server_id);
+        let sftp_session = open_sftp_session(profile)?;
+        let command_session = open_ssh2_session(profile)?;
+
+        let entry = PooledSftp {
+            sftp_session: sftp_session.clone(),
+            command_session: command_session.clone(),
+            last_used: Instant::now(),
+        };
+        guard.insert(server_id.to_string(), entry);
+        Ok((sftp_session, command_session))
+    }
+
+    #[allow(dead_code)]
+    pub fn invalidate(&self, server_id: &str) {
+        if let Ok(mut guard) = self.pool.lock() {
+            guard.remove(server_id);
+        }
+    }
+}
+
+fn is_pooled_alive(
+    _sftp_session: &Arc<Mutex<SftpSession>>,
+    command_session: &Arc<Mutex<Session>>,
+) -> bool {
+    if let Ok(guard) = command_session.lock() {
+        guard.authenticated()
+    } else {
+        false
+    }
+}
+
+pub fn execute_ssh2_command(
+    command_session: &Arc<Mutex<Session>>,
+    command: &str,
+) -> AppResult<CommandResult> {
+    let session = command_session
+        .lock()
+        .map_err(|_| to_user_error("无法获取 SSH2 命令会话锁。"))?;
+    let mut channel = session
+        .channel_session()
+        .map_err(|error| to_user_error(format!("无法打开 SSH2 命令通道：{}", error)))?;
+    channel
+        .exec(command)
+        .map_err(|error| to_user_error(format!("远端命令执行失败：{}", error)))?;
+
+    let mut stdout = Vec::new();
+    channel
+        .read_to_end(&mut stdout)
+        .map_err(|error| to_user_error(format!("读取命令输出失败：{}", error)))?;
+    let mut stderr = Vec::new();
+    channel
+        .stderr()
+        .read_to_end(&mut stderr)
+        .map_err(|error| to_user_error(format!("读取命令错误输出失败：{}", error)))?;
+    channel
+        .wait_close()
+        .map_err(|error| to_user_error(format!("等待远端命令结束失败：{}", error)))?;
+    let exit_status = channel
+        .exit_status()
+        .map_err(|error| to_user_error(format!("读取远端命令退出码失败：{}", error)))?;
+
+    parse_command_bytes(stdout, stderr, exit_status, &[], "远端命令执行失败")
+}
+
+pub fn upload_via_pool_sftp(
+    sftp_session: &Arc<Mutex<SftpSession>>,
+    command_session: &Arc<Mutex<Session>>,
+    local_path: &Path,
+    remote_path: &str,
+) -> AppResult<()> {
+    if !local_path.exists() {
+        return Err(to_user_error("本地文件不存在。"));
+    }
+
+    let remote_dir = Path::new(remote_path)
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "/tmp".to_string());
+
+    {
+        let guard = command_session
+            .lock()
+            .map_err(|_| to_user_error("无法获取命令会话锁。"))?;
+        let mut channel = guard
+            .channel_session()
+            .map_err(|error| to_user_error(format!("无法打开命令通道：{}", error)))?;
+        let mkdir_cmd = format!("mkdir -p {}", shell_quote(&remote_dir));
+        channel
+            .exec(&mkdir_cmd)
+            .map_err(|error| to_user_error(format!("创建远端目录失败：{}", error)))?;
+        eprintln!("[上传] 确保远程目录存在: {}", remote_dir);
+        let _ = channel.send_eof();
+        let _ = channel.wait_eof();
+        let _ = channel.wait_close();
+    }
+
+    let mut local_file = File::open(local_path)
+        .map_err(|error| to_user_error(format!("无法打开本地文件：{}", error)))?;
+    let file_size = local_file
+        .metadata()
+        .map_err(|error| to_user_error(format!("无法读取本地文件信息：{}", error)))?
+        .len();
+
+    upload_via_sftp(
+        sftp_session,
+        &mut local_file,
+        remote_path,
+        file_size,
+        &mut || false,
+        &mut |_, _, _| {},
+    )
+}
+
+pub fn download_via_pool_sftp(
+    sftp_session: &Arc<Mutex<SftpSession>>,
+    remote_path: &str,
+    local_path: &Path,
+) -> AppResult<()> {
+    let sftp_arc = sftp_session.clone();
+    let sftp_guard = sftp_arc
+        .lock()
+        .map_err(|_| to_user_error("无法获取 SFTP 锁。"))?;
+
+    let remote = std::path::Path::new(remote_path);
+    let mut sftp_file = sftp_guard
+        .sftp
+        .open(remote)
+        .map_err(|error| to_user_error(format!("SFTP 打开远程文件失败：{}", error)))?;
+
+    let stat = sftp_file
+        .stat()
+        .map_err(|error| to_user_error(format!("SFTP 获取远程文件信息失败：{}", error)))?;
+    let _file_size = stat.size.unwrap_or(0);
+
+    if let Some(parent) = local_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let mut local_file = File::create(local_path)
+        .map_err(|error| to_user_error(format!("无法创建本地文件：{}", error)))?;
+
+    let mut buffer = [0u8; 256 * 1024];
+    loop {
+        let bytes_read = sftp_file
+            .read(&mut buffer)
+            .map_err(|error| to_user_error(format!("SFTP 读取远程文件失败：{}", error)))?;
+        if bytes_read == 0 {
+            break;
+        }
+        local_file
+            .write_all(&buffer[..bytes_read])
+            .map_err(|error| to_user_error(format!("写入本地文件失败：{}", error)))?;
+    }
+
+    sftp_file
+        .close()
+        .map_err(|error| to_user_error(format!("SFTP 关闭远程文件失败：{}", error)))?;
+    drop(sftp_guard);
+
+    Ok(())
 }

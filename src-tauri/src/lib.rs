@@ -7,6 +7,7 @@ mod services;
 use services::command_runner::CommandControlState;
 use services::process_runner::BuildProcessState;
 use services::remote_log_session_service::RemoteLogSessionState;
+use services::ssh_transport_service::SshConnectionPool;
 use services::terminal_session_service::TerminalManager;
 use tauri::Listener;
 use tauri::Manager;
@@ -60,6 +61,7 @@ pub fn run() {
         .manage(CommandControlState::default())
         .manage(RemoteLogSessionState::default())
         .manage(TerminalManager::new())
+        .manage(SshConnectionPool::new())
         .invoke_handler(tauri::generate_handler![
             commands::project::parse_maven_project,
             commands::project::analyze_project_dependencies,

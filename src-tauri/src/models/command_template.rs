@@ -73,6 +73,9 @@ pub struct TemplateVariable {
     /// 下拉选项列表，仅当 type="select" 时有效
     #[serde(default)]
     pub options: Option<Vec<String>>,
+    /// 选项来源：manual=手动输入，artifact=从项目构建产物加载
+    #[serde(default)]
+    pub variable_source: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
