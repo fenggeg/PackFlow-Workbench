@@ -979,7 +979,9 @@ export interface StartCommandExecutionPayload {
 
 export interface CommandExecutionLogEvent {
   executionId: string
-  line: string
+  line?: string
+  lines?: string[]
+  disconnected?: boolean
 }
 
 export interface CommandExecutionUploadProgressEvent {

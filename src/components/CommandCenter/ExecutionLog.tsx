@@ -10,6 +10,8 @@ export function ExecutionLog() {
     currentExecutionStatus,
     uploadProgress,
     cancelExecution,
+    disconnectLog,
+    hasBackgroundExecution,
   } = useCommandStore()
 
   const logContainerRef = useRef<HTMLDivElement>(null)
@@ -32,7 +34,7 @@ export function ExecutionLog() {
 
   const logCount = currentExecutionLogs.length
   const isRunning = currentExecutionStatus === 'running'
-  const isTailRunning = currentExecutionStatus === 'success' && currentExecutionId
+  const isTailRunning = currentExecutionStatus === 'success' && hasBackgroundExecution
 
   return (
     <Card
@@ -50,8 +52,8 @@ export function ExecutionLog() {
           {(isRunning || isTailRunning) && currentExecutionId && (
             <Popconfirm
               title={isRunning ? "确定要停止当前执行吗？" : "确定要断开日志连接吗？"}
-              description={isRunning ? "这将中断正在运行的命令" : "这将断开 tail -f 日志连接"}
-              onConfirm={() => cancelExecution(currentExecutionId)}
+              description={isRunning ? "这将中断正在运行的命令" : "这将断开后台日志连接"}
+              onConfirm={() => isRunning ? cancelExecution(currentExecutionId) : disconnectLog(currentExecutionId)}
               okText={isRunning ? "停止" : "断开"}
               cancelText="取消"
             >

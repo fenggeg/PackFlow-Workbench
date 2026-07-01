@@ -39,6 +39,9 @@ interface CommandState {
   
   // 事件注册状态
   eventsRegistering: boolean
+
+  // 是否有后台日志连接
+  hasBackgroundExecution: boolean
 }
 
 interface CommandActions {
@@ -51,7 +54,9 @@ interface CommandActions {
   loadExecutions: () => Promise<void>
   startExecution: (payload: StartCommandExecutionPayload) => Promise<string>
   cancelExecution: (executionId: string) => Promise<void>
+  disconnectLog: (executionId: string) => Promise<void>
   deleteExecution: (executionId: string) => Promise<void>
+  checkBackgroundExecution: (executionId: string) => Promise<void>
 
   // 预设变量
   setPresetVariable: (key: string, value: string) => void
@@ -77,6 +82,7 @@ const initialState: CommandState = {
   presetVariables: {},
   cleanupEvents: null,
   eventsRegistering: false,
+  hasBackgroundExecution: false,
 }
 
 export const useCommandStore = create<CommandState & CommandActions>((set, get) => ({
@@ -142,6 +148,7 @@ export const useCommandStore = create<CommandState & CommandActions>((set, get) 
         currentExecutionLogs: [],
         currentExecutionStatus: 'running',
         uploadProgress: null,
+        hasBackgroundExecution: false,
       })
       return executionId
     } catch (error) {
@@ -154,10 +161,30 @@ export const useCommandStore = create<CommandState & CommandActions>((set, get) 
   cancelExecution: async (executionId: string) => {
     try {
       await api.cancelCommandExecution(executionId)
-      set({ currentExecutionStatus: 'cancelled' })
     } catch (error) {
       console.error('取消执行失败:', error)
       throw error
+    }
+  },
+
+  // 断开日志连接
+  disconnectLog: async (executionId: string) => {
+    try {
+      await api.disconnectCommandLog(executionId)
+      set({ hasBackgroundExecution: false })
+    } catch (error) {
+      console.error('断开日志失败:', error)
+      throw error
+    }
+  },
+
+  // 检查是否有后台日志连接
+  checkBackgroundExecution: async (executionId: string) => {
+    try {
+      const has = await api.hasCommandBackgroundExecution(executionId)
+      set({ hasBackgroundExecution: has })
+    } catch {
+      set({ hasBackgroundExecution: false })
     }
   },
 
@@ -195,20 +222,32 @@ export const useCommandStore = create<CommandState & CommandActions>((set, get) 
         (event: CommandExecutionLogEvent) => {
           const { currentExecutionId } = get()
           if (event.executionId === currentExecutionId) {
-            set((state) => ({
-              currentExecutionLogs: [...state.currentExecutionLogs, event.line],
-            }))
+            const newLines = event.lines ?? (event.line ? [event.line] : [])
+            if (newLines.length > 0) {
+              set((state) => ({
+                currentExecutionLogs: [...state.currentExecutionLogs, ...newLines],
+              }))
+            }
+            if (event.disconnected) {
+              set({ hasBackgroundExecution: false })
+            }
           }
         },
         // 执行完成事件
         (event: CommandExecution) => {
           const { currentExecutionId } = get()
           if (event.id === currentExecutionId) {
+            const newStatus = event.status as CommandState['currentExecutionStatus']
             set({
-              currentExecutionStatus: event.status as CommandState['currentExecutionStatus'],
+              currentExecutionStatus: newStatus,
             })
+            if (newStatus === 'success' && currentExecutionId) {
+              set({ hasBackgroundExecution: true })
+              get().checkBackgroundExecution(currentExecutionId)
+            } else {
+              set({ hasBackgroundExecution: false })
+            }
           }
-          // 重新加载执行列表
           get().loadExecutions()
         },
         // 上传进度事件（带节流）
@@ -268,6 +307,7 @@ export const useCommandStore = create<CommandState & CommandActions>((set, get) 
       currentExecutionLogs: [],
       currentExecutionStatus: 'idle',
       uploadProgress: null,
+      hasBackgroundExecution: false,
     })
   },
 }))

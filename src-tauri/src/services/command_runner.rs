@@ -17,6 +17,7 @@ use uuid::Uuid;
 pub struct CommandControlState {
     cancel_requests: Mutex<HashMap<String, bool>>,
     background_channels: Mutex<HashMap<String, Arc<Mutex<ssh2::Session>>>>,
+    background_executions: Mutex<HashMap<String, bool>>,
 }
 
 impl Default for CommandControlState {
@@ -24,6 +25,7 @@ impl Default for CommandControlState {
         Self {
             cancel_requests: Mutex::new(HashMap::new()),
             background_channels: Mutex::new(HashMap::new()),
+            background_executions: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -33,21 +35,21 @@ impl CommandControlState {
         if let Ok(mut map) = self.cancel_requests.lock() {
             map.remove(execution_id);
         }
-        if let Ok(mut map) = self.background_channels.lock() {
-            map.remove(execution_id);
+        // 不清除后台执行状态和通道，由后台线程结束时通过 clear_background 自行清理
+        // 如果在这里清除，前端 checkBackgroundExecution 会返回 false，导致断开日志按钮消失
+        if !self.has_background_execution(execution_id) {
+            if let Ok(mut map) = self.background_channels.lock() {
+                map.remove(execution_id);
+            }
+            if let Ok(mut map) = self.background_executions.lock() {
+                map.remove(execution_id);
+            }
         }
     }
 
     pub fn request_cancel(&self, execution_id: &str) -> AppResult<()> {
         if let Ok(mut map) = self.cancel_requests.lock() {
             map.insert(execution_id.to_string(), true);
-        }
-        if let Ok(map) = self.background_channels.lock() {
-            if let Some(session) = map.get(execution_id) {
-                if let Ok(guard) = session.lock() {
-                    let _ = guard.disconnect(None, "cancelled", None);
-                }
-            }
         }
         Ok(())
     }
@@ -64,6 +66,38 @@ impl CommandControlState {
         if let Ok(mut map) = self.background_channels.lock() {
             map.insert(execution_id.to_string(), session);
         }
+    }
+
+    pub fn register_background_execution(&self, execution_id: &str) {
+        if let Ok(mut map) = self.background_executions.lock() {
+            map.insert(execution_id.to_string(), true);
+        }
+    }
+
+    pub fn has_background_execution(&self, execution_id: &str) -> bool {
+        if let Ok(map) = self.background_executions.lock() {
+            map.get(execution_id).copied().unwrap_or(false)
+        } else {
+            false
+        }
+    }
+
+    pub fn clear_background(&self, execution_id: &str) {
+        if let Ok(mut map) = self.background_channels.lock() {
+            map.remove(execution_id);
+        }
+        if let Ok(mut map) = self.background_executions.lock() {
+            map.remove(execution_id);
+        }
+    }
+
+    pub fn force_disconnect_background(&self, execution_id: &str) {
+        if let Ok(mut map) = self.cancel_requests.lock() {
+            map.insert(execution_id.to_string(), true);
+        }
+        // 不在此处获取 session 锁并断开连接，因为后台线程可能正持有该锁
+        // 同步获取锁会导致死锁或长时间等待，造成 UI 无响应
+        // 后台线程会在下一次循环中检测到取消标记，自行关闭 channel 并退出
     }
 }
 
@@ -144,8 +178,11 @@ pub fn execute_template(app: AppHandle, payload: ExecuteTemplatePayload) -> AppR
 
 /// 取消执行
 pub fn cancel_execution(app: AppHandle, execution_id: String) -> AppResult<()> {
-    app.state::<CommandControlState>()
-        .request_cancel(&execution_id)?;
+    let state = app.state::<CommandControlState>();
+    state.request_cancel(&execution_id)?;
+    if state.has_background_execution(&execution_id) {
+        state.force_disconnect_background(&execution_id);
+    }
 
     let _ = app.emit(
         "command-execution-log",
@@ -154,6 +191,19 @@ pub fn cancel_execution(app: AppHandle, execution_id: String) -> AppResult<()> {
             "line": "[系统] 已请求停止执行，正在等待当前步骤退出..."
         }),
     );
+
+    Ok(())
+}
+
+/// 断开日志连接（直接关闭底层 TCP 连接）
+pub fn disconnect_log(app: AppHandle, execution_id: String) -> AppResult<()> {
+    let state = app.state::<CommandControlState>();
+
+    if !state.has_background_execution(&execution_id) {
+        return Err(to_user_error("没有活跃的日志连接"));
+    }
+
+    state.force_disconnect_background(&execution_id);
 
     Ok(())
 }
@@ -258,46 +308,80 @@ fn run_steps(
                 let expanded_cmd = expand_template(&cmd, variables);
                 
                 app.state::<CommandControlState>().register_background_channel(&eid, cmd_session_clone.clone());
+                app.state::<CommandControlState>().register_background_execution(&eid);
                 
                 std::thread::spawn(move || {
                     if let Ok(guard) = cmd_session_clone.lock() {
                         if let Ok(mut channel) = guard.channel_session() {
                             if channel.exec(&expanded_cmd).is_ok() {
-                                let app_handle = app_clone;
-                                let eid_clone = eid;
+                                guard.set_blocking(false);
                                 let mut buf = [0u8; 4096];
+                                let mut pending = Vec::<u8>::new();
+                                let mut batch = Vec::<String>::new();
+                                let mut last_flush = std::time::Instant::now();
+                                let flush_interval = std::time::Duration::from_millis(30);
                                 loop {
+                                    if app_clone.state::<CommandControlState>().is_cancelled(&eid) {
+                                        let _ = channel.close();
+                                        flush_batch(&app_clone, &eid, &mut batch);
+                                        let _ = app_clone.emit("command-execution-log", json!({
+                                            "executionId": eid,
+                                            "line": "[系统] 日志连接已断开",
+                                            "disconnected": true
+                                        }));
+                                        break;
+                                    }
                                     match channel.read(&mut buf) {
-                                        Ok(0) => break,
+                                        Ok(0) => {
+                                            if channel.eof() {
+                                                if !pending.is_empty() {
+                                                    drain_pending(&mut pending, &mut batch);
+                                                }
+                                                flush_batch(&app_clone, &eid, &mut batch);
+                                                let _ = app_clone.emit("command-execution-log", json!({
+                                                    "executionId": eid,
+                                                    "line": "[系统] 日志连接已断开",
+                                                    "disconnected": true
+                                                }));
+                                                break;
+                                            }
+                                            if last_flush.elapsed() >= flush_interval {
+                                                flush_batch(&app_clone, &eid, &mut batch);
+                                                last_flush = std::time::Instant::now();
+                                            }
+                                            std::thread::sleep(std::time::Duration::from_millis(10));
+                                        }
                                         Ok(n) => {
-                                            let line = String::from_utf8_lossy(&buf[..n]);
-                                            for l in line.lines() {
-                                                let _ = app_handle.emit(
-                                                    "command-execution-log",
-                                                    json!({
-                                                        "executionId": eid_clone,
-                                                        "line": l
-                                                    }),
-                                                );
+                                            pending.extend_from_slice(&buf[..n]);
+                                            drain_pending(&mut pending, &mut batch);
+                                            if batch.len() >= 20 || last_flush.elapsed() >= flush_interval {
+                                                flush_batch(&app_clone, &eid, &mut batch);
+                                                last_flush = std::time::Instant::now();
                                             }
                                         }
-                                        Err(_) => {
-                                            if app_handle.state::<CommandControlState>().is_cancelled(&eid_clone) {
-                                                let _ = app_handle.emit(
-                                                    "command-execution-log",
-                                                    json!({
-                                                        "executionId": eid_clone,
-                                                        "line": "[系统] 日志连接已断开"
-                                                    }),
-                                                );
+                                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                                            if !batch.is_empty() {
+                                                flush_batch(&app_clone, &eid, &mut batch);
+                                                last_flush = std::time::Instant::now();
                                             }
+                                            std::thread::sleep(std::time::Duration::from_millis(10));
+                                        }
+                                        Err(_) => {
+                                            flush_batch(&app_clone, &eid, &mut batch);
+                                            let _ = app_clone.emit("command-execution-log", json!({
+                                                "executionId": eid,
+                                                "line": "[系统] 日志连接已断开",
+                                                "disconnected": true
+                                            }));
                                             break;
                                         }
                                     }
                                 }
+                                guard.set_blocking(true);
                             }
                         }
                     }
+                    app_clone.state::<CommandControlState>().clear_background(&eid);
                 });
             }
             continue;
@@ -573,4 +657,36 @@ fn shell_quote(s: &str) -> String {
 
     let escaped = s.replace('\'', "'\\''");
     format!("'{}'", escaped)
+}
+
+fn drain_pending(pending: &mut Vec<u8>, batch: &mut Vec<String>) {
+    while let Some(idx) = pending.iter().position(|b| *b == b'\n') {
+        let mut line = pending.drain(..=idx).collect::<Vec<u8>>();
+        if line.ends_with(&[b'\n']) {
+            line.pop();
+        }
+        if line.ends_with(&[b'\r']) {
+            line.pop();
+        }
+        let s = match String::from_utf8(line) {
+            Ok(s) => s,
+            Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
+        };
+        batch.push(s);
+    }
+}
+
+fn flush_batch(app: &AppHandle, execution_id: &str, batch: &mut Vec<String>) {
+    if batch.is_empty() {
+        return;
+    }
+    let lines: Vec<&str> = batch.iter().map(|s| s.as_str()).collect();
+    let _ = app.emit(
+        "command-execution-log",
+        json!({
+            "executionId": execution_id,
+            "lines": lines
+        }),
+    );
+    batch.clear();
 }

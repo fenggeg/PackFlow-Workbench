@@ -110,6 +110,8 @@ pub fn run() {
             commands::deployment::delete_command_template,
             commands::deployment::start_command_execution,
             commands::deployment::cancel_command_execution,
+            commands::deployment::disconnect_command_log,
+            commands::deployment::has_command_background_execution,
             commands::deployment::list_command_executions,
             commands::deployment::delete_command_execution,
             commands::service_ops::list_service_runtime_configs,

@@ -3,7 +3,7 @@ use crate::models::command_template::{CommandExecution, CommandTemplate, SaveCom
 use crate::models::deployment::{SaveServerProfilePayload, ServerProfile};
 use crate::repositories::{command_template_repo, deployment_repo};
 use crate::services::{app_logger, blocking, command_runner, ssh_transport_service};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 // ==================== 服务器管理命令 ====================
 
@@ -165,6 +165,22 @@ pub fn cancel_command_execution(app: AppHandle, execution_id: String) -> AppResu
         format!("execution_id={}", execution_id),
     );
     command_runner::cancel_execution(app, execution_id)
+}
+
+#[tauri::command]
+pub fn disconnect_command_log(app: AppHandle, execution_id: String) -> AppResult<()> {
+    app_logger::log_info(
+        &app,
+        "command.execution.disconnect_log",
+        format!("execution_id={}", execution_id),
+    );
+    command_runner::disconnect_log(app, execution_id)
+}
+
+#[tauri::command]
+pub fn has_command_background_execution(app: AppHandle, execution_id: String) -> AppResult<bool> {
+    let state = app.state::<command_runner::CommandControlState>();
+    Ok(state.has_background_execution(&execution_id))
 }
 
 #[tauri::command]

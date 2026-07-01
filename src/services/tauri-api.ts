@@ -263,6 +263,12 @@ export const api = {
   cancelCommandExecution: (executionId: string) =>
     invoke<void>('cancel_command_execution', { executionId }),
 
+  disconnectCommandLog: (executionId: string) =>
+    invoke<void>('disconnect_command_log', { executionId }),
+
+  hasCommandBackgroundExecution: (executionId: string) =>
+    invoke<boolean>('has_command_background_execution', { executionId }),
+
   listCommandExecutions: () =>
     invoke<CommandExecution[]>('list_command_executions'),
 

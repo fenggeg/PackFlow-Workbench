@@ -12,6 +12,10 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+const SSH_SESSION_INIT_DELAY_MS: u64 = 300;
+const SSH_SESSION_RETRY_BASE_DELAY_MS: u64 = 500;
+const SSH_SESSION_MAX_RETRIES: u32 = 2;
+
 pub struct CommandResult {
     pub output: String,
     pub exit_status: i32,
@@ -71,19 +75,48 @@ impl SshConnection {
             _ => return Err(to_user_error("暂不支持的认证方式。")),
         };
 
-        let sftp_session = match open_sftp_session(profile) {
-            Ok(session) => {
-                eprintln!("[SSH] SFTP 会话创建成功");
-                Some(session)
-            },
-            Err(error) => {
-                eprintln!("[SSH] SFTP 会话创建失败: {}", error);
-                None
-            },
+        std::thread::sleep(Duration::from_millis(SSH_SESSION_INIT_DELAY_MS));
+        let sftp_session = {
+            let mut result = open_sftp_session(profile);
+            for attempt in 1..=SSH_SESSION_MAX_RETRIES {
+                if result.is_ok() {
+                    break;
+                }
+                let delay = Duration::from_millis(SSH_SESSION_RETRY_BASE_DELAY_MS * attempt as u64);
+                eprintln!("[SSH] SFTP 会话创建失败，{}ms 后重试（第{}次）...", delay.as_millis(), attempt);
+                std::thread::sleep(delay);
+                result = open_sftp_session(profile);
+            }
+            match result {
+                Ok(session) => {
+                    eprintln!("[SSH] SFTP 会话创建成功");
+                    Some(session)
+                },
+                Err(error) => {
+                    eprintln!("[SSH] SFTP 会话创建失败（已重试）: {}", error);
+                    None
+                },
+            }
         };
-        let command_session = match open_ssh2_session(profile) {
-            Ok(session) => Some(session),
-            Err(_) => None,
+        std::thread::sleep(Duration::from_millis(SSH_SESSION_INIT_DELAY_MS));
+        let command_session = {
+            let mut result = open_ssh2_session(profile);
+            for attempt in 1..=SSH_SESSION_MAX_RETRIES {
+                if result.is_ok() {
+                    break;
+                }
+                let delay = Duration::from_millis(SSH_SESSION_RETRY_BASE_DELAY_MS * attempt as u64);
+                eprintln!("[SSH] 命令会话创建失败，{}ms 后重试（第{}次）...", delay.as_millis(), attempt);
+                std::thread::sleep(delay);
+                result = open_ssh2_session(profile);
+            }
+            match result {
+                Ok(session) => Some(session),
+                Err(error) => {
+                    eprintln!("[SSH] 命令会话创建失败（已重试）: {}", error);
+                    None
+                },
+            }
         };
 
         Ok(Self {
@@ -289,14 +322,14 @@ impl SshConnection {
                     if channel.eof() {
                         break;
                     }
-                    std::thread::sleep(Duration::from_millis(120));
+                    std::thread::sleep(Duration::from_millis(10));
                 }
                 Ok(size) => {
                     pending.extend_from_slice(&buffer[..size]);
                     emit_complete_lines(&mut pending, &mut on_line);
                 }
                 Err(error) if error.kind() == ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(120));
+                    std::thread::sleep(Duration::from_millis(10));
                 }
                 Err(error) => {
                     return Err(to_user_error(format!("读取远程实时输出失败：{}", error)));
