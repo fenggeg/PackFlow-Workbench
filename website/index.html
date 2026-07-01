@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="PackFlow Workbench 是面向 Windows 的 Maven 多模块打包、产物管理和部署流水线桌面工作台。"
+      content="PackFlow Workbench 是面向 Windows 的 Maven 多模块构建、部署与服务器运维桌面工作台。"
     />
-    <title>PackFlow Workbench - Maven 打包部署工作台</title>
+    <title>PackFlow Workbench - Maven 构建部署运维工作台</title>
     <link rel="icon" type="image/png" href="./favicon.png" />
     <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
     <link rel="stylesheet" href="./styles.css" />
@@ -26,26 +26,32 @@
           <a href="#install">安装</a>
           <a href="#faq">FAQ</a>
         </nav>
-        <a class="nav-cta" href="#install">下载</a>
+        <div class="nav-actions">
+          <a class="nav-github" href="https://github.com/fenggeg/PackFlow-Workbench" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">
+            <svg viewBox="0 0 16 16" width="22" height="22" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          </a>
+          <a class="nav-cta" href="#install">下载</a>
+        </div>
       </header>
 
       <main id="top">
         <section class="hero-section">
           <div class="hero-copy">
-            <p class="eyebrow">Desktop Control Surface For Maven Packaging & Deployment</p>
-            <h1>一个界面，接管 Maven 打包、产物和部署。</h1>
+            <p class="eyebrow">Desktop Control Surface For Maven Build, Deploy & Ops</p>
+            <h1>构建、部署、运维，一个工作台全收。</h1>
             <p class="hero-lead">
-              PackFlow Workbench 把 Maven 多模块解析、环境检测、命令预览、构建日志、产物筛选、服务器管理和部署流水线收进同一个 Windows 桌面工作台。
+              PackFlow Workbench 把 Maven 多模块构建、产物管理、命令调度、服务器运维和服务监控收进同一个 Windows 桌面工作台——从打包到上线到日常运维，不再在终端和工具之间反复切换。
             </p>
             <div class="hero-actions">
-              <a class="primary-button" data-download-link href="https://github.com/fenggeg/PackFlow-Workbench/releases/latest">获取 Windows 版本</a>
+              <a class="primary-button" data-download-link href="#install">获取 Windows 版本</a>
               <a class="secondary-button" href="#preview">查看界面预览</a>
             </div>
             <div class="hero-tags" aria-label="核心支持">
               <span>Maven 多模块</span>
-              <span>Tauri 2</span>
-              <span>SSH 部署</span>
-              <span>SQLite 持久化</span>
+              <span>Tauri 2 + Rust</span>
+              <span>SSH 双引擎</span>
+              <span>远程终端</span>
+              <span>服务运维</span>
             </div>
           </div>
 
@@ -55,11 +61,12 @@
             </div>
             <div class="preview-layout">
               <aside class="preview-sidebar">
-                <div class="preview-nav">项目</div>
+                <div class="preview-nav">首页</div>
                 <div class="preview-nav active">构建</div>
                 <div class="preview-nav">产物</div>
-                <div class="preview-nav">部署</div>
-                <div class="preview-nav">服务</div>
+                <div class="preview-nav">调度</div>
+                <div class="preview-nav">服务器</div>
+                <div class="preview-nav">历史</div>
               </aside>
               <main class="preview-main">
                 <div class="preview-heading">
@@ -86,25 +93,64 @@
         </section>
 
         <section class="metric-strip" aria-label="产品摘要">
-          <div><strong>7</strong><span>核心工作区</span></div>
-          <div><strong>100</strong><span>构建历史保留</span></div>
-          <div><strong>6</strong><span>部署步骤类型</span></div>
+          <div><strong>6</strong><span>核心工作区</span></div>
+          <div><strong>60+</strong><span>后端命令</span></div>
+          <div><strong>5</strong><span>部署步骤类型</span></div>
           <div><strong>1</strong><span>项目级隔离模型</span></div>
         </section>
 
         <section class="section" id="why">
           <div class="section-heading">
             <p class="eyebrow">Why PackFlow</p>
-            <h2>把零散的打包部署动作，收束成一条清晰流程。</h2>
-            <p>多模块项目的痛点通常不是单个命令，而是环境、模块、产物、服务器和验证步骤散落在不同工具里。PackFlow 把它们放到同一个操作闭环中。</p>
+            <h2>从构建到运维，不再在终端之间反复切换。</h2>
+            <p>多模块项目的痛点不只是打包——环境配置、产物定位、远程部署、服务重启、日志排查散落在不同工具里。PackFlow 把它们放到同一个操作闭环中。</p>
           </div>
           <div class="capability-grid">
-            <article class="capability-card"><p>Project Intelligence</p><h3>自动理解 Maven 多模块工程</h3><span>解析父工程、模块关系和 artifact 信息，把选择模块、依赖构建、产物定位收进一个连续工作台。</span></article>
-            <article class="capability-card"><p>Build Center</p><h3>构建命令可视化编排</h3><span>集中管理 JDK、Maven、Profile、settings.xml 和常用参数，执行前可预览并微调最终命令。</span></article>
-            <article class="capability-card"><p>Deployment Flow</p><h3>从产物到服务器的部署流水线</h3><span>支持 SSH 上传、远程命令、等待、端口探测、HTTP 检查和日志关键字检测，部署状态一屏追踪。</span></article>
-            <article class="capability-card"><p>Ops Console</p><h3>服务器、服务和历史记录统一管理</h3><span>服务器凭据、服务映射、部署模板和执行记录按项目隔离，减少切换项目时的误操作。</span></article>
-            <article class="capability-card"><p>Diagnostics</p><h3>实时日志与构建诊断</h3><span>构建和部署过程持续回传日志，关键错误可直接定位，失败原因不再散落在多个终端窗口里。</span></article>
-            <article class="capability-card"><p>Windows Native</p><h3>为本地桌面场景打磨</h3><span>基于 Tauri 2 与 Rust 后端，结合 SQLite、DPAPI、ssh.exe 和 Job Objects，贴近 Windows 运维习惯。</span></article>
+            <article class="capability-card"><p>Build Center</p><h3>构建命令可视化编排</h3><span>自动解析 Maven 多模块结构，集中管理 JDK、Maven、Profile 和常用参数，执行前可预览并微调最终命令，构建失败自动诊断原因。</span></article>
+            <article class="capability-card"><p>Artifact Manager</p><h3>构建产物一站式管理</h3><span>聚合所有模块的构建产物，按模块和规则筛选可部署文件，支持打开文件夹、复制路径、一键部署。</span></article>
+            <article class="capability-card"><p>Command Center</p><h3>命令调度与部署流水线</h3><span>配置命令模板和步骤链，支持 SSH 命令执行、文件上传和等待步骤，模板变量灵活配置，后台命令支持断开日志连接。</span></article>
+            <article class="capability-card"><p>Server Management</p><h3>服务器全功能运维</h3><span>管理 SSH 连接和分组，内置远程终端、文件浏览上传下载、日志实时查看和常用命令快捷执行，密码通过 DPAPI 加密保存。</span></article>
+            <article class="capability-card"><p>Service Ops</p><h3>服务监控与运维</h3><span>维护服务运行时配置，一键重启并自动健康检查，远程日志实时流支持关键字过滤，操作历史可追溯。</span></article>
+            <article class="capability-card"><p>Windows Native</p><h3>为本地桌面场景打磨</h3><span>基于 Tauri 2 与 Rust 后端，结合 SQLite 持久化、DPAPI 加密、SSH 双引擎和 Job Objects 进程管理，贴近 Windows 运维习惯。</span></article>
+          </div>
+        </section>
+
+        <section class="section" id="preview">
+          <div class="section-heading">
+            <p class="eyebrow">Preview</p>
+            <h2>六大工作区，覆盖构建到运维全流程。</h2>
+          </div>
+          <div class="preview-grid">
+            <article class="preview-card">
+              <div class="preview-card-icon">📊</div>
+              <h3>首页仪表盘</h3>
+              <p>环境状态一览、运行中任务、服务器快捷入口，一键跳转命令调度中心。</p>
+            </article>
+            <article class="preview-card">
+              <div class="preview-card-icon">🔨</div>
+              <h3>构建中心</h3>
+              <p>模块树选择、参数配置、命令预览、实时日志、失败自动诊断、环境方案切换。</p>
+            </article>
+            <article class="preview-card">
+              <div class="preview-card-icon">📦</div>
+              <h3>产物管理</h3>
+              <p>构建产物聚合展示，按模块筛选，支持打开、复制、删除和一键部署。</p>
+            </article>
+            <article class="preview-card">
+              <div class="preview-card-icon">⚡</div>
+              <h3>命令调度中心</h3>
+              <p>模板化命令链执行，支持变量配置、文件上传、实时日志和断开连接。</p>
+            </article>
+            <article class="preview-card">
+              <div class="preview-card-icon">🖥️</div>
+              <h3>服务器管理</h3>
+              <p>远程终端、文件管理、日志查看、常用命令，服务器运维一站搞定。</p>
+            </article>
+            <article class="preview-card">
+              <div class="preview-card-icon">📋</div>
+              <h3>历史管理</h3>
+              <p>构建记录和部署记录统一查看，支持重跑和删除，操作可追溯。</p>
+            </article>
           </div>
         </section>
 
@@ -117,7 +163,7 @@
           <div class="install-grid">
             <div class="terminal-card">
               <span>Windows</span>
-              <a class="download-card-link" data-download-link href="https://github.com/fenggeg/PackFlow-Workbench/releases/latest">
+              <a class="download-card-link" data-download-link href="#install">
                 正在获取 GitHub 最新版本下载地址...
               </a>
               <small data-release-note>如果自动获取失败，会打开 GitHub 最新 Release 页面。</small>
@@ -133,13 +179,15 @@
         <section class="section faq-section" id="faq">
           <div class="section-heading">
             <p class="eyebrow">FAQ</p>
-            <h2>首页只回答安装前最关键的问题。</h2>
+            <h2>安装前最关键的问题。</h2>
           </div>
           <div class="faq-list">
-            <details><summary>它是 Web 系统还是桌面应用？</summary><p>它是面向 Windows 的本地桌面应用，用来管理本地 Maven 项目的打包、产物和部署流程。</p></details>
-            <details><summary>支持哪些部署步骤？</summary><p>当前支持文件上传、SSH 命令、等待、端口检测、HTTP 检查和日志关键字检测。</p></details>
-            <details><summary>数据存在哪里？</summary><p>项目、构建历史、服务器、服务映射和部署记录保存在应用数据目录中的 SQLite 数据库。</p></details>
-            <details><summary>服务器密码如何保存？</summary><p>Windows 下会通过 DPAPI 加密保存，避免以明文形式落盘。</p></details>
+            <details><summary>它是 Web 系统还是桌面应用？</summary><p>它是面向 Windows 的本地桌面应用，用来管理本地 Maven 项目的构建、部署和服务器运维。</p></details>
+            <details><summary>支持哪些部署步骤？</summary><p>当前支持 SSH 命令执行、文件上传和等待步骤。命令步骤支持变量展开、超时设置和特权模式。</p></details>
+            <details><summary>能远程管理服务器吗？</summary><p>可以。内置远程终端（xterm.js + SSH PTY）、文件浏览与上传下载、日志实时查看和常用命令快捷执行，无需额外 SSH 客户端。</p></details>
+            <details><summary>数据存在哪里？</summary><p>项目、构建历史、服务器、服务配置和操作记录保存在应用数据目录中的 SQLite 数据库，按项目隔离。</p></details>
+            <details><summary>服务器密码如何保存？</summary><p>Windows 下通过 DPAPI 加密保存，不以明文落盘。</p></details>
+            <details><summary>SSH 连接依赖系统 ssh.exe 吗？</summary><p>不依赖。应用内置 ssh-rs 和 ssh2 双引擎，独立处理 SSH 连接、SFTP 传输和远程命令执行。</p></details>
           </div>
         </section>
       </main>
@@ -147,9 +195,9 @@
       <footer class="site-footer">
         <div>
           <strong>PackFlow Workbench</strong>
-          <p>让 Maven 打包、产物管理和服务器部署回到同一张工作台。</p>
+          <p>让 Maven 构建、部署和服务器运维回到同一张工作台。</p>
         </div>
-        <a class="primary-button" data-download-link href="https://github.com/fenggeg/PackFlow-Workbench/releases/latest">开始安装</a>
+        <a class="primary-button" data-download-link href="#install">开始安装</a>
       </footer>
     </div>
   </body>

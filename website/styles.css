@@ -103,6 +103,29 @@ a {
   font-weight: 700;
 }
 
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-self: end;
+}
+
+.nav-github {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  color: rgba(232, 240, 255, 0.72);
+  border-radius: 8px;
+  transition: color 0.2s, background 0.2s;
+}
+
+.nav-github:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .hero-section {
   display: grid;
   grid-template-columns: minmax(0, 0.95fr) minmax(420px, 1.05fr);
@@ -242,7 +265,7 @@ a {
 .preview-sidebar {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   padding: 18px 12px;
   background: rgba(2, 7, 18, 0.62);
   border-right: 1px solid rgba(255, 255, 255, 0.08);
@@ -441,6 +464,40 @@ a {
   align-items: start;
 }
 
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 34px;
+}
+
+.preview-card {
+  display: grid;
+  gap: 8px;
+  padding: 24px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.04));
+  border: 1px solid rgba(255, 255, 255, 0.105);
+  border-radius: 14px;
+}
+
+.preview-card-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.preview-card h3 {
+  margin: 0;
+  color: #ffffff;
+  font-size: 18px;
+}
+
+.preview-card p {
+  margin: 0;
+  color: rgba(232, 240, 255, 0.64);
+  font-size: 14px;
+  line-height: 1.75;
+}
+
 .install-grid,
 .terminal-card,
 .faq-list {
@@ -548,6 +605,10 @@ a {
   .metric-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .preview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
@@ -573,9 +634,13 @@ a {
     grid-template-columns: 1fr;
   }
 
+  .preview-grid {
+    grid-template-columns: 1fr;
+  }
+
   .preview-sidebar {
     display: grid;
-    grid-template-columns: repeat(5, minmax(70px, 1fr));
+    grid-template-columns: repeat(6, minmax(60px, 1fr));
     overflow-x: auto;
     border-right: 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);

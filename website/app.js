@@ -5,8 +5,8 @@ const downloadLinks = document.querySelectorAll('[data-download-link]')
 const releaseNote = document.querySelector('[data-release-note]')
 
 function preferWindowsAsset(assets) {
-  return assets.find((asset) => /\.msi$/i.test(asset.name))
-    ?? assets.find((asset) => /setup|installer|windows|x64/i.test(asset.name))
+  return assets.find((asset) => /\.exe$/i.test(asset.name))
+    ?? assets.find((asset) => /setup|installer|nsis|windows|x64/i.test(asset.name))
     ?? assets.find((asset) => /\.(exe|zip|msi)$/i.test(asset.name))
     ?? assets[0]
 }
