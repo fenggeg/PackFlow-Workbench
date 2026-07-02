@@ -41,6 +41,10 @@ pub struct CommandStep {
     #[serde(default)]
     pub remote_path: Option<String>,
     #[serde(default)]
+    pub local_path_mode: Option<String>, // "fixed" | "variable"
+    #[serde(default)]
+    pub remote_path_mode: Option<String>, // "fixed" | "variable"
+    #[serde(default)]
     pub command: Option<String>,
     #[serde(default)]
     pub shell: Option<String>,

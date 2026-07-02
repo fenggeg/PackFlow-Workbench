@@ -39,9 +39,19 @@ export function TemplateEditor({visible, template, onClose}: TemplateEditorProps
       // 使用 setTimeout 避免在 effect 中同步调用 setState
       const timer = setTimeout(() => {
         const vars = template?.variables || []
-        setSteps(template?.steps || [])
+        const templateSteps = template?.steps || []
+        setSteps(templateSteps)
         setVariables(vars)
-        // 初始化下拉选项的原始文本
+        const initialPathModes: Record<string, {local: 'fixed' | 'variable', remote: 'fixed' | 'variable'}> = {}
+        for (const s of templateSteps) {
+          if (s.type === 'upload') {
+            initialPathModes[s.id] = {
+              local: s.localPathMode || 'fixed',
+              remote: s.remotePathMode || 'fixed',
+            }
+          }
+        }
+        setPathModes(initialPathModes)
         const rawTexts: Record<number, string> = {}
         vars.forEach((v, i) => {
           if (v.type === 'select' && v.options?.length) {
@@ -116,6 +126,7 @@ export function TemplateEditor({visible, template, onClose}: TemplateEditorProps
     } else {
       handleStepChange(stepIndex, pathType === 'local' ? 'localPath' : 'remotePath', '')
     }
+    handleStepChange(stepIndex, pathType === 'local' ? 'localPathMode' : 'remotePathMode', mode)
   }
 
   const handleAddVariable = () => {

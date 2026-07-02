@@ -928,12 +928,16 @@ export interface SaveCommandTemplatePayload {
   variables: TemplateVariable[]
 }
 
+export type PathMode = 'fixed' | 'variable'
+
 export interface CommandStep {
   id: string
   type: 'upload' | 'command' | 'wait'
   name?: string
   localPath?: string
   remotePath?: string
+  localPathMode?: PathMode
+  remotePathMode?: PathMode
   command?: string
   shell?: string
   workingDir?: string
