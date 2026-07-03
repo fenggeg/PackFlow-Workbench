@@ -142,6 +142,57 @@ pub async fn delete_command_template(app: AppHandle, template_id: String) -> App
     result
 }
 
+#[tauri::command]
+pub async fn export_command_templates(app: AppHandle, path: String, ids: Option<Vec<String>>) -> AppResult<()> {
+    let task_app = app.clone();
+    let mut templates = blocking::run(move || command_template_repo::list_templates(&task_app)).await?;
+    if let Some(filter_ids) = ids {
+        templates.retain(|t| filter_ids.contains(&t.id));
+    }
+    let json = serde_json::to_string_pretty(&templates)
+        .map_err(|error| format!("无法序列化命令模板：{}", error))?;
+    std::fs::write(&path, json)
+        .map_err(|error| format!("无法写入文件：{}", error))?;
+    app_logger::log_info(
+        &app,
+        "command.template.export.success",
+        format!("path={}, count={}", path, templates.len()),
+    );
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn import_command_templates(
+    app: AppHandle,
+    path: String,
+) -> AppResult<usize> {
+    let content = std::fs::read_to_string(&path)
+        .map_err(|error| format!("无法读取文件：{}", error))?;
+    let templates: Vec<CommandTemplate> = serde_json::from_str(&content)
+        .map_err(|error| format!("文件格式异常：{}", error))?;
+    app_logger::log_info(
+        &app,
+        "command.template.import.start",
+        format!("count={}", templates.len()),
+    );
+    let task_app = app.clone();
+    let result =
+        blocking::run(move || command_template_repo::import_batch(&task_app, templates)).await;
+    match &result {
+        Ok(count) => app_logger::log_info(
+            &app,
+            "command.template.import.success",
+            format!("imported={}", count),
+        ),
+        Err(error) => app_logger::log_error(
+            &app,
+            "command.template.import.failed",
+            format!("error={}", error),
+        ),
+    }
+    result
+}
+
 // ==================== 命令执行命令 ====================
 
 #[tauri::command]

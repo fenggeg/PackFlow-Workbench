@@ -107,6 +107,8 @@ pub fn run() {
             commands::deployment::test_server_connection,
             commands::deployment::list_command_templates,
             commands::deployment::save_command_template,
+            commands::deployment::export_command_templates,
+            commands::deployment::import_command_templates,
             commands::deployment::delete_command_template,
             commands::deployment::start_command_execution,
             commands::deployment::cancel_command_execution,

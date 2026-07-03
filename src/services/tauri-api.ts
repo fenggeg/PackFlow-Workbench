@@ -256,6 +256,12 @@ export const api = {
   deleteCommandTemplate: (templateId: string) =>
     invoke<void>('delete_command_template', { templateId }),
 
+  exportCommandTemplates: (path: string, ids?: string[]) =>
+    invoke<void>('export_command_templates', { path, ids }),
+
+  importCommandTemplates: (path: string) =>
+    invoke<number>('import_command_templates', { path }),
+
   // Command Executions
   startCommandExecution: (payload: StartCommandExecutionPayload) =>
     invoke<string>('start_command_execution', { payload }),

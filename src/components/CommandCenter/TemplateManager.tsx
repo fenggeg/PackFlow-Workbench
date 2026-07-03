@@ -1,14 +1,17 @@
 import {useState, useCallback} from 'react'
-import {Card, Button, Space, Tag, Modal, Empty, Tooltip, Typography, Spin, message} from 'antd'
+import {Card, Button, Space, Tag, Modal, Empty, Tooltip, Typography, Spin, message, Checkbox} from 'antd'
 import {
   PlusOutlined,
   EditOutlined,
   DeleteOutlined,
   CopyOutlined,
   ThunderboltOutlined,
+  DownloadOutlined,
+  UploadOutlined,
 } from '@ant-design/icons'
 import type {CommandTemplate} from '../../types/domain'
 import {useCommandStore} from '../../store/useCommandStore'
+import {api, selectLocalFile, selectSavePath} from '../../services/tauri-api'
 import {TemplateEditor} from './TemplateEditor'
 
 const {Text} = Typography
@@ -22,6 +25,8 @@ export function TemplateManager({selectedTemplateId, onSelectTemplate}: Template
   const {templates, templatesLoading, deleteTemplate, loadTemplates} = useCommandStore()
   const [showEditor, setShowEditor] = useState(false)
   const [editingTemplate, setEditingTemplate] = useState<CommandTemplate>()
+  const [exportModalOpen, setExportModalOpen] = useState(false)
+  const [exportSelectedOnly, setExportSelectedOnly] = useState(false)
 
   const handleEdit = useCallback((template: CommandTemplate) => {
     setEditingTemplate(template)
@@ -69,6 +74,21 @@ export function TemplateManager({selectedTemplateId, onSelectTemplate}: Template
     loadTemplates()
   }, [loadTemplates])
 
+  const handleExport = useCallback(async () => {
+    try {
+      const path = await selectSavePath('导出命令模板', `command-templates-${Date.now()}.json`)
+      if (!path) return
+      await api.exportCommandTemplates(path, exportSelectedOnly && selectedTemplateId ? [selectedTemplateId] : undefined)
+      const count = exportSelectedOnly && selectedTemplateId ? 1 : templates.length
+      message.success(`已导出 ${count} 个模板`)
+    } catch (error) {
+      message.error(`导出失败: ${error}`)
+    } finally {
+      setExportModalOpen(false)
+      setExportSelectedOnly(false)
+    }
+  }, [exportSelectedOnly, selectedTemplateId, templates.length])
+
   const getStepSummary = (template: CommandTemplate) => {
     const uploadCount = template.steps.filter(s => s.type === 'upload').length
     const commandCount = template.steps.filter(s => s.type === 'command').length
@@ -86,9 +106,50 @@ export function TemplateManager({selectedTemplateId, onSelectTemplate}: Template
         title="模板管理"
         size="small"
         extra={
-          <Button type="primary" size="small" icon={<PlusOutlined />} onClick={handleCreate}>
-            新建模板
-          </Button>
+          <Space size={4}>
+            <Tooltip title="导出模板">
+              <Button
+                size="small"
+                type="text"
+                icon={<UploadOutlined />}
+                disabled={templates.length === 0}
+                onClick={() => setExportModalOpen(true)}
+              />
+            </Tooltip>
+            <Tooltip title="导入模板">
+              <Button
+                size="small"
+                type="text"
+                icon={<DownloadOutlined />}
+                onClick={async () => {
+                  try {
+                    const path = await selectLocalFile('选择命令模板导出文件')
+                    if (!path) return
+                    Modal.confirm({
+                      title: '导入命令模板',
+                      content: '即将导入文件中的命令模板，是否继续？',
+                      okText: '导入',
+                      cancelText: '取消',
+                      onOk: async () => {
+                        try {
+                          const count = await api.importCommandTemplates(path)
+                          await loadTemplates()
+                          message.success(`成功导入 ${count} 个模板`)
+                        } catch (error) {
+                          message.error(`导入失败: ${error}`)
+                        }
+                      },
+                    })
+                  } catch (error) {
+                    message.error(`选择文件失败: ${error}`)
+                  }
+                }}
+              />
+            </Tooltip>
+            <Button type="primary" size="small" icon={<PlusOutlined />} onClick={handleCreate}>
+              新建模板
+            </Button>
+          </Space>
         }
         style={{height: '100%'}}
         styles={{body: {overflowY: 'auto', maxHeight: 400, scrollbarGutter: 'stable'}}}
@@ -167,6 +228,31 @@ export function TemplateManager({selectedTemplateId, onSelectTemplate}: Template
           </div>
         )}
       </Card>
+
+      <Modal
+        title="导出命令模板"
+        open={exportModalOpen}
+        okText="导出"
+        cancelText="取消"
+        onCancel={() => {
+          setExportModalOpen(false)
+          setExportSelectedOnly(false)
+        }}
+        onOk={handleExport}
+      >
+        <Checkbox
+          checked={exportSelectedOnly}
+          onChange={(e) => setExportSelectedOnly(e.target.checked)}
+          disabled={!selectedTemplateId}
+        >
+          仅导出当前选中的模板{selectedTemplateId ? '' : '（未选中任何模板）'}
+        </Checkbox>
+        <div style={{marginTop: 8, color: '#999', fontSize: 12}}>
+          {exportSelectedOnly && selectedTemplateId
+            ? `将导出：${templates.find(t => t.id === selectedTemplateId)?.name ?? '未知模板'}`
+            : `将导出全部 ${templates.length} 个模板`}
+        </div>
+      </Modal>
 
       <TemplateEditor
         visible={showEditor}

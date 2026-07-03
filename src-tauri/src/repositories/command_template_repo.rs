@@ -89,6 +89,37 @@ pub fn save_template(
     Ok(template)
 }
 
+pub fn import_batch(app: &AppHandle, templates: Vec<CommandTemplate>) -> AppResult<usize> {
+    let connection = open_database(app)?;
+    let now = Utc::now().to_rfc3339();
+    let mut count = 0;
+    for mut template in templates {
+        let new_id = Uuid::new_v4().to_string();
+        template.id = new_id;
+        template.created_at = Some(now.clone());
+        template.updated_at = Some(now.clone());
+        let payload = serde_json::to_string(&template)
+            .map_err(|error| format!("无法序列化命令模板：{}", error))?;
+        connection
+            .execute(
+                r#"
+                INSERT INTO command_templates (id, name, created_at, updated_at, payload)
+                VALUES (?1, ?2, ?3, ?4, ?5)
+                "#,
+                params![
+                    template.id,
+                    template.name,
+                    template.created_at,
+                    template.updated_at,
+                    payload
+                ],
+            )
+            .map_err(|error| format!("无法导入命令模板：{}", error))?;
+        count += 1;
+    }
+    Ok(count)
+}
+
 pub fn delete_template(app: &AppHandle, template_id: &str) -> AppResult<()> {
     let connection = open_database(app)?;
     connection
