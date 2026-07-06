@@ -46,3 +46,22 @@ pub fn cancel_build(
 ) -> AppResult<()> {
     process_runner::cancel_build(window, state, &build_id)
 }
+
+#[tauri::command]
+pub fn set_max_concurrent_builds(
+    state: State<'_, BuildProcessState>,
+    max: Option<usize>,
+) -> AppResult<()> {
+    state.set_max_concurrent(max);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_max_concurrent_builds(state: State<'_, BuildProcessState>) -> AppResult<usize> {
+    Ok(state.get_max_concurrent())
+}
+
+#[tauri::command]
+pub fn get_running_build_count(state: State<'_, BuildProcessState>) -> AppResult<usize> {
+    Ok(state.running_count())
+}

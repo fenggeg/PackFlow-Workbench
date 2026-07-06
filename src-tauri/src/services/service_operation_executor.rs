@@ -6,12 +6,12 @@ use crate::models::service_ops::{
 use crate::models::deployment::DeploymentProfile;
 use crate::repositories::{deployment_repo, service_ops_repo};
 use crate::services::process_utils::shell_quote;
-use crate::services::ssh_transport_service::SshConnection;
+use crate::services::ssh_transport_service::{SshConnection, SshConnectionPool};
 use chrono::Utc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use uuid::Uuid;
 
 pub fn start_restart(app: AppHandle, config_id: String) -> AppResult<String> {
@@ -98,7 +98,8 @@ fn execute_restart(app: &AppHandle, task: &mut ServiceOperationTask) -> Result<(
         task,
         format!("正在连接服务器 {}@{}:{} ...", server.username, server.host, server.port),
     );
-    let mut conn = SshConnection::connect(&server, || false).map_err(|error| error.to_string())?;
+    let pool = app.state::<SshConnectionPool>().inner().clone();
+    let mut conn = pool.get_connection(&server.id, &server).map_err(|error| error.to_string())?;
     conn.configure_privilege(&server.privilege, server.privilege_password.clone());
     append_log(app, task, "SSH 连接已建立。");
     let log_offset = capture_log_offset(&mut conn, &config);
@@ -143,7 +144,8 @@ fn execute_health_check_task(
     );
     let server = deployment_repo::get_server_profile_for_execution(app, &config.server_id)
         .map_err(|error| error.to_string())?;
-    let mut conn = SshConnection::connect(&server, || false).map_err(|error| error.to_string())?;
+    let pool = app.state::<SshConnectionPool>().inner().clone();
+    let mut conn = pool.get_connection(&server.id, &server).map_err(|error| error.to_string())?;
     conn.configure_privilege(&server.privilege, server.privilege_password.clone());
     execute_health_check(app, task, &mut conn, false)
 }

@@ -22,12 +22,75 @@ use windows_sys::Win32::System::JobObjects::{
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
 
-#[derive(Default)]
+pub const DEFAULT_MAX_CONCURRENT_BUILDS: usize = 2;
+
+#[derive(Default, Clone)]
 pub struct BuildProcessState {
     processes: Arc<Mutex<HashMap<String, u32>>>,
     job_handles: Arc<Mutex<HashMap<String, isize>>>,
     log_paths: Arc<Mutex<HashMap<String, PathBuf>>>,
     cancelled_builds: Arc<Mutex<HashSet<String>>>,
+    max_concurrent: Arc<Mutex<Option<usize>>>,
+}
+
+impl BuildProcessState {
+    pub fn set_max_concurrent(&self, max: Option<usize>) {
+        if let Ok(mut guard) = self.max_concurrent.lock() {
+            *guard = max;
+        }
+    }
+
+    pub fn running_count(&self) -> usize {
+        self.processes
+            .lock()
+            .map(|guard| guard.len())
+            .unwrap_or(0)
+    }
+
+    pub fn get_max_concurrent(&self) -> usize {
+        self.max_concurrent
+            .lock()
+            .map(|guard| guard.unwrap_or(DEFAULT_MAX_CONCURRENT_BUILDS))
+            .unwrap_or(DEFAULT_MAX_CONCURRENT_BUILDS)
+    }
+
+    pub fn terminate_all(&self) {
+        let build_ids: Vec<String> = self
+            .processes
+            .lock()
+            .map(|guard| guard.keys().cloned().collect())
+            .unwrap_or_default();
+        for build_id in &build_ids {
+            let pid = self
+                .processes
+                .lock()
+                .ok()
+                .and_then(|guard| guard.get(build_id).copied());
+            let job_handle = self
+                .job_handles
+                .lock()
+                .ok()
+                .and_then(|mut guard| guard.remove(build_id).map(|h| h as HANDLE));
+            if let Some(pid) = pid {
+                if let Some(job_handle) = job_handle {
+                    let _ = terminate_job(job_handle);
+                    close_handle(job_handle);
+                }
+                let _ = kill_process_tree(pid);
+            }
+        }
+        if let Ok(mut processes) = self.processes.lock() {
+            processes.clear();
+        }
+        if let Ok(mut job_handles) = self.job_handles.lock() {
+            for (_, handle) in job_handles.drain() {
+                close_handle(handle as HANDLE);
+            }
+        }
+        if let Ok(mut log_paths) = self.log_paths.lock() {
+            log_paths.clear();
+        }
+    }
 }
 
 pub fn start_build(
@@ -37,6 +100,19 @@ pub fn start_build(
 ) -> AppResult<String> {
     if payload.command.trim().is_empty() {
         return Err(to_user_error("构建命令不能为空。"));
+    }
+
+    let max_concurrent = state
+        .max_concurrent
+        .lock()
+        .map(|guard| guard.unwrap_or(DEFAULT_MAX_CONCURRENT_BUILDS))
+        .unwrap_or(DEFAULT_MAX_CONCURRENT_BUILDS);
+    let running = state.running_count();
+    if running >= max_concurrent {
+        return Err(to_user_error(format!(
+            "当前已有 {} 个构建任务在运行，最大并发数为 {}，请等待完成后再试。",
+            running, max_concurrent
+        )));
     }
 
     let app = window.app_handle().clone();

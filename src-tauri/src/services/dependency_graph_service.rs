@@ -1,27 +1,11 @@
-use crate::error::{to_user_error, AppResult};
+use crate::error::AppResult;
 use crate::models::dependency::{
     ModuleDependencyEdge, ModuleDependencyGraph, ModuleDependencySummary,
 };
 use crate::models::module::MavenModule;
 use crate::services::pom_parser;
-use roxmltree::{Document, Node};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::fs;
 use std::path::Path;
-
-#[derive(Debug, Clone)]
-struct ParsedModulePom {
-    parent: Option<(Option<String>, String)>,
-    child_modules: Vec<String>,
-    dependencies: Vec<ParsedDependency>,
-}
-
-#[derive(Debug, Clone)]
-struct ParsedDependency {
-    group_id: Option<String>,
-    artifact_id: String,
-    dependency_type: String,
-}
 
 #[derive(Debug, Clone)]
 struct ModuleSnapshot {
@@ -57,7 +41,7 @@ pub fn analyze_project_dependencies(root_path: &str) -> AppResult<ModuleDependen
 
     let mut edges = Vec::new();
     for module in &module_snapshots {
-        let parsed = parse_module_pom(Path::new(&module.pom_path))?;
+        let parsed = pom_parser::parse_pom_for_dependency(Path::new(&module.pom_path))?;
 
         if let Some((parent_group_id, parent_artifact_id)) = parsed.parent {
             if let Some(parent_id) = resolve_internal_module(
@@ -133,79 +117,6 @@ fn flatten_modules(modules: &[MavenModule]) -> Vec<ModuleSnapshot> {
         result.extend(flatten_modules(&module.children));
     }
     result
-}
-
-fn parse_module_pom(path: &Path) -> AppResult<ParsedModulePom> {
-    let content = fs::read_to_string(path).map_err(|error| {
-        to_user_error(format!(
-            "无法读取依赖分析 POM {}：{}",
-            path.to_string_lossy(),
-            error
-        ))
-    })?;
-    let document = Document::parse(&content).map_err(|error| {
-        to_user_error(format!(
-            "无法解析依赖分析 POM {}：{}",
-            path.to_string_lossy(),
-            error
-        ))
-    })?;
-    let project = document
-        .descendants()
-        .find(|node| node.is_element() && node.tag_name().name() == "project")
-        .ok_or_else(|| to_user_error("POM 中缺少 project 根节点。"))?;
-
-    let parent = direct_child(project, "parent").and_then(|node| {
-        let artifact_id = child_text(node, "artifactId")?;
-        Some((child_text(node, "groupId"), artifact_id))
-    });
-    let child_modules = direct_child(project, "modules")
-        .map(|modules_node| {
-            modules_node
-                .children()
-                .filter(|node| node.is_element() && node.tag_name().name() == "module")
-                .filter_map(|node| node.text())
-                .map(normalize_path)
-                .collect()
-        })
-        .unwrap_or_default();
-    let dependencies = direct_child(project, "dependencies")
-        .map(|deps_node| {
-            deps_node
-                .children()
-                .filter(|node| node.is_element() && node.tag_name().name() == "dependency")
-                .filter_map(parse_dependency_node)
-                .collect()
-        })
-        .unwrap_or_default();
-
-    Ok(ParsedModulePom {
-        parent,
-        child_modules,
-        dependencies,
-    })
-}
-
-fn parse_dependency_node<'a, 'input>(node: Node<'a, 'input>) -> Option<ParsedDependency> {
-    let artifact_id = child_text(node, "artifactId")?;
-    Some(ParsedDependency {
-        group_id: child_text(node, "groupId"),
-        artifact_id,
-        dependency_type: child_text(node, "scope").unwrap_or_else(|| "compile".to_string()),
-    })
-}
-
-fn direct_child<'a, 'input>(node: Node<'a, 'input>, name: &str) -> Option<Node<'a, 'input>> {
-    node.children()
-        .find(|child| child.is_element() && child.tag_name().name() == name)
-}
-
-fn child_text<'a, 'input>(node: Node<'a, 'input>, name: &str) -> Option<String> {
-    direct_child(node, name)
-        .and_then(|child| child.text())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
 }
 
 fn resolve_internal_module(

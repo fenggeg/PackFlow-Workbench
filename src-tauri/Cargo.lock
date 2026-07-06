@@ -106,6 +106,7 @@ dependencies = [
  "chrono",
  "encoding_rs",
  "log",
+ "once_cell",
  "regex",
  "reqwest 0.12.28",
  "roxmltree",

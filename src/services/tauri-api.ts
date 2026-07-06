@@ -201,6 +201,13 @@ export const api = {
 
   cancelBuild: (buildId: string) => invoke<void>('cancel_build', { buildId }),
 
+  setMaxConcurrentBuilds: (max: number | null) =>
+    invoke<void>('set_max_concurrent_builds', { max }),
+
+  getMaxConcurrentBuilds: () => invoke<number>('get_max_concurrent_builds'),
+
+  getRunningBuildCount: () => invoke<number>('get_running_build_count'),
+
   listBuildHistory: () => invoke<BuildHistoryRecord[]>('list_build_history'),
 
   saveBuildHistory: (record: BuildHistoryRecord) =>

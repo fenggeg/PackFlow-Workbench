@@ -10,12 +10,12 @@ pub struct EnvironmentSettings {
     pub last_project_path: Option<String>,
     #[serde(default)]
     pub project_paths: Vec<String>,
-    /// projectPath -> profileId，项目专属环境方案绑定
     #[serde(default)]
     pub project_profile_bindings: HashMap<String, String>,
-    /// JDK 注册表：全局可用 JDK 列表
     #[serde(default)]
     pub jdk_registry: Vec<JdkEntry>,
+    #[serde(default)]
+    pub max_concurrent_builds: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

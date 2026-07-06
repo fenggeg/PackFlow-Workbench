@@ -3,7 +3,7 @@ use crate::models::environment::{BuildEnvironment, EnvironmentSettings, JdkEntry
 use crate::repositories::settings_repo;
 use crate::services::{app_logger, blocking, env_detector, jdk_scanner, pom_parser};
 use std::path::PathBuf;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 #[tauri::command]
 pub async fn detect_environment(app: AppHandle, root_path: String) -> AppResult<BuildEnvironment> {
@@ -115,7 +115,15 @@ pub async fn save_environment_settings(
         if !settings.jdk_registry.is_empty() {
             current.jdk_registry = settings.jdk_registry;
         }
-        settings_repo::save(&task_app, current)
+        if settings.max_concurrent_builds.is_some() {
+            current.max_concurrent_builds = settings.max_concurrent_builds;
+        }
+        let max_concurrent = current.max_concurrent_builds.map(|v| v as usize);
+        settings_repo::save(&task_app, current)?;
+        if let Some(state) = task_app.try_state::<crate::services::process_runner::BuildProcessState>() {
+            state.set_max_concurrent(max_concurrent);
+        }
+        Ok(())
     })
     .await;
     if let Err(error) = &result {

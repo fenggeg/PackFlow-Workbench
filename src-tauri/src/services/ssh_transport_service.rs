@@ -169,8 +169,7 @@ impl SshConnection {
             return Err(to_user_error("部署已停止。"));
         }
 
-        let mut channel = self
-            .session
+        let mut channel = self.session
             .open_exec()
             .map_err(|error| to_user_error(format!("无法打开 SSH 命令通道：{}", error)))?;
 
@@ -388,8 +387,7 @@ impl SshConnection {
             command.to_string()
         };
 
-        let mut channel = self
-            .session
+        let mut channel = self.session
             .open_exec()
             .map_err(|error| to_user_error(format!("无法打开 SSH 命令通道：{}", error)))?;
 
@@ -754,79 +752,81 @@ where
 {
     use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 
-    let mut buffer = Vec::new();
-    local_file
-        .read_to_end(&mut buffer)
-        .map_err(|error| to_user_error(format!("读取本地产物失败：{}", error)))?;
-
-    let encoded = BASE64.encode(&buffer);
-    let chunk_size = 512 * 1024;
-    let temp_b64 = format!("{}/.upload.b64", remote_dir);
-    let quoted_temp_b64 = shell_quote(&temp_b64);
+    let raw_chunk_size: usize = 384 * 1024;
+    let quoted_temp_b64 = shell_quote(&format!("{}/.upload.b64", remote_dir));
     let quoted_remote_path = shell_quote(remote_path);
     let start_time = Instant::now();
     let mut last_progress_time = Instant::now();
     let mut last_uploaded: u64 = 0;
 
-    if encoded.len() > 100 * 1024 {
+    {
         let mut clear_channel = session
             .open_exec()
             .map_err(|error| to_user_error(format!("无法打开 SSH 命令通道：{}", error)))?;
-        let clear_cmd = format!("> {}", quoted_temp_b64);
-        clear_channel.exec_command(&clear_cmd).ok();
+        clear_channel
+            .exec_command(&format!("> {}", quoted_temp_b64))
+            .ok();
         let _ = clear_channel.get_output();
+    }
 
-        let chunks: Vec<&[u8]> = encoded.as_bytes().chunks(chunk_size).collect();
-        let encoded_len = encoded.len().max(1) as f64;
+    let mut raw_buffer = vec![0u8; raw_chunk_size];
+    let mut uploaded: u64 = 0;
 
-        for (i, chunk) in chunks.into_iter().enumerate() {
-            if is_cancelled() {
-                return Err(to_user_error("部署已停止。"));
-            }
-
-            let chunk_str = String::from_utf8_lossy(chunk);
-            let heredoc_marker = format!("__CHUNK_{}__", i);
-            let append_cmd = format!(
-                "cat >> {} << '{}'\n{}\n{}",
-                quoted_temp_b64, heredoc_marker, chunk_str, heredoc_marker
-            );
-
-            let mut chunk_channel = session
-                .open_exec()
-                .map_err(|error| to_user_error(format!("无法打开 SSH 命令通道：{}", error)))?;
-            chunk_channel
-                .exec_command(&append_cmd)
-                .map_err(|error| to_user_error(format!("上传文件块失败：{}", error)))?;
-            let _ = chunk_channel.get_output();
-
-            let encoded_uploaded = ((i + 1) as u64 * chunk_size as u64).min(encoded.len() as u64);
-            let uploaded = ((encoded_uploaded as f64 / encoded_len) * file_size as f64)
-                .round()
-                .min(file_size as f64) as u64;
-            let now = Instant::now();
-            let speed = if now.duration_since(last_progress_time) >= Duration::from_millis(200) {
-                let elapsed_secs = now.duration_since(last_progress_time).as_secs_f64();
-                let bytes_delta = uploaded.saturating_sub(last_uploaded) as f64;
-                let speed = if elapsed_secs > 0.0 {
-                    Some(bytes_delta / elapsed_secs)
-                } else {
-                    None
-                };
-                last_progress_time = now;
-                last_uploaded = uploaded;
-                speed
-            } else {
-                let total_elapsed = start_time.elapsed().as_secs_f64();
-                if total_elapsed > 0.0 {
-                    Some(uploaded as f64 / total_elapsed)
-                } else {
-                    None
-                }
-            };
-
-            on_progress(uploaded, file_size, speed);
+    loop {
+        if is_cancelled() {
+            return Err(to_user_error("部署已停止。"));
         }
 
+        let bytes_read = local_file
+            .read(&mut raw_buffer)
+            .map_err(|error| to_user_error(format!("读取本地文件失败：{}", error)))?;
+
+        if bytes_read == 0 {
+            break;
+        }
+
+        let encoded_chunk = BASE64.encode(&raw_buffer[..bytes_read]);
+        let heredoc_marker = format!("__CHUNK_{}__", uploaded / raw_chunk_size as u64);
+        let append_cmd = format!(
+            "cat >> {} << '{}'\n{}\n{}",
+            quoted_temp_b64, heredoc_marker, encoded_chunk, heredoc_marker
+        );
+
+        let mut chunk_channel = session
+            .open_exec()
+            .map_err(|error| to_user_error(format!("无法打开 SSH 命令通道：{}", error)))?;
+        chunk_channel
+            .exec_command(&append_cmd)
+            .map_err(|error| to_user_error(format!("上传文件块失败：{}", error)))?;
+        let _ = chunk_channel.get_output();
+
+        uploaded += bytes_read as u64;
+
+        let now = Instant::now();
+        let speed = if now.duration_since(last_progress_time) >= Duration::from_millis(200) {
+            let elapsed_secs = now.duration_since(last_progress_time).as_secs_f64();
+            let bytes_delta = uploaded.saturating_sub(last_uploaded) as f64;
+            let speed = if elapsed_secs > 0.0 {
+                Some(bytes_delta / elapsed_secs)
+            } else {
+                None
+            };
+            last_progress_time = now;
+            last_uploaded = uploaded;
+            speed
+        } else {
+            let total_elapsed = start_time.elapsed().as_secs_f64();
+            if total_elapsed > 0.0 {
+                Some(uploaded as f64 / total_elapsed)
+            } else {
+                None
+            }
+        };
+
+        on_progress(uploaded, file_size, speed);
+    }
+
+    {
         let mut decode_channel = session
             .open_exec()
             .map_err(|error| to_user_error(format!("无法打开 SSH 命令通道：{}", error)))?;
@@ -838,28 +838,9 @@ where
             .exec_command(&decode_cmd)
             .map_err(|error| to_user_error(format!("解码上传文件失败：{}", error)))?;
         let _ = decode_channel.get_output();
-    } else {
-        let heredoc_marker = "__UPLOAD_EOF__";
-        let write_cmd = format!(
-            "cat > {} << '{}'\n{}\n{} && base64 -d {} > {} && rm -f {}",
-            quoted_temp_b64,
-            heredoc_marker,
-            encoded,
-            heredoc_marker,
-            quoted_temp_b64,
-            quoted_remote_path,
-            quoted_temp_b64
-        );
-        let mut upload_channel = session
-            .open_exec()
-            .map_err(|error| to_user_error(format!("无法打开 SSH 命令通道：{}", error)))?;
-        upload_channel
-            .exec_command(&write_cmd)
-            .map_err(|error| to_user_error(format!("上传产物失败：{}", error)))?;
-        let _ = upload_channel.get_output();
-        on_progress(file_size, file_size, None);
     }
 
+    on_progress(file_size, file_size, None);
     Ok(())
 }
 
@@ -1185,6 +1166,35 @@ impl SshConnectionPool {
         };
         guard.insert(server_id.to_string(), entry);
         Ok((sftp_session, command_session))
+    }
+
+    pub fn get_connection(
+        &self,
+        server_id: &str,
+        profile: &ExecutionServerProfile,
+    ) -> AppResult<SshConnection> {
+        let (sftp_session, command_session) =
+            self.get_or_connect(server_id, profile)?;
+        let session = match profile.auth_type.as_str() {
+            "password" => open_password_session(profile, || false)?,
+            "private_key" => {
+                let key_path = profile
+                    .private_key_path
+                    .as_deref()
+                    .ok_or_else(|| to_user_error("私钥认证需要提供私钥路径。"))?;
+                if !Path::new(key_path).exists() {
+                    return Err(to_user_error("私钥文件不存在。"));
+                }
+                open_private_key_session(profile, || false)?
+            }
+            _ => return Err(to_user_error("暂不支持的认证方式。")),
+        };
+        Ok(SshConnection {
+            session,
+            sftp_session: Some(sftp_session),
+            command_session: Some(command_session),
+            privilege: None,
+        })
     }
 
     #[allow(dead_code)]

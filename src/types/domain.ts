@@ -455,6 +455,7 @@ export interface EnvironmentSettings {
   /** projectPath -> profileId，项目专属环境方案绑定 */
   projectProfileBindings?: Record<string, string>
   jdkRegistry?: JdkEntry[]
+  maxConcurrentBuilds?: number
 }
 
 export interface JdkEntry {

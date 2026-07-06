@@ -1,7 +1,7 @@
 use crate::error::{to_user_error, AppResult};
 use crate::models::command_template::{CommandExecution, CommandStep, CommandTemplate};
 use crate::repositories::{command_template_repo, deployment_repo::ExecutionServerProfile};
-use crate::services::ssh_transport_service::SshConnection;
+use crate::services::ssh_transport_service::{SshConnection, SshConnectionPool};
 use crate::services::token_expansion::expand_template;
 use chrono::Utc;
 use serde_json::json;
@@ -253,8 +253,8 @@ fn run_template(
 
     // 建立 SSH 连接
     emit_log(app, execution_id, "[连接] 正在建立 SSH 连接...");
-    let mut connection = SshConnection::connect(server, || state.is_cancelled(execution_id))?;
-
+    let pool = app.state::<SshConnectionPool>().inner().clone();
+    let mut connection = pool.get_connection(&server.id, server)?;
     // 配置提权
     connection.configure_privilege(&server.privilege, server.privilege_password.clone());
     emit_log(app, execution_id, "[连接] SSH 连接成功");

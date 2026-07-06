@@ -4,6 +4,7 @@ mod models;
 mod repositories;
 mod services;
 
+use repositories::storage::DatabasePool;
 use services::command_runner::CommandControlState;
 use services::process_runner::BuildProcessState;
 use services::remote_log_session_service::RemoteLogSessionState;
@@ -55,8 +56,26 @@ pub fn run() {
                         .build(),
                 )?;
             }
+
+            if let Some(state) = app.try_state::<BuildProcessState>() {
+                let max = repositories::settings_repo::load(app.handle())
+                    .ok()
+                    .and_then(|s| s.max_concurrent_builds.map(|v| v as usize));
+                state.set_max_concurrent(max);
+            }
+
+            let build_state = app.state::<BuildProcessState>().inner().clone();
+            if let Some(main_window) = app.get_webview_window("main") {
+                main_window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { .. } = event {
+                        build_state.terminate_all();
+                    }
+                });
+            }
+
             Ok(())
         })
+        .manage(DatabasePool::new())
         .manage(BuildProcessState::default())
         .manage(CommandControlState::default())
         .manage(RemoteLogSessionState::default())
@@ -79,6 +98,9 @@ pub fn run() {
             commands::build::build_command_preview,
             commands::build::start_build,
             commands::build::cancel_build,
+            commands::build::set_max_concurrent_builds,
+            commands::build::get_max_concurrent_builds,
+            commands::build::get_running_build_count,
             commands::filesystem::open_path_in_explorer,
             commands::filesystem::scan_build_artifacts,
             commands::filesystem::delete_build_artifact,

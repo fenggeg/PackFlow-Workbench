@@ -1,6 +1,7 @@
 import {Card, Input, InputNumber, Space, Typography} from 'antd'
 import {useMemo} from 'react'
 import {useAppStore} from '../../store/useAppStore'
+import {useEnvironmentStore} from '../../store/useEnvironmentStore'
 import {splitArgs} from '../../utils/format'
 
 const { Text, Paragraph } = Typography
@@ -28,9 +29,12 @@ const getThreadCount = (args: string[]) => {
 export function AdvancedOptionsPanel() {
   const buildOptions = useAppStore((state) => state.buildOptions)
   const setBuildOption = useAppStore((state) => state.setBuildOption)
+  const environmentSettings = useEnvironmentStore((state) => state.environmentSettings)
+  const updateEnvironment = useEnvironmentStore((state) => state.updateEnvironment)
   const customArgs = buildOptions.customArgs
   const threadCount = useMemo(() => getThreadCount(customArgs), [customArgs])
   const properties = buildOptions.properties
+  const maxConcurrentBuilds = environmentSettings?.maxConcurrentBuilds ?? 2
 
   const setProperty = (key: string, value?: string) => {
     const next = { ...properties }
@@ -48,6 +52,14 @@ export function AdvancedOptionsPanel() {
       nextArgs.push(`-T${value}`)
     }
     setBuildOption('customArgs', nextArgs)
+  }
+
+  const setMaxConcurrentBuilds = (value: number | null) => {
+    if (!environmentSettings) return
+    updateEnvironment({
+      ...environmentSettings,
+      maxConcurrentBuilds: value ?? undefined,
+    })
   }
 
   return (
@@ -83,6 +95,16 @@ export function AdvancedOptionsPanel() {
             placeholder="不启用"
             value={threadCount}
             onChange={setThreadCount}
+          />
+        </div>
+
+        <div className="option-block">
+          <Text strong>最大并发构建数</Text>
+          <InputNumber
+            min={1}
+            max={8}
+            value={maxConcurrentBuilds}
+            onChange={setMaxConcurrentBuilds}
           />
         </div>
 

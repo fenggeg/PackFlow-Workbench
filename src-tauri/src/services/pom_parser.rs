@@ -2,10 +2,71 @@ use crate::error::{to_user_error, AppResult};
 use crate::models::environment::{JdkRequirement, JdkRequirementSource};
 use crate::models::module::MavenModule;
 use crate::models::project::MavenProject;
+use once_cell::sync::Lazy;
 use roxmltree::{Document, Node};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::SystemTime;
 
+static POM_CACHE: Lazy<Mutex<HashMap<PathBuf, PomCacheEntry>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+struct PomCacheEntry {
+    mtime: SystemTime,
+    parsed: ParsedPom,
+}
+
+#[allow(dead_code)]
+pub fn invalidate_pom_cache(path: &Path) {
+    if let Ok(canonical) = fs::canonicalize(path) {
+        let mut cache = POM_CACHE.lock().unwrap();
+        cache.remove(&canonical);
+    }
+}
+
+#[allow(dead_code)]
+pub fn clear_pom_cache() {
+    let mut cache = POM_CACHE.lock().unwrap();
+    cache.clear();
+}
+
+#[derive(Debug, Clone)]
+pub struct PomDependencyInfo {
+    pub parent: Option<(Option<String>, String)>,
+    pub child_modules: Vec<String>,
+    pub dependencies: Vec<PomDependencyEntry>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PomDependencyEntry {
+    pub group_id: Option<String>,
+    pub artifact_id: String,
+    pub dependency_type: String,
+}
+
+pub fn parse_pom_for_dependency(path: &Path) -> AppResult<PomDependencyInfo> {
+    let parsed = parse_pom_file(path)?;
+    let parent = parsed.parent.clone();
+    let child_modules = parsed.modules.clone();
+    let dependencies = parsed
+        .dependencies
+        .iter()
+        .map(|dep| PomDependencyEntry {
+            group_id: dep.group_id.clone(),
+            artifact_id: dep.artifact_id.clone(),
+            dependency_type: dep.scope.clone().unwrap_or_else(|| "compile".to_string()),
+        })
+        .collect();
+    Ok(PomDependencyInfo {
+        parent,
+        child_modules,
+        dependencies,
+    })
+}
+
+#[derive(Clone)]
 struct ParsedPom {
     name: Option<String>,
     group_id: Option<String>,
@@ -14,6 +75,15 @@ struct ParsedPom {
     packaging: Option<String>,
     modules: Vec<String>,
     jdk_requirement: Option<JdkRequirement>,
+    parent: Option<(Option<String>, String)>,
+    dependencies: Vec<ParsedDependency>,
+}
+
+#[derive(Debug, Clone)]
+struct ParsedDependency {
+    group_id: Option<String>,
+    artifact_id: String,
+    scope: Option<String>,
 }
 
 pub fn parse_maven_project(root_path: &str) -> AppResult<MavenProject> {
@@ -129,6 +199,54 @@ fn parse_module(root: &Path, parent_dir: &Path, module_path: &str) -> MavenModul
 }
 
 fn parse_pom_file(path: &Path) -> AppResult<ParsedPom> {
+    let canonical = fs::canonicalize(path).map_err(|error| {
+        to_user_error(format!(
+            "无法解析 POM 路径 {}：{}",
+            path_to_string(path),
+            error
+        ))
+    })?;
+    let metadata = fs::metadata(&canonical).map_err(|error| {
+        to_user_error(format!(
+            "无法读取 POM 元数据 {}：{}",
+            path_to_string(path),
+            error
+        ))
+    })?;
+    let mtime = metadata.modified().map_err(|error| {
+        to_user_error(format!(
+            "无法读取 POM 修改时间 {}：{}",
+            path_to_string(path),
+            error
+        ))
+    })?;
+
+    {
+        let cache = POM_CACHE.lock().unwrap();
+        if let Some(entry) = cache.get(&canonical) {
+            if entry.mtime == mtime {
+                return Ok(entry.parsed.clone());
+            }
+        }
+    }
+
+    let parsed = parse_pom_file_uncached(path)?;
+
+    {
+        let mut cache = POM_CACHE.lock().unwrap();
+        cache.insert(
+            canonical,
+            PomCacheEntry {
+                mtime,
+                parsed: parsed.clone(),
+            },
+        );
+    }
+
+    Ok(parsed)
+}
+
+fn parse_pom_file_uncached(path: &Path) -> AppResult<ParsedPom> {
     let content = fs::read_to_string(path).map_err(|error| {
         to_user_error(format!(
             "无法读取 POM 文件 {}：{}",
@@ -149,6 +267,10 @@ fn parse_pom_file(path: &Path) -> AppResult<ParsedPom> {
         .ok_or_else(|| to_user_error("POM 中缺少 project 根节点。"))?;
 
     let parent = direct_child(project, "parent");
+    let parent_info = parent.and_then(|node| {
+        let artifact_id = child_text(node, "artifactId")?;
+        Some((child_text(node, "groupId"), artifact_id))
+    });
     let group_id = child_text(project, "groupId")
         .or_else(|| parent.and_then(|parent_node| child_text(parent_node, "groupId")));
     let version = child_text(project, "version")
@@ -168,6 +290,22 @@ fn parse_pom_file(path: &Path) -> AppResult<ParsedPom> {
                 .collect()
         })
         .unwrap_or_default();
+    let dependencies = direct_child(project, "dependencies")
+        .map(|deps_node| {
+            deps_node
+                .children()
+                .filter(|node| node.is_element() && node.tag_name().name() == "dependency")
+                .filter_map(|node| {
+                    let artifact_id = child_text(node, "artifactId")?;
+                    Some(ParsedDependency {
+                        group_id: child_text(node, "groupId"),
+                        artifact_id,
+                        scope: child_text(node, "scope"),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
 
     Ok(ParsedPom {
         name: child_text(project, "name"),
@@ -177,6 +315,8 @@ fn parse_pom_file(path: &Path) -> AppResult<ParsedPom> {
         packaging,
         modules,
         jdk_requirement: extract_jdk_requirement(&project),
+        parent: parent_info,
+        dependencies,
     })
 }
 
