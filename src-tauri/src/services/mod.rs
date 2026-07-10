@@ -2,6 +2,7 @@ pub mod app_logger;
 pub mod blocking;
 pub mod command_builder;
 pub mod command_runner;
+pub mod dependency_conflict_service;
 pub mod dependency_graph_service;
 pub mod env_detector;
 pub mod jdk_scanner;

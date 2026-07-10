@@ -1,5 +1,5 @@
 import {create} from 'zustand'
-import {api, createDefaultBuildOptions, selectProjectDirectory} from '../services/tauri-api'
+import {api, createDefaultBuildOptions, isTauriRuntime, selectProjectDirectory} from '../services/tauri-api'
 import {diagnoseBuildFailure} from '../services/buildDiagnosisService'
 import {appendBoundedItems} from '../utils/boundedBuffer'
 import {getErrorMessage} from '../utils/errors'
@@ -54,6 +54,7 @@ interface AppState {
   gitError?: string
   loading: boolean
   error?: string
+  initialized: boolean
   initialize: () => Promise<void>
   chooseProject: () => Promise<void>
   parseProjectPath: (rootPath: string) => Promise<void>
@@ -251,10 +252,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   gitSwitching: false,
   gitError: undefined,
   loading: false,
+  initialized: false,
 
   initialize: async () => {
-    await get().loadHistoryAndTemplates()
     try {
+      await get().loadHistoryAndTemplates()
       await envStore().loadSettings()
       const settings = envStore().environmentSettings
       const savedProjectPaths = envStore().savedProjectPaths
@@ -265,8 +267,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         await envStore().detectForProject('')
         set({environment: envStore().environment})
       }
-    } catch {
-      // Browser preview or first launch — keep empty workbench.
+    } catch (error) {
+      // 非首次启动时，记录错误让用户感知；首次启动或浏览器预览则保持空白工作台
+      if (isTauriRuntime()) {
+        set({error: getErrorMessage(error)})
+      }
+    } finally {
+      set({initialized: true})
     }
   },
 

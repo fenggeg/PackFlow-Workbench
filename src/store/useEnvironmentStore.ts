@@ -239,7 +239,14 @@ export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
   syncActiveProfileId: async (profileId: string | undefined) => {
     const settings = get().environmentSettings
     if (settings) {
-      set({ environmentSettings: { ...settings, activeProfileId: profileId } })
+      const updated = { ...settings, activeProfileId: profileId }
+      set({ environmentSettings: updated })
+      // 持久化到后端，确保重启后 profile 状态一致
+      try {
+        await api.saveEnvironmentSettings(updated)
+      } catch {
+        // 持久化失败不影响当前使用
+      }
     }
   },
 

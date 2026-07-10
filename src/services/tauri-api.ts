@@ -16,6 +16,8 @@ import type {
   CommandExecutionUploadProgressEvent,
   CommandTemplate,
   CommonCommand,
+  DependencyConflict,
+  DependencyConflictResult,
   EnvironmentSettings,
   FavoritePath,
   GitCommit,
@@ -454,6 +456,16 @@ export const api = {
 
   setDefaultJdk: (jdkId: string) =>
     invoke<void>('set_default_jdk', { jdkId }),
+
+  // Dependency Conflict Detection
+  detectDependencyConflicts: (rootPath: string) =>
+    invoke<DependencyConflictResult>('detect_dependency_conflicts', { rootPath }),
+
+  generateExclusionCode: (groupId: string, artifactId: string) =>
+    invoke<string>('generate_exclusion_code', { groupId, artifactId }),
+
+  generateBulkExclusionCode: (conflicts: DependencyConflict[]) =>
+    invoke<string>('generate_bulk_exclusion_code', { conflicts }),
 }
 
 export async function registerBuildEvents(

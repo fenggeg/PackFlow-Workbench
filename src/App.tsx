@@ -12,6 +12,7 @@ import './App.css'
 
 function App() {
   const project = useAppStore((state) => state.project)
+  const initialized = useAppStore((state) => state.initialized)
   const loadDependencyGraph = useWorkflowStore((state) => state.loadDependencyGraph)
   const clearDependencyGraph = useWorkflowStore((state) => state.clearDependencyGraph)
   const [showSplash, setShowSplash] = useState(true)
@@ -31,6 +32,9 @@ function App() {
   }, [])
 
   useEffect(() => {
+    // 等待应用初始化完成后再发出 app-ready，避免主窗口显示空白界面
+    if (!initialized) return
+
     // Signal Rust to close native splash window and show main window
     if (isTauriRuntime()) {
       emit('app-ready').catch(() => {
@@ -45,7 +49,7 @@ function App() {
       requestAnimationFrame(hideSplash)
     })
     return () => cancelAnimationFrame(raf)
-  }, [hideSplash])
+  }, [hideSplash, initialized])
 
   return (
     <>

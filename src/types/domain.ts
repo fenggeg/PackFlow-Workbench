@@ -55,6 +55,33 @@ export interface ModuleDependencyGraph {
   cycles: string[][]
 }
 
+export interface DependencyConflict {
+  groupId: string
+  artifactId: string
+  requestedVersion: string
+  selectedVersion: string
+  moduleId: string
+  dependencyPath: string
+}
+
+export interface ModuleConflictResult {
+  moduleId: string
+  artifactId: string
+  conflicts: DependencyConflict[]
+}
+
+export interface DependencyConflictResult {
+  rootPath: string
+  modules: ModuleConflictResult[]
+  hasConflicts: boolean
+}
+
+export interface ConflictScanProgress {
+  currentModule: string
+  scannedModules: number
+  totalModules: number
+}
+
 export interface GitBranch {
   name: string
   isCurrent: boolean

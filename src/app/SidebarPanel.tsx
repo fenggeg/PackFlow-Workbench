@@ -1,6 +1,7 @@
 import {Card, Space, Tabs, Tag, Typography} from 'antd'
 import {FavoriteGroupsCard} from '../components/FavoriteGroups/FavoriteGroupsCard'
 import {GitStatusCard} from '../components/GitStatus/GitStatusCard'
+import {DependencyConflictPanel} from '../components/DependencyConflict/DependencyConflictPanel'
 import {ModuleTreePanel} from '../components/ModuleTree/ModuleTreePanel'
 import {ProjectSelector} from '../components/ProjectSelector/ProjectSelector'
 import {useAppStore} from '../store/useAppStore'
@@ -39,6 +40,11 @@ export function SidebarPanel({activePage}: SidebarPanelProps) {
               key: 'modules',
               label: '模块',
               children: <ModuleTreePanel />,
+            },
+            {
+              key: 'conflicts',
+              label: '冲突',
+              children: <DependencyConflictPanel />,
             },
             {
               key: 'favorites',

@@ -1,5 +1,6 @@
 pub mod build;
 pub mod clipboard;
+pub mod dependency;
 pub mod deployment;
 pub mod environment;
 pub mod filesystem;

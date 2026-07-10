@@ -40,11 +40,17 @@ pub fn run() {
             let handle = app.handle().clone();
             app.listen("app-ready", move |_| {
                 if let Some(sw) = handle.get_webview_window("splash") {
-                    let _ = sw.close();
+                    if let Err(e) = sw.close() {
+                        eprintln!("Warning: failed to close splash window: {}", e);
+                    }
                 }
                 if let Some(mw) = handle.get_webview_window("main") {
-                    let _ = mw.show();
-                    let _ = mw.set_focus();
+                    if let Err(e) = mw.show() {
+                        eprintln!("Warning: failed to show main window: {}", e);
+                    }
+                    if let Err(e) = mw.set_focus() {
+                        eprintln!("Warning: failed to focus main window: {}", e);
+                    }
                 }
             });
 
@@ -101,6 +107,9 @@ pub fn run() {
             commands::build::set_max_concurrent_builds,
             commands::build::get_max_concurrent_builds,
             commands::build::get_running_build_count,
+            commands::dependency::detect_dependency_conflicts,
+            commands::dependency::generate_exclusion_code,
+            commands::dependency::generate_bulk_exclusion_code,
             commands::filesystem::open_path_in_explorer,
             commands::filesystem::scan_build_artifacts,
             commands::filesystem::delete_build_artifact,

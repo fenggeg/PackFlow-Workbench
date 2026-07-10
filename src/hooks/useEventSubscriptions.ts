@@ -18,7 +18,7 @@ export function useEventSubscriptions() {
   const updateRemoteLogSession = useRemoteLogSessionStore((state) => state.updateSession)
 
   useEffect(() => {
-    initialize()
+    void initialize()
     void initializeWorkflow()
     void initializeServiceOps()
 
