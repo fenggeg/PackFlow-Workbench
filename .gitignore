@@ -20,6 +20,10 @@ Thumbs.db
 
 # Qoder
 .qoder/
+
+# Temp / tool working dirs
+.temp/
+.workbuddy/
 # Logs
 logs
 *.log

@@ -23,12 +23,10 @@ const defaultItems: NavigationItemConfig[] = [
   { key: 'dashboard', label: '首页', visible: true, order: 0 },
   { key: 'build', label: '构建', visible: true, order: 1 },
   { key: 'artifacts', label: '产物', visible: true, order: 2 },
-  { key: 'deployment', label: '部署', visible: true, order: 3 },
-  { key: 'servers', label: '服务器', visible: true, order: 4 },
-  { key: 'history', label: '历史', visible: true, order: 5 },
+  { key: 'history', label: '历史', visible: true, order: 3 },
 ]
 
-const VALID_PAGE_KEYS: AppPage[] = ['dashboard', 'build', 'artifacts', 'deployment', 'servers', 'history']
+const VALID_PAGE_KEYS: AppPage[] = ['dashboard', 'build', 'artifacts', 'history']
 
 const defaultPage: AppPage = 'dashboard'
 
@@ -71,7 +69,7 @@ export const useNavigationConfigStore = create<NavigationConfigState>()(
         }
         return state as NavigationConfigState
       },
-      version: 2,
+      version: 3,
     }
   )
 )

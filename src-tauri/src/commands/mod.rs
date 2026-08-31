@@ -1,14 +1,10 @@
 pub mod build;
 pub mod clipboard;
 pub mod dependency;
-pub mod deployment;
 pub mod environment;
 pub mod filesystem;
 pub mod git;
 pub mod history;
 pub mod project;
-pub mod release;
-pub mod server_ops;
-pub mod service_ops;
 pub mod template;
 pub mod updater;

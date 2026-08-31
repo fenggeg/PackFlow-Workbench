@@ -466,7 +466,7 @@ a {
 
 .preview-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
   margin-top: 34px;
 }
@@ -640,7 +640,7 @@ a {
 
   .preview-sidebar {
     display: grid;
-    grid-template-columns: repeat(6, minmax(60px, 1fr));
+    grid-template-columns: repeat(4, minmax(60px, 1fr));
     overflow-x: auto;
     border-right: 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);

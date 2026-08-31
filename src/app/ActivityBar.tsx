@@ -1,8 +1,6 @@
 import {
     BuildOutlined,
-    CloudServerOutlined,
     DatabaseOutlined,
-    DesktopOutlined,
     HistoryOutlined,
     HomeOutlined,
     SettingOutlined,
@@ -19,8 +17,6 @@ const pageIcons: Record<AppPage, ReactNode> = {
   dashboard: <HomeOutlined />,
   build: <BuildOutlined />,
   artifacts: <DatabaseOutlined />,
-  deployment: <CloudServerOutlined />,
-  servers: <DesktopOutlined />,
   history: <HistoryOutlined />,
 }
 

@@ -5,11 +5,7 @@ mod repositories;
 mod services;
 
 use repositories::storage::DatabasePool;
-use services::command_runner::CommandControlState;
 use services::process_runner::BuildProcessState;
-use services::remote_log_session_service::RemoteLogSessionState;
-use services::ssh_transport_service::SshConnectionPool;
-use services::terminal_session_service::TerminalManager;
 use tauri::Listener;
 use tauri::Manager;
 
@@ -58,7 +54,7 @@ pub fn run() {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
                         .level(log::LevelFilter::Info)
-                        .filter(|metadata| metadata.target() != "ssh::model::timeout")
+                        .filter(|_| false)
                         .build(),
                 )?;
             }
@@ -83,10 +79,6 @@ pub fn run() {
         })
         .manage(DatabasePool::new())
         .manage(BuildProcessState::default())
-        .manage(CommandControlState::default())
-        .manage(RemoteLogSessionState::default())
-        .manage(TerminalManager::new())
-        .manage(SshConnectionPool::new())
         .invoke_handler(tauri::generate_handler![
             commands::project::parse_maven_project,
             commands::project::analyze_project_dependencies,
@@ -126,66 +118,6 @@ pub fn run() {
             commands::template::list_templates,
             commands::template::save_template,
             commands::template::delete_template,
-            commands::release::list_release_templates,
-            commands::release::save_release_template,
-            commands::release::delete_release_template,
-            commands::release::list_release_records,
-            commands::release::save_release_record,
-            commands::release::delete_release_record,
-            commands::deployment::list_server_profiles,
-            commands::deployment::save_server_profile,
-            commands::deployment::delete_server_profile,
-            commands::deployment::test_server_connection,
-            commands::deployment::list_command_templates,
-            commands::deployment::save_command_template,
-            commands::deployment::export_command_templates,
-            commands::deployment::import_command_templates,
-            commands::deployment::delete_command_template,
-            commands::deployment::start_command_execution,
-            commands::deployment::cancel_command_execution,
-            commands::deployment::disconnect_command_log,
-            commands::deployment::has_command_background_execution,
-            commands::deployment::list_command_executions,
-            commands::deployment::delete_command_execution,
-            commands::service_ops::list_service_runtime_configs,
-            commands::service_ops::save_service_runtime_config,
-            commands::service_ops::delete_service_runtime_config,
-            commands::service_ops::list_service_operation_histories,
-            commands::service_ops::delete_service_operation_history,
-            commands::service_ops::start_service_restart,
-            commands::service_ops::start_service_health_check,
-            commands::service_ops::start_remote_log_session,
-            commands::service_ops::stop_remote_log_session,
-            commands::server_ops::list_server_groups,
-            commands::server_ops::save_server_group,
-            commands::server_ops::delete_server_group,
-            commands::server_ops::list_favorite_paths,
-            commands::server_ops::save_favorite_path,
-            commands::server_ops::delete_favorite_path,
-            commands::server_ops::list_common_commands,
-            commands::server_ops::save_common_command,
-            commands::server_ops::delete_common_command,
-            commands::server_ops::list_log_sources,
-            commands::server_ops::save_log_source,
-            commands::server_ops::delete_log_source,
-            commands::server_ops::list_highlight_rules,
-            commands::server_ops::save_highlight_rule,
-            commands::server_ops::delete_highlight_rule,
-            commands::server_ops::execute_remote_command,
-            commands::server_ops::list_remote_files,
-            commands::server_ops::delete_remote_file,
-            commands::server_ops::rename_remote_file,
-            commands::server_ops::create_remote_directory,
-            commands::server_ops::read_remote_log_lines,
-            commands::server_ops::upload_remote_file,
-            commands::server_ops::download_remote_file,
-            commands::server_ops::create_terminal_session,
-            commands::server_ops::terminal_write,
-            commands::server_ops::write_terminal_input,
-            commands::server_ops::read_terminal_output,
-            commands::server_ops::resize_terminal,
-            commands::server_ops::close_terminal_session,
-            commands::server_ops::check_terminal_alive,
             commands::updater::check_for_app_update,
             commands::updater::download_app_update,
             commands::updater::install_cached_app_update,

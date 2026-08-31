@@ -1,22 +1,18 @@
 import {Button, Card, Col, Empty, List, Row, Space, Tag, Typography} from 'antd'
 import {
-  CloudServerOutlined,
   DatabaseOutlined,
   RocketOutlined,
 } from '@ant-design/icons'
 import {useAppStore} from '../store/useAppStore'
 import {useNavigationStore} from '../store/navigationStore'
-import {useWorkflowStore} from '../store/useWorkflowStore'
 
 const {Title, Text} = Typography
 
 export function DashboardPage() {
   const setActivePage = useNavigationStore((state) => state.setActivePage)
-  const navigateToDeployment = useNavigationStore((state) => state.navigateToDeployment)
   const project = useAppStore((state) => state.project)
   const environment = useAppStore((state) => state.environment)
   const buildStatus = useAppStore((state) => state.buildStatus)
-  const serverProfiles = useWorkflowStore((state) => state.serverProfiles)
 
   const runningTasks = [
     buildStatus === 'RUNNING' ? 'Maven 构建正在运行' : undefined,
@@ -27,10 +23,10 @@ export function DashboardPage() {
       <div className="workspace-heading">
         <div>
           <Title level={3}>首页 Dashboard</Title>
-          <Text type="secondary">构建、部署、服务运维一站式管理。</Text>
+          <Text type="secondary">Maven 多模块项目打包工作台。</Text>
         </div>
-        <Button type="primary" icon={<RocketOutlined />} onClick={() => setActivePage('deployment')}>
-          命令调度中心
+        <Button type="primary" icon={<RocketOutlined />} onClick={() => setActivePage('build')}>
+          开始打包
         </Button>
       </div>
 
@@ -64,15 +60,9 @@ export function DashboardPage() {
         <Col xs={24}>
           <Card title="快捷操作" className="panel-card">
             <Space wrap>
-              <Button type="primary" icon={<RocketOutlined />} onClick={() => setActivePage('deployment')}>命令调度中心</Button>
-              <Button icon={<DatabaseOutlined />} onClick={() => setActivePage('build')}>构建打包</Button>
-              <Button icon={<CloudServerOutlined />} onClick={() => navigateToDeployment()}>部署管理</Button>
-              <Button
-                disabled={serverProfiles.length === 0}
-                onClick={() => setActivePage('servers')}
-              >
-                服务器管理
-              </Button>
+              <Button type="primary" icon={<RocketOutlined />} onClick={() => setActivePage('build')}>开始打包</Button>
+              <Button icon={<DatabaseOutlined />} onClick={() => setActivePage('artifacts')}>构建产物</Button>
+              <Button onClick={() => setActivePage('history')}>构建历史</Button>
             </Space>
           </Card>
         </Col>

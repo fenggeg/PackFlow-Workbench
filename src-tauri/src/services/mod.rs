@@ -1,7 +1,6 @@
 pub mod app_logger;
 pub mod blocking;
 pub mod command_builder;
-pub mod command_runner;
 pub mod dependency_conflict_service;
 pub mod dependency_graph_service;
 pub mod env_detector;
@@ -9,9 +8,3 @@ pub mod jdk_scanner;
 pub mod pom_parser;
 pub mod process_runner;
 pub mod process_utils;
-pub mod remote_log_session_service;
-pub mod secure_storage;
-pub mod service_operation_executor;
-pub mod ssh_transport_service;
-pub mod terminal_session_service;
-pub mod token_expansion;

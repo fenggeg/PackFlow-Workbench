@@ -59,9 +59,7 @@ export function SidebarPanel({activePage}: SidebarPanelProps) {
 
   if (
     activePage === 'dashboard'
-    || activePage === 'deployment'
     || activePage === 'artifacts'
-    || activePage === 'servers'
   ) {
     return null
   }
