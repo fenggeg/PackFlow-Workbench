@@ -57,7 +57,8 @@ export const useNavigationConfigStore = create<NavigationConfigState>()(
     {
       name: 'navigation-config',
       // 迁移：过滤掉已删除的页面（如 'release', 'services'）
-      migrate: (persistedState: unknown, _version: number) => {
+      migrate: (persistedState: unknown, version: number) => {
+        void version
         const state = persistedState as Partial<NavigationConfigState>
         if (state.items) {
           // 过滤掉无效的页面 key

@@ -1,4 +1,4 @@
-import type {BuildDiagnosis, BuildLogEvent, DeploymentStage} from '../types/domain'
+import type {BuildDiagnosis, BuildLogEvent} from '../types/domain'
 
 export const formatDuration = (durationMs?: number, fallback = ''): string => {
   if (!durationMs) {
@@ -127,13 +127,6 @@ export const releaseStatusMeta = (status: string): {label: string; color: string
     default: return {label: '等待', color: 'blue'}
   }
 }
-
-export const stageMetaText = (stage: DeploymentStage): string =>
-  [
-    stepTypeText(stage.type),
-    stage.durationMs ? `耗时 ${formatDuration(stage.durationMs)}` : '',
-    stage.retryCount ? `重试 ${stage.currentRetry ?? 0}/${stage.retryCount}` : '',
-  ].filter(Boolean).join(' · ')
 
 export const splitArgs = (value: string): string[] =>
   value

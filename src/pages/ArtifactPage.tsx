@@ -1,9 +1,8 @@
-import {CopyOutlined, DeleteOutlined, FolderOpenOutlined, RocketOutlined} from '@ant-design/icons'
+import {CopyOutlined, DeleteOutlined, FolderOpenOutlined} from '@ant-design/icons'
 import {App, Button, Checkbox, Empty, List, Popconfirm, Space, Tag, Tooltip, Typography} from 'antd'
 import {useState} from 'react'
 import {api} from '../services/tauri-api'
 import {useAppStore} from '../store/useAppStore'
-import {useNavigationStore} from '../store/navigationStore'
 import type {BuildArtifact} from '../types/domain'
 
 const {Title, Text} = Typography
@@ -70,7 +69,6 @@ export function ArtifactPage() {
   const {message} = App.useApp()
   const artifacts = useAppStore((state) => state.artifacts)
   const history = useAppStore((state) => state.history)
-  const setActivePage = useNavigationStore((state) => state.setActivePage)
   const removeArtifact = useAppStore((state) => state.removeArtifact)
   const allArtifacts = dedupeArtifacts([
     ...artifacts,
@@ -132,15 +130,6 @@ export function ArtifactPage() {
                   artifact={artifact}
                   onDelete={(recordOnly) => void deleteArtifact(artifact, recordOnly)}
                 />,
-                <Button
-                  key="deploy"
-                  size="small"
-                  type="primary"
-                  icon={<RocketOutlined />}
-                  onClick={() => setActivePage('deployment')}
-                >
-                  部署
-                </Button>,
               ]}
             >
               <Space direction="vertical" size={2} style={{maxWidth: '100%'}}>
