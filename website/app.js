@@ -13,11 +13,7 @@ function preferWindowsAsset(assets) {
 
 async function hydrateLatestDownload() {
   try {
-    const response = await fetch(releaseApi, {
-      headers: {
-        Accept: 'application/vnd.github+json',
-      },
-    })
+    const response = await fetch(releaseApi)
 
     if (!response.ok) {
       throw new Error(`GitHub release request failed: ${response.status}`)
