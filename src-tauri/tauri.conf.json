@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "PackFlow Workbench",
-  "version": "3.2.2",
+  "version": "3.2.3",
   "identifier": "com.local.packflow.workbench",
   "build": {
     "frontendDist": "../dist",
@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://github.com https://objects.githubusercontent.com https://release-assets.githubusercontent.com https://raw.githubusercontent.com https://node-red.gyfwork.cc.cd"
+      "csp": null
     }
   },
   "bundle": {
