@@ -49,17 +49,18 @@ pub fn build_command_preview(payload: BuildCommandPayload) -> String {
         }
     }
     if !options.profiles.is_empty() {
-        args.push(format!("-P{}", options.profiles.join(",")));
+        args.push(format!("-P{}", quote_if_needed(options.profiles.join(","))));
     }
     for (key, value) in options.properties {
-        let arg = if let Some(bool_value) = value.as_bool() {
+        let raw = if let Some(bool_value) = value.as_bool() {
             format!("-D{}={}", key, bool_value)
         } else if let Some(string_value) = value.as_str() {
             format!("-D{}={}", key, string_value)
         } else {
             format!("-D{}={}", key, value)
         };
-        args.push(arg);
+        // 整体按需要加引号，避免 key/value 中的空格与 cmd 元字符被解释
+        args.push(quote_if_needed(raw));
     }
     args.extend(options.custom_args);
 
@@ -67,8 +68,13 @@ pub fn build_command_preview(payload: BuildCommandPayload) -> String {
 }
 
 fn quote_if_needed(value: String) -> String {
-    if value.contains(' ') {
-        format!("\"{}\"", value)
+    if value.is_empty()
+        || value
+            .chars()
+            .any(|c| matches!(c, ' ' | '\t' | '"' | '&' | '|' | '<' | '>' | '^' | '%' | '(' | ')'))
+    {
+        // Windows cmd 双引号内：内嵌 " 转义为 ""
+        format!("\"{}\"", value.replace('"', "\"\""))
     } else {
         value
     }

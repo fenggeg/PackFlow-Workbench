@@ -26,6 +26,8 @@ export function useEventSubscriptions() {
         return
       }
       cleanupBuild = unlisten
+    }).catch(() => {
+      // 浏览器预览或非 Tauri 环境下监听可能失败，忽略即可
     })
 
     return () => {

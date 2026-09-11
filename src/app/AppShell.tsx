@@ -35,8 +35,10 @@ export function AppShell() {
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false)
 
   useEffect(() => {
+    // 仅在首次挂载时应用默认页，避免用户切换页面后被 defaultPage 变更打断
     setActivePage(defaultPage)
-  }, [defaultPage, setActivePage])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const sidebarHidden = noSidebarPages.has(activePage)
   const bodyStyle = useMemo(

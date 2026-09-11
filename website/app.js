@@ -1,4 +1,5 @@
-const releaseApi = 'https://node-red.gyfwork.cc.cd/api/latest'
+// 同源路径：由官网托管层反代到 Node-RED，避免跨域
+const releaseApi = '/api/latest'
 const fallbackReleaseUrl = 'https://github.com/fenggeg/PackFlow-Workbench/releases/latest'
 
 const downloadLinks = document.querySelectorAll('[data-download-link]')

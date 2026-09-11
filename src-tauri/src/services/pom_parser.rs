@@ -4,7 +4,7 @@ use crate::models::module::MavenModule;
 use crate::models::project::MavenProject;
 use once_cell::sync::Lazy;
 use roxmltree::{Document, Node};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -16,20 +16,6 @@ static POM_CACHE: Lazy<Mutex<HashMap<PathBuf, PomCacheEntry>>> =
 struct PomCacheEntry {
     mtime: SystemTime,
     parsed: ParsedPom,
-}
-
-#[allow(dead_code)]
-pub fn invalidate_pom_cache(path: &Path) {
-    if let Ok(canonical) = fs::canonicalize(path) {
-        let mut cache = POM_CACHE.lock().unwrap();
-        cache.remove(&canonical);
-    }
-}
-
-#[allow(dead_code)]
-pub fn clear_pom_cache() {
-    let mut cache = POM_CACHE.lock().unwrap();
-    cache.clear();
 }
 
 #[derive(Debug, Clone)]
@@ -98,10 +84,14 @@ pub fn parse_maven_project(root_path: &str) -> AppResult<MavenProject> {
     }
 
     let root_pom_data = parse_pom_file(&root_pom)?;
+    let mut visited = HashSet::new();
+    if let Ok(canonical) = fs::canonicalize(&root_pom) {
+        visited.insert(canonical);
+    }
     let modules = if root_pom_data.modules.is_empty() {
         vec![root_as_module(&root, &root_pom, &root_pom_data)]
     } else {
-        parse_child_modules(&root, &root, &root_pom_data.modules)
+        parse_child_modules(&root, &root, &root_pom_data.modules, &mut visited, 0)
     };
 
     Ok(MavenProject {
@@ -135,14 +125,28 @@ fn root_as_module(root: &Path, root_pom: &Path, parsed: &ParsedPom) -> MavenModu
     }
 }
 
-fn parse_child_modules(root: &Path, parent_dir: &Path, modules: &[String]) -> Vec<MavenModule> {
+const MAX_MODULE_DEPTH: usize = 16;
+
+fn parse_child_modules(
+    root: &Path,
+    parent_dir: &Path,
+    modules: &[String],
+    visited: &mut HashSet<PathBuf>,
+    depth: usize,
+) -> Vec<MavenModule> {
     modules
         .iter()
-        .map(|module_path| parse_module(root, parent_dir, module_path))
+        .map(|module_path| parse_module(root, parent_dir, module_path, visited, depth))
         .collect()
 }
 
-fn parse_module(root: &Path, parent_dir: &Path, module_path: &str) -> MavenModule {
+fn parse_module(
+    root: &Path,
+    parent_dir: &Path,
+    module_path: &str,
+    visited: &mut HashSet<PathBuf>,
+    depth: usize,
+) -> MavenModule {
     let module_dir = parent_dir.join(module_path);
     let pom_path = module_dir.join("pom.xml");
     let relative_path = relative_path(root, &module_dir);
@@ -166,20 +170,8 @@ fn parse_module(root: &Path, parent_dir: &Path, module_path: &str) -> MavenModul
         };
     }
 
-    match parse_pom_file(&pom_path) {
-        Ok(parsed) => MavenModule {
-            id: relative_path.clone(),
-            name: parsed.name,
-            artifact_id: parsed.artifact_id,
-            group_id: parsed.group_id,
-            version: parsed.version,
-            packaging: parsed.packaging,
-            relative_path,
-            pom_path: path_to_string(&pom_path),
-            children: parse_child_modules(root, &module_dir, &parsed.modules),
-            error_message: None,
-        },
-        Err(error) => MavenModule {
+    if depth >= MAX_MODULE_DEPTH {
+        return MavenModule {
             id: relative_path.clone(),
             name: None,
             artifact_id: module_dir
@@ -193,8 +185,86 @@ fn parse_module(root: &Path, parent_dir: &Path, module_path: &str) -> MavenModul
             relative_path,
             pom_path: path_to_string(&pom_path),
             children: Vec::new(),
-            error_message: Some(error),
-        },
+            error_message: Some("模块层级过深，已停止解析。".to_string()),
+        };
+    }
+
+    if let Ok(canonical) = fs::canonicalize(&pom_path) {
+        if !visited.insert(canonical.clone()) {
+            return MavenModule {
+                id: relative_path.clone(),
+                name: None,
+                artifact_id: module_dir
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(module_path)
+                    .to_string(),
+                group_id: None,
+                version: None,
+                packaging: None,
+                relative_path,
+                pom_path: path_to_string(&pom_path),
+                children: Vec::new(),
+                error_message: Some("检测到循环模块引用，已跳过。".to_string()),
+            };
+        }
+
+        match parse_pom_file(&pom_path) {
+            Ok(parsed) => MavenModule {
+                id: relative_path.clone(),
+                name: parsed.name,
+                artifact_id: parsed.artifact_id,
+                group_id: parsed.group_id,
+                version: parsed.version,
+                packaging: parsed.packaging,
+                relative_path,
+                pom_path: path_to_string(&pom_path),
+                children: parse_child_modules(
+                    root,
+                    &module_dir,
+                    &parsed.modules,
+                    visited,
+                    depth + 1,
+                ),
+                error_message: None,
+            },
+            Err(error) => {
+                visited.remove(&canonical);
+                MavenModule {
+                    id: relative_path.clone(),
+                    name: None,
+                    artifact_id: module_dir
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or(module_path)
+                        .to_string(),
+                    group_id: None,
+                    version: None,
+                    packaging: None,
+                    relative_path,
+                    pom_path: path_to_string(&pom_path),
+                    children: Vec::new(),
+                    error_message: Some(error),
+                }
+            }
+        }
+    } else {
+        MavenModule {
+            id: relative_path.clone(),
+            name: None,
+            artifact_id: module_dir
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(module_path)
+                .to_string(),
+            group_id: None,
+            version: None,
+            packaging: None,
+            relative_path,
+            pom_path: path_to_string(&pom_path),
+            children: Vec::new(),
+            error_message: Some("无法规范化模块 POM 路径。".to_string()),
+        }
     }
 }
 
@@ -222,7 +292,7 @@ fn parse_pom_file(path: &Path) -> AppResult<ParsedPom> {
     })?;
 
     {
-        let cache = POM_CACHE.lock().unwrap();
+        let cache = POM_CACHE.lock().unwrap_or_else(|error| error.into_inner());
         if let Some(entry) = cache.get(&canonical) {
             if entry.mtime == mtime {
                 return Ok(entry.parsed.clone());
@@ -233,7 +303,11 @@ fn parse_pom_file(path: &Path) -> AppResult<ParsedPom> {
     let parsed = parse_pom_file_uncached(path)?;
 
     {
-        let mut cache = POM_CACHE.lock().unwrap();
+        let mut cache = POM_CACHE.lock().unwrap_or_else(|error| error.into_inner());
+        // 简单容量上限，避免长期运行后无限增长
+        if cache.len() >= 256 {
+            cache.clear();
+        }
         cache.insert(
             canonical,
             PomCacheEntry {

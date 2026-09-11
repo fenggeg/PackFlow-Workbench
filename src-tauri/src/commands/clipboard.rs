@@ -8,12 +8,12 @@ use windows_sys::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
 };
 use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
-use windows_sys::Win32::System::Ole::CF_HDROP;
-use windows_sys::Win32::System::WindowsProgramming::GMEM_SHARE;
 
 // CF_UNICODETEXT 的常量值（Windows SDK 中定义为 13）。
 // windows_sys 0.59 未直接导出该常量，这里显式声明。
 const CF_UNICODETEXT: u32 = 13;
+// CF_HDROP 的常量值（Windows SDK 中定义为 15）。
+const CF_HDROP: u32 = 15;
 
 // 与 Windows SDK 的 DROPFILES 布局严格一致（20 字节）。
 // pFiles 为从结构体起始到文件名列表的字节偏移；fWide=1 表示路径使用 UTF-16。
@@ -31,7 +31,7 @@ const _: () = assert!(std::mem::size_of::<DropFiles>() == 20);
 /// 分配一块 GMEM_MOVEABLE 内存并写入字节内容，返回句柄。
 /// 失败时返回 None（调用方负责关闭剪贴板）。
 unsafe fn alloc_and_fill(data: &[u8]) -> Option<usize> {
-    let h_mem = GlobalAlloc(GMEM_MOVEABLE | GMEM_SHARE, data.len());
+    let h_mem = GlobalAlloc(GMEM_MOVEABLE, data.len());
     if h_mem.is_null() {
         return None;
     }
@@ -118,7 +118,7 @@ pub fn copy_file_to_clipboard(app: AppHandle, path: String) -> AppResult<()> {
         // 写入 CF_HDROP（文件引用，供资源管理器等使用）。
         let mut ok = true;
         if let Some(h_mem) = alloc_and_fill(&hdrop_bytes) {
-            if !set_format(h_mem, CF_HDROP as u32) {
+            if !set_format(h_mem, CF_HDROP) {
                 ok = false;
             }
         } else {

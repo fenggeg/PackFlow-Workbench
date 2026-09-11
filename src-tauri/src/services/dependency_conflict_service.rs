@@ -1,5 +1,6 @@
 use crate::error::{to_user_error, AppResult};
 use crate::models::dependency::{DependencyConflict, DependencyConflictResult, ModuleConflictResult};
+use crate::services::process_utils::CREATE_NO_WINDOW;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
@@ -7,8 +8,6 @@ use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use tauri::{AppHandle, Emitter};
-
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 /// 进度事件 payload
 #[derive(Clone, serde::Serialize)]
@@ -58,6 +57,17 @@ pub fn detect_dependency_conflicts(
     let stdout = child.stdout.take().ok_or_else(|| to_user_error("无法获取 dependency:tree 的标准输出"))?;
     let stderr = child.stderr.take().ok_or_else(|| to_user_error("无法获取 dependency:tree 的标准错误"))?;
 
+    // 后台排空 stderr，避免子进程写满管道缓冲后阻塞
+    let stderr_handle = std::thread::spawn(move || {
+        let mut lines = Vec::new();
+        for line_result in BufReader::new(stderr).lines() {
+            if let Ok(l) = line_result {
+                lines.push(l);
+            }
+        }
+        lines
+    });
+
     // 流式逐行读取 stdout，按模块分段解析
     let reader = BufReader::new(stdout);
     let mut module_sections: HashMap<String, Vec<String>> = HashMap::new();
@@ -97,16 +107,8 @@ pub fn detect_dependency_conflicts(
         }
     }
 
-    // 读取 stderr（一次性，通常较小）
-    let stderr_reader = BufReader::new(stderr);
-    let mut stderr_lines = Vec::new();
-    for line_result in stderr_reader.lines() {
-        if let Ok(l) = line_result {
-            stderr_lines.push(l);
-        }
-    }
-
     let exit_status = child.wait().map_err(|e| to_user_error(format!("等待 dependency:tree 结束失败: {}", e)))?;
+    let stderr_lines = stderr_handle.join().unwrap_or_default();
 
     if !exit_status.success() && module_sections.is_empty() {
         if !stderr_lines.is_empty() {

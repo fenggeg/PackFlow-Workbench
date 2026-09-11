@@ -70,7 +70,9 @@ pub fn run() {
             if let Some(main_window) = app.get_webview_window("main") {
                 main_window.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { .. } = event {
-                        build_state.terminate_all();
+                        // 后台杀进程，避免阻塞关闭路径
+                        let state = build_state.clone();
+                        std::thread::spawn(move || state.terminate_all());
                     }
                 });
             }

@@ -37,6 +37,7 @@ interface AppState {
   buildOptions: BuildOptions
   buildStatus: BuildStatus
   currentBuildId?: string
+  buildRunToken?: string
   buildCancelling: boolean
   startedAt?: number
   durationMs: number
@@ -88,7 +89,6 @@ interface AppState {
   removeJdkFromRegistry: (jdkId: string) => Promise<void>
   setDefaultJdk: (jdkId: string) => Promise<void>
   startBuild: () => Promise<void>
-  startPackageBuild: (moduleIds: string[]) => Promise<void>
   cancelBuild: () => Promise<void>
   appendBuildLog: (event: BuildLogEvent) => void
   clearBuildLogs: () => void
@@ -144,6 +144,30 @@ const findModulesByPaths = (modules: MavenModule[], modulePath: string) => {
 }
 
 const toHistoryStatus = (status: PersistedBuildStatus): BuildStatus => status
+
+// 日志批量缓冲：高频 Maven 输出按 ~50ms 合并写入，降低 re-render 压力
+const pendingLogBuffer: BuildLogEvent[] = []
+let logFlushTimer: ReturnType<typeof setTimeout> | null = null
+
+const flushPendingLogs = () => {
+  logFlushTimer = null
+  if (pendingLogBuffer.length === 0) return
+  const batch = pendingLogBuffer.splice(0, pendingLogBuffer.length)
+  useAppStore.setState((state) => ({
+    logs: appendBoundedItems(state.logs, batch, 5000),
+  }))
+}
+
+const scheduleLogFlush = (event: BuildLogEvent) => {
+  const last = pendingLogBuffer.at(-1)
+  if (isSameBuildLogLine(last, event)) {
+    return
+  }
+  pendingLogBuffer.push(event)
+  if (!logFlushTimer) {
+    logFlushTimer = setTimeout(flushPendingLogs, 50)
+  }
+}
 
 const appendSystemLog = (
   logs: BuildLogEvent[],
@@ -221,16 +245,8 @@ const notifyBuildFinished = (status: PersistedBuildStatus, durationMs: number, a
   }
 }
 
-const packageProducingGoals = new Set(['package', 'install', 'verify', 'deploy'])
-
-const ensurePackageGoal = (goals: string[]) => {
-  if (goals.some((goal) => packageProducingGoals.has(goal))) {
-    return goals
-  }
-
-  const nextGoals = goals.length > 0 ? [...goals, 'package'] : ['clean', 'package']
-  return Array.from(new Set(nextGoals))
-}
+// 命令预览请求序号，防止慢响应覆盖新命令
+let previewRequestId = 0
 
 export const useAppStore = create<AppState>((set, get) => ({
   buildOptions: createDefaultBuildOptions(),
@@ -289,6 +305,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   parseProjectPath: async (rootPath: string) => {
+    if (get().buildStatus === 'RUNNING') {
+      set({ error: '构建进行中，请先停止当前构建再切换项目。' })
+      return
+    }
     set({
       loading: true,
       error: undefined,
@@ -303,6 +323,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       gitCommits: [],
       gitError: undefined,
     })
+    pendingLogBuffer.length = 0
+    if (logFlushTimer) {
+      clearTimeout(logFlushTimer)
+      logFlushTimer = null
+    }
     try {
       const [project] = await Promise.all([
         api.parseMavenProject(rootPath),
@@ -548,11 +573,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       return
     }
 
+    const requestId = ++previewRequestId
     try {
       const editableCommand = await api.buildCommandPreview({
         options: buildOptions,
         environment,
       })
+      // 仅应用最新一次请求的结果
+      if (requestId !== previewRequestId) {
+        return
+      }
       set((state) => ({
         buildOptions: {
           ...state.buildOptions,
@@ -560,6 +590,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         },
       }))
     } catch (error) {
+      if (requestId !== previewRequestId) {
+        return
+      }
       set({ error: getErrorMessage(error) })
     }
   },
@@ -704,6 +737,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return
     }
 
+    const runToken = crypto.randomUUID()
     set({
       buildStatus: 'RUNNING',
       logs: [],
@@ -724,7 +758,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         mavenHome: environment.mavenHome,
         useMavenWrapper: environment.useMavenWrapper,
       })
-      set({ currentBuildId })
+      set({ currentBuildId, buildRunToken: runToken })
       if (get().buildCancelling) {
         set((state) => ({
           logs: appendSystemLog(state.logs, currentBuildId, '构建进程已启动，继续发送停止请求。'),
@@ -747,54 +781,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         error: message,
         logs: appendSystemLog(state.logs, get().currentBuildId, `构建启动或停止请求失败：${message}`),
       }))
-    }
-  },
-
-  startPackageBuild: async (moduleIds) => {
-    const { project, environment, buildOptions } = get()
-    if (!project || !environment || !buildOptions.projectRoot) {
-      set({ error: '请先选择项目并确认构建环境。' })
-      return
-    }
-
-    const allModules = flattenModules(project.modules)
-    const selectedModules = moduleIds.length > 0
-      ? moduleIds
-          .map((moduleId) => allModules.find((moduleItem) => moduleItem.id === moduleId))
-          .filter((moduleItem): moduleItem is MavenModule => Boolean(moduleItem))
-      : []
-
-    if (moduleIds.length > 0 && selectedModules.length === 0) {
-      set({ error: '部署配置绑定的模块不在当前项目中。' })
-      return
-    }
-
-    const selectedModulePath = selectedModules
-      .map((moduleItem) => moduleItem.relativePath)
-      .join(',')
-    const nextBuildOptions = {
-      ...buildOptions,
-      selectedModulePath,
-      goals: ensurePackageGoal(buildOptions.goals),
-    }
-
-    try {
-      const editableCommand = await api.buildCommandPreview({
-        options: nextBuildOptions,
-        environment,
-      })
-      set({
-        selectedModule: selectedModules[0],
-        selectedModules,
-        selectedModuleIds: selectedModules.map((moduleItem) => moduleItem.id),
-        buildOptions: {
-          ...nextBuildOptions,
-          editableCommand,
-        },
-      })
-      await get().startBuild()
-    } catch (error) {
-      set({ error: getErrorMessage(error) })
     }
   },
 
@@ -829,28 +815,53 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   appendBuildLog: (event: BuildLogEvent) => {
-    set((state) => ({
-      logs: isSameBuildLogLine(state.logs.at(-1), event)
-        ? state.logs
-        : appendBoundedItems(state.logs, [event], 5000),
-    }))
+    const { currentBuildId, buildStatus } = get()
+    if (buildStatus === 'RUNNING') {
+      // 启动瞬间 currentBuildId 可能尚未写入，此时接受全部日志
+      if (currentBuildId && event.buildId !== currentBuildId) {
+        return
+      }
+    } else if (!currentBuildId || event.buildId !== currentBuildId) {
+      // 构建已结束或未开始时，丢弃迟到的进程输出
+      return
+    }
+    scheduleLogFlush(event)
   },
 
   clearBuildLogs: () => {
+    pendingLogBuffer.length = 0
+    if (logFlushTimer) {
+      clearTimeout(logFlushTimer)
+      logFlushTimer = null
+    }
     set({ logs: [], diagnosis: undefined })
   },
 
   finishBuild: (event: BuildFinishedEvent) => {
-    const { buildOptions, environment, selectedModules, currentBuildId, logs } = get()
-    if (event.buildId !== currentBuildId) {
+    const {
+      buildOptions,
+      environment,
+      selectedModules,
+      currentBuildId,
+      logs,
+      buildStatus,
+      buildRunToken,
+    } = get()
+    // 允许两种情况：id 已知且匹配；或 RUNNING 且 id 尚未写入（启动竞态）
+    const acceptById = currentBuildId !== undefined && event.buildId === currentBuildId
+    const acceptPending = buildStatus === 'RUNNING' && currentBuildId === undefined
+    if (!acceptById && !acceptPending) {
       return
     }
+    // 立即冲刷缓冲日志，保证诊断拿到完整输出
+    flushPendingLogs()
     const diagnosis = event.status === 'FAILED'
       ? diagnoseBuildFailure(event.buildId, logs, environment)
       : undefined
+    const startedAt = get().startedAt
     const record: BuildHistoryRecord = {
       id: event.buildId,
-      createdAt: new Date().toISOString(),
+      createdAt: new Date(startedAt ?? Date.now()).toISOString(),
       projectRoot: buildOptions.projectRoot,
       modulePath: buildOptions.selectedModulePath,
       moduleArtifactId: moduleSelectionLabel(selectedModules, buildOptions.selectedModulePath),
@@ -868,10 +879,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         const artifacts = event.status === 'SUCCESS'
           ? await api.scanBuildArtifacts(record.projectRoot, record.modulePath).catch(() => [])
           : []
-        const recordWithArtifacts = { ...record, artifacts }
-        set({ artifacts })
+        // 仅在仍是同一次构建时回填，避免覆盖新一轮构建状态
+        const stillSameRun = get().buildRunToken === buildRunToken
+          || (!get().buildRunToken && get().currentBuildId === undefined && get().buildStatus !== 'RUNNING')
+        if (stillSameRun && get().buildStatus !== 'RUNNING') {
+          set({ artifacts })
+        }
         notifyBuildFinished(event.status, event.durationMs, artifacts.length)
-        await api.saveBuildHistory(recordWithArtifacts)
+        await api.saveBuildHistory({ ...record, artifacts: stillSameRun ? artifacts : [] })
         await get().loadHistoryAndTemplates()
       } catch (error) {
         console.error('Failed to save build history:', error)
@@ -881,6 +896,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       buildStatus: toHistoryStatus(event.status),
       durationMs: event.durationMs,
       currentBuildId: undefined,
+      buildRunToken: undefined,
       buildCancelling: false,
       diagnosis,
     })
@@ -899,10 +915,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deleteHistory: async (historyId: string) => {
-    await api.deleteBuildHistory(historyId)
-    set((state) => ({
-      history: state.history.filter((record) => record.id !== historyId),
-    }))
+    try {
+      await api.deleteBuildHistory(historyId)
+      set((state) => ({
+        history: state.history.filter((record) => record.id !== historyId),
+      }))
+    } catch (error) {
+      set({ error: getErrorMessage(error) })
+    }
   },
 
   rerunHistory: (record: BuildHistoryRecord) => {
@@ -957,13 +977,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       mavenHome: environment?.mavenHome,
       pinned: false,
     }
-    await api.saveTemplate(template)
-    await get().loadHistoryAndTemplates()
+    try {
+      await api.saveTemplate(template)
+      await get().loadHistoryAndTemplates()
+    } catch (error) {
+      set({ error: getErrorMessage(error) })
+    }
   },
 
   updateTemplate: async (template: BuildTemplate) => {
-    await api.saveTemplate(template)
-    await get().loadHistoryAndTemplates()
+    try {
+      await api.saveTemplate(template)
+      await get().loadHistoryAndTemplates()
+    } catch (error) {
+      set({ error: getErrorMessage(error) })
+    }
   },
 
   applyTemplate: (template: BuildTemplate) => {
@@ -992,12 +1020,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deleteTemplate: async (templateId: string) => {
-    await api.deleteTemplate(templateId)
-    await get().loadHistoryAndTemplates()
+    try {
+      await api.deleteTemplate(templateId)
+      await get().loadHistoryAndTemplates()
+    } catch (error) {
+      set({ error: getErrorMessage(error) })
+    }
   },
 
   removeArtifact: async (path: string, recordOnly?: boolean) => {
-    await api.deleteBuildArtifact(path, recordOnly)
+    try {
+      const projectRoot = get().project?.rootPath
+      await api.deleteBuildArtifact(path, recordOnly, projectRoot)
+    } catch (error) {
+      set({ error: getErrorMessage(error) })
+      return
+    }
     const currentState = get()
     const changedHistoryRecords: BuildHistoryRecord[] = []
     const nextHistory = currentState.history.map((record) => {
@@ -1016,6 +1054,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       artifacts: state.artifacts.filter((artifact) => artifact.path !== path),
       history: nextHistory,
     }))
-    await Promise.all(changedHistoryRecords.map((record) => api.saveBuildHistory(record)))
+    try {
+      await Promise.all(changedHistoryRecords.map((record) => api.saveBuildHistory(record)))
+    } catch (error) {
+      set({ error: getErrorMessage(error) })
+    }
   },
 }))

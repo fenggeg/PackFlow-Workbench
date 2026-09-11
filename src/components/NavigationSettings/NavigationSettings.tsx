@@ -1,6 +1,6 @@
 import {useState} from 'react'
 import {Button, Modal, Select, Space, Switch, Typography} from 'antd'
-import {ArrowDownOutlined, ArrowUpOutlined, SettingOutlined,} from '@ant-design/icons'
+import {ArrowDownOutlined, ArrowUpOutlined} from '@ant-design/icons'
 import {type AppPage} from '../../store/navigationStore'
 import {type NavigationItemConfig, useNavigationConfigStore} from '../../store/useNavigationConfigStore'
 
@@ -132,21 +132,5 @@ export function NavigationSettings({ open, onClose }: NavigationSettingsProps) {
         </div>
       </Space>
     </Modal>
-  )
-}
-
-export function NavigationSettingsButton() {
-  const [open, setOpen] = useState(false)
-
-  return (
-    <>
-      <Button
-        type="text"
-        icon={<SettingOutlined />}
-        onClick={() => setOpen(true)}
-        title="导航栏设置"
-      />
-      <NavigationSettings open={open} onClose={() => setOpen(false)} />
-    </>
   )
 }

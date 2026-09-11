@@ -13,6 +13,7 @@ interface EnvironmentState {
   environmentSettings?: EnvironmentSettings
   savedProjectPaths: string[]
   jdkRegistry: JdkEntry[]
+  error?: string
   loadSettings: () => Promise<void>
   detectForProject: (rootPath: string) => Promise<void>
   refreshEnvironment: (projectRoot?: string) => Promise<void>
@@ -107,7 +108,7 @@ export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
       const environmentSettings = await api.loadEnvironmentSettings()
       set({environment, environmentSettings})
     } catch (error) {
-      set({error: getErrorMessage(error)} as Partial<EnvironmentState>)
+      set({error: getErrorMessage(error)})
     }
   },
 
@@ -122,7 +123,7 @@ export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
       const environment = await api.detectEnvironment(projectRoot ?? '')
       set({environment, environmentSettings})
     } catch (error) {
-      set({error: getErrorMessage(error)} as Partial<EnvironmentState>)
+      set({error: getErrorMessage(error)})
     }
   },
 
@@ -144,7 +145,7 @@ export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
       const environment = await api.detectEnvironment(projectRoot ?? '')
       set({environment, environmentSettings: nextSettings})
     } catch (error) {
-      set({error: getErrorMessage(error)} as Partial<EnvironmentState>)
+      set({error: getErrorMessage(error)})
     }
   },
 
@@ -174,7 +175,7 @@ export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
       const env = await api.detectEnvironment(projectRoot ?? '')
       set({environment: env, environmentSettings: nextSettings})
     } catch (error) {
-      set({error: getErrorMessage(error)} as Partial<EnvironmentState>)
+      set({error: getErrorMessage(error)})
     }
   },
 
@@ -205,7 +206,7 @@ export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
       const environment = await api.detectEnvironment(projectRoot ?? '')
       set({environment, environmentSettings: nextSettings})
     } catch (error) {
-      set({error: getErrorMessage(error)} as Partial<EnvironmentState>)
+      set({error: getErrorMessage(error)})
     }
   },
 
@@ -216,7 +217,7 @@ export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
       const environment = await api.detectEnvironment(projectPath)
       set({environment, environmentSettings: nextSettings})
     } catch (error) {
-      set({error: getErrorMessage(error)} as Partial<EnvironmentState>)
+      set({error: getErrorMessage(error)})
     }
   },
 
@@ -227,7 +228,7 @@ export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
       const environment = await api.detectEnvironment(projectPath)
       set({environment, environmentSettings: nextSettings})
     } catch (error) {
-      set({error: getErrorMessage(error)} as Partial<EnvironmentState>)
+      set({error: getErrorMessage(error)})
     }
   },
 
@@ -264,7 +265,7 @@ export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
         savedProjectPaths: normalizeProjectPaths(settings.projectPaths ?? []),
       })
     } catch (error) {
-      set({error: getErrorMessage(error)} as Partial<EnvironmentState>)
+      set({error: getErrorMessage(error)})
     }
   },
 
@@ -275,7 +276,7 @@ export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
       const settings = await api.loadEnvironmentSettings()
       set({environmentSettings: settings})
     } catch (error) {
-      set({error: getErrorMessage(error)} as Partial<EnvironmentState>)
+      set({error: getErrorMessage(error)})
     }
   },
 
@@ -285,7 +286,7 @@ export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
       const settings = await api.loadEnvironmentSettings()
       set({jdkRegistry: settings.jdkRegistry ?? [], environmentSettings: settings})
     } catch (error) {
-      set({error: getErrorMessage(error)} as Partial<EnvironmentState>)
+      set({error: getErrorMessage(error)})
     }
   },
 
@@ -295,7 +296,7 @@ export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
       const settings = await api.loadEnvironmentSettings()
       set({jdkRegistry: settings.jdkRegistry ?? [], environmentSettings: settings})
     } catch (error) {
-      set({error: getErrorMessage(error)} as Partial<EnvironmentState>)
+      set({error: getErrorMessage(error)})
     }
   },
 
@@ -305,7 +306,7 @@ export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
       const settings = await api.loadEnvironmentSettings()
       set({jdkRegistry: settings.jdkRegistry ?? [], environmentSettings: settings})
     } catch (error) {
-      set({error: getErrorMessage(error)} as Partial<EnvironmentState>)
+      set({error: getErrorMessage(error)})
     }
   },
 }))

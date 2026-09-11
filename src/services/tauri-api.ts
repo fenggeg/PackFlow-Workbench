@@ -180,13 +180,6 @@ export const api = {
 
   cancelBuild: (buildId: string) => invoke<void>('cancel_build', { buildId }),
 
-  setMaxConcurrentBuilds: (max: number | null) =>
-    invoke<void>('set_max_concurrent_builds', { max }),
-
-  getMaxConcurrentBuilds: () => invoke<number>('get_max_concurrent_builds'),
-
-  getRunningBuildCount: () => invoke<number>('get_running_build_count'),
-
   listBuildHistory: () => invoke<BuildHistoryRecord[]>('list_build_history'),
 
   saveBuildHistory: (record: BuildHistoryRecord) =>
@@ -209,8 +202,12 @@ export const api = {
   scanBuildArtifacts: (projectRoot: string, modulePath: string) =>
     invoke<BuildArtifact[]>('scan_build_artifacts', { projectRoot, modulePath }),
 
-  deleteBuildArtifact: (path: string, recordOnly?: boolean) =>
-    invoke<void>('delete_build_artifact', { path, recordOnly: recordOnly ?? false }),
+  deleteBuildArtifact: (path: string, recordOnly?: boolean, projectRoot?: string) =>
+    invoke<void>('delete_build_artifact', {
+      path,
+      recordOnly: recordOnly ?? false,
+      projectRoot,
+    }),
 
   checkFilesExist: (paths: string[]) =>
     invoke<string[]>('check_files_exist', { paths }),
@@ -265,19 +262,24 @@ export async function registerBuildEvents(
     return () => undefined
   }
 
-  const unlistenLog = await listen<BuildLogEvent>('build-log', (event) => {
-    onLog(event.payload)
-  })
-  const unlistenFinished = await listen<BuildFinishedEvent>(
-    'build-finished',
-    (event) => {
-      onFinished(event.payload)
-    },
-  )
-
-  return () => {
-    unlistenLog()
-    unlistenFinished()
+  let unlistenLog: (() => void) | undefined
+  try {
+    unlistenLog = await listen<BuildLogEvent>('build-log', (event) => {
+      onLog(event.payload)
+    })
+    const unlistenFinished = await listen<BuildFinishedEvent>(
+      'build-finished',
+      (event) => {
+        onFinished(event.payload)
+      },
+    )
+    return () => {
+      unlistenFinished()
+      unlistenLog?.()
+    }
+  } catch (error) {
+    unlistenLog?.()
+    throw error
   }
 }
 

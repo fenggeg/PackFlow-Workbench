@@ -109,19 +109,29 @@ export function DependencyConflictPanel() {
   // 监听后端进度事件
   useEffect(() => {
     let unlisten: (() => void) | undefined
+    let disposed = false
 
     listen<ConflictScanProgress>('dependency-conflict-progress', (event) => {
+      if (disposed) return
       setProgress(event.payload)
     }).then((fn) => {
+      if (disposed) {
+        fn()
+        return
+      }
       unlisten = fn
+    }).catch(() => {
+      // 浏览器预览下监听失败可忽略
     })
 
     return () => {
+      disposed = true
       unlisten?.()
     }
   }, [])
 
   const startTimer = () => {
+    stopTimer()
     setElapsed(0)
     timerRef.current = setInterval(() => {
       setElapsed((prev) => prev + 1)
@@ -236,7 +246,11 @@ export function DependencyConflictPanel() {
                 <Progress
                   percent={progressPercent}
                   size="small"
-                  format={() => `${progress!.scannedModules} / ${progress!.totalModules} 模块`}
+                  format={() =>
+                    progress
+                      ? `${progress.scannedModules} / ${progress.totalModules} 模块`
+                      : ''
+                  }
                 />
                 {progress?.currentModule && (
                   <div style={{marginTop: 4, fontSize: 12}}>

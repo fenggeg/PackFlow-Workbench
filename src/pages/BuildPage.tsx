@@ -12,7 +12,7 @@ export function BuildPage() {
       <div className="workspace-heading">
         <div>
           <Title level={3}>构建中心</Title>
-          <Text type="secondary">选模块、配参数、开始构建，构建结果会自然流向产物和部署。</Text>
+          <Text type="secondary">选模块、配参数、开始构建，结果会自动记录到产物与历史。</Text>
         </div>
       </div>
       <Space direction="vertical" size={20} style={{width: '100%'}}>

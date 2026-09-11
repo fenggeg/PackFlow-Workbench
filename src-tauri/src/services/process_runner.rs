@@ -107,16 +107,26 @@ pub fn start_build(
         .lock()
         .map(|guard| guard.unwrap_or(DEFAULT_MAX_CONCURRENT_BUILDS))
         .unwrap_or(DEFAULT_MAX_CONCURRENT_BUILDS);
-    let running = state.running_count();
-    if running >= max_concurrent {
-        return Err(to_user_error(format!(
-            "当前已有 {} 个构建任务在运行，最大并发数为 {}，请等待完成后再试。",
-            running, max_concurrent
-        )));
+
+    // 先在锁内预约一个占位，避免并发 start_build 同时通过数量检查
+    let build_id = Uuid::new_v4().to_string();
+    {
+        let mut processes = state
+            .processes
+            .lock()
+            .map_err(|_| to_user_error("构建进程状态被占用，请稍后重试。"))?;
+        if processes.len() >= max_concurrent {
+            return Err(to_user_error(format!(
+                "当前已有 {} 个构建任务在运行，最大并发数为 {}，请等待完成后再试。",
+                processes.len(),
+                max_concurrent
+            )));
+        }
+        // 占位 PID 0，spawn 成功后覆盖为真实 PID
+        processes.insert(build_id.clone(), 0);
     }
 
     let app = window.app_handle().clone();
-    let build_id = Uuid::new_v4().to_string();
     let build_log_path = app_logger::build_log_path(&app, &build_id)?;
     app_logger::log_info(
         &app,
@@ -171,6 +181,20 @@ pub fn start_build(
         format!("command={}", payload.command),
     );
 
+    let release_reservation = |state: &BuildProcessState| {
+        if let Ok(mut processes) = state.processes.lock() {
+            processes.remove(&build_id);
+        }
+        if let Ok(mut job_handles) = state.job_handles.lock() {
+            if let Some(job_handle) = job_handles.remove(&build_id) {
+                close_handle(job_handle as HANDLE);
+            }
+        }
+        if let Ok(mut log_paths) = state.log_paths.lock() {
+            log_paths.remove(&build_id);
+        }
+    };
+
     let mut command = Command::new("cmd");
     command
         .args(["/C", payload.command.as_str()])
@@ -194,6 +218,7 @@ pub fn start_build(
             "system",
             format!("无法启动构建进程：{}", error),
         );
+        release_reservation(&state);
         to_user_error(format!("无法启动构建进程：{}", error))
     })?;
     let pid = child.id();
@@ -234,23 +259,52 @@ pub fn start_build(
     );
     app_logger::append_build_line(&build_log_path, "system", format!("pid={}", pid));
 
-    state
-        .processes
-        .lock()
-        .map_err(|_| to_user_error("构建进程状态被占用，请稍后重试。"))?
-        .insert(build_id.clone(), pid);
+    if let Err(error) = state.processes.lock().map(|mut guard| {
+        guard.insert(build_id.clone(), pid);
+    }) {
+        // 无法登记则杀掉子进程，避免孤儿进程
+        let job = job_handle.map(|handle| handle as HANDLE);
+        let _ = kill_build_process(pid, job);
+        if let Some(job_handle) = job_handle {
+            close_handle(job_handle);
+        }
+        release_reservation(&state);
+        return Err(to_user_error(format!(
+            "构建进程状态被占用，请稍后重试：{}",
+            error
+        )));
+    }
     if let Some(job_handle) = job_handle {
-        state
+        if let Err(error) = state.job_handles.lock().map(|mut guard| {
+            guard.insert(build_id.clone(), job_handle as isize);
+        }) {
+            let _ = kill_build_process(pid, Some(job_handle));
+            close_handle(job_handle);
+            release_reservation(&state);
+            return Err(to_user_error(format!(
+                "构建进程状态被占用，请稍后重试：{}",
+                error
+            )));
+        }
+    }
+    if let Err(error) = state.log_paths.lock().map(|mut guard| {
+        guard.insert(build_id.clone(), build_log_path.clone());
+    }) {
+        let job = state
             .job_handles
             .lock()
-            .map_err(|_| to_user_error("构建进程状态被占用，请稍后重试。"))?
-            .insert(build_id.clone(), job_handle as isize);
+            .ok()
+            .and_then(|mut guard| guard.remove(&build_id).map(|h| h as HANDLE));
+        let _ = kill_build_process(pid, job);
+        if let Some(job_handle) = job {
+            close_handle(job_handle);
+        }
+        release_reservation(&state);
+        return Err(to_user_error(format!(
+            "构建日志状态被占用，请稍后重试：{}",
+            error
+        )));
     }
-    state
-        .log_paths
-        .lock()
-        .map_err(|_| to_user_error("构建日志状态被占用，请稍后重试。"))?
-        .insert(build_id.clone(), build_log_path.clone());
 
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
@@ -391,24 +445,39 @@ fn cancel_build_by_id(
 ) -> AppResult<()> {
     let app = window.app_handle().clone();
     app_logger::log_info(&app, "build.cancel.start", format!("build_id={}", build_id));
-    let pid = state
-        .processes
-        .lock()
-        .map_err(|_| to_user_error("构建进程状态被占用，请稍后重试。"))?
-        .get(build_id)
-        .copied();
+
+    // 从 map 中取出 job handle，避免 wait 线程 CloseHandle 后本线程仍使用旧值
     let job_handle = state
         .job_handles
         .lock()
         .map_err(|_| to_user_error("构建进程状态被占用，请稍后重试。"))?
-        .get(build_id)
-        .copied();
+        .remove(build_id);
+
+    let pid = {
+        let processes = state
+            .processes
+            .lock()
+            .map_err(|_| to_user_error("构建进程状态被占用，请稍后重试。"))?;
+        match processes.get(build_id).copied() {
+            // 占位 PID 0 表示尚未 spawn 完成
+            Some(0) => None,
+            Some(pid) => Some(pid),
+            None => None,
+        }
+    };
     let log_path = state
         .log_paths
         .lock()
         .map_err(|_| to_user_error("构建日志状态被占用，请稍后重试。"))?
         .get(build_id)
         .cloned();
+
+    // 若 job handle 已取出但进程仍在登记中，需在失败路径关闭
+    let close_job_on_failure = |handle: Option<isize>| {
+        if let Some(h) = handle {
+            close_handle(h as HANDLE);
+        }
+    };
 
     if let Some(pid) = pid {
         if let Some(log_path) = log_path.as_deref() {
@@ -429,14 +498,17 @@ fn cancel_build_by_id(
         let kill_window = window.clone();
         let kill_app = app.clone();
         let kill_processes = state.processes.clone();
-        let kill_job_handles = state.job_handles.clone();
         let kill_log_paths = state.log_paths.clone();
         let kill_cancelled_builds = state.cancelled_builds.clone();
         thread::spawn(move || {
-            let job_handle = job_handle.map(|handle| handle as HANDLE);
-            let kill_output = kill_build_process(pid, job_handle);
+            let job = job_handle.map(|handle| handle as HANDLE);
+            let kill_output = kill_build_process(pid, job);
             match kill_output {
                 Ok(output) if is_process_gone(pid) => {
+                    // terminate_job 已执行，关闭句柄避免泄漏；wait 线程从 map 中已拿不到它
+                    if let Some(job) = job {
+                        close_handle(job);
+                    }
                     let message = "构建进程已停止。";
                     if let Some(log_path) = log_path.as_deref() {
                         app_logger::append_build_line(log_path, "system", message);
@@ -452,11 +524,6 @@ fn cancel_build_by_id(
                     if let Ok(mut processes) = kill_processes.lock() {
                         processes.remove(&kill_build_id);
                     }
-                    if let Ok(mut job_handles) = kill_job_handles.lock() {
-                        if let Some(job_handle) = job_handles.remove(&kill_build_id) {
-                            close_handle(job_handle as HANDLE);
-                        }
-                    }
                     if let Ok(mut log_paths) = kill_log_paths.lock() {
                         log_paths.remove(&kill_build_id);
                     }
@@ -470,18 +537,16 @@ fn cancel_build_by_id(
                             output.trim()
                         ),
                     );
-                    let _ = kill_window.emit(
-                        "build-finished",
-                        BuildFinishedEvent {
-                            build_id: kill_build_id,
-                            status: "CANCELLED".to_string(),
-                            duration_ms: 0,
-                        },
-                    );
+                    // build-finished 由 wait 线程统一发出；cancelled 标记由 wait 线程消费
+                    let _ = kill_cancelled_builds;
                 }
                 Ok(output) => {
                     if let Ok(mut cancelled_builds) = kill_cancelled_builds.lock() {
                         cancelled_builds.remove(&kill_build_id);
+                    }
+                    // 杀进程失败时 job handle 可能未被 wait 线程清理，尝试关闭
+                    if let Some(job) = job {
+                        close_handle(job);
                     }
                     let message =
                         "停止构建失败：进程仍在运行，请稍后重试或手动结束 Maven/Java 进程。";
@@ -511,6 +576,9 @@ fn cancel_build_by_id(
                     if let Ok(mut cancelled_builds) = kill_cancelled_builds.lock() {
                         cancelled_builds.remove(&kill_build_id);
                     }
+                    if let Some(job) = job {
+                        close_handle(job);
+                    }
                     let message = "停止构建失败，请稍后重试或手动结束 Maven/Java 进程。";
                     if let Some(log_path) = log_path.as_deref() {
                         app_logger::append_build_line(log_path, "system", message);
@@ -532,6 +600,7 @@ fn cancel_build_by_id(
             }
         });
     } else {
+        close_job_on_failure(job_handle);
         app_logger::log_warn(
             &app,
             "build.cancel.not_found",
@@ -725,14 +794,22 @@ fn decode_command_bytes(bytes: &[u8]) -> String {
 }
 
 fn is_process_gone(pid: u32) -> bool {
-    Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {}", pid)])
+    // 用 PowerShell 查询更可靠，避免 tasklist 本地化输出中子串误匹配
+    let script = format!(
+        "if (Get-Process -Id {} -ErrorAction SilentlyContinue) {{ 'alive' }} else {{ 'gone' }}",
+        pid
+    );
+    Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ])
         .creation_flags(CREATE_NO_WINDOW)
         .output()
-        .map(|output| {
-            let text = command_output_text(&output);
-            !text.contains(&pid.to_string())
-        })
+        .map(|output| command_output_text(&output).contains("gone"))
         .unwrap_or(false)
 }
 

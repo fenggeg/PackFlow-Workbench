@@ -220,11 +220,19 @@ fn is_package_file(path: &Path) -> bool {
 }
 
 #[tauri::command]
-pub fn delete_build_artifact(app: AppHandle, path: String, record_only: Option<bool>) -> AppResult<()> {
+pub fn delete_build_artifact(
+    app: AppHandle,
+    path: String,
+    record_only: Option<bool>,
+    project_root: Option<String>,
+) -> AppResult<()> {
     app_logger::log_info(
         &app,
         "filesystem.artifact.delete.start",
-        format!("path={}, record_only={:?}", path, record_only),
+        format!(
+            "path={}, record_only={:?}, project_root={:?}",
+            path, record_only, project_root
+        ),
     );
 
     if record_only.unwrap_or(false) {
@@ -253,6 +261,29 @@ pub fn delete_build_artifact(app: AppHandle, path: String, record_only: Option<b
         );
         return Err(to_user_error(format!("路径不是文件：{}", path)));
     }
+
+    // 若提供项目根目录，仅允许删除其下的文件（含 target 产物路径）
+    if let Some(root) = project_root.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        let root_path = PathBuf::from(root);
+        let target_ok = match (fs::canonicalize(&target), fs::canonicalize(&root_path)) {
+            (Ok(canonical_target), Ok(canonical_root)) => {
+                canonical_target.starts_with(&canonical_root)
+            }
+            _ => false,
+        };
+        if !target_ok {
+            app_logger::log_error(
+                &app,
+                "filesystem.artifact.delete.rejected",
+                format!("path={}, root={}, error=路径不在项目目录内", path, root),
+            );
+            return Err(to_user_error(format!(
+                "拒绝删除项目目录之外的文件：{}",
+                path
+            )));
+        }
+    }
+
     fs::remove_file(&target).map_err(|error| {
         app_logger::log_error(
             &app,

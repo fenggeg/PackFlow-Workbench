@@ -153,8 +153,26 @@ fn sanitize_update_file_name(file_name: &str) -> AppResult<String> {
         .and_then(|name| name.to_str())
         .map(str::trim)
         .filter(|name| !name.is_empty())
+        .filter(|name| !name.contains(['/', '\\', ':']))
         .map(ToString::to_string)
         .ok_or_else(|| to_user_error("更新包文件名无效。"))
+}
+
+/// 仅允许 GitHub Releases 及其 CDN 的 HTTPS 下载地址。
+fn is_allowed_update_url(url: &str) -> bool {
+    let Ok(parsed) = Url::parse(url) else {
+        return false;
+    };
+    if parsed.scheme() != "https" {
+        return false;
+    }
+    matches!(
+        parsed.host_str(),
+        Some("github.com")
+            | Some("objects.githubusercontent.com")
+            | Some("release-assets.githubusercontent.com")
+            | Some("raw.githubusercontent.com")
+    )
 }
 
 fn update_cache_dir() -> PathBuf {
@@ -309,22 +327,22 @@ fn download_app_update_sync(
         format!("file_name={}, url={}", file_name, download_url),
     );
 
-    if !download_url.starts_with("https://") {
+    if !is_allowed_update_url(&download_url) {
         app_logger::log_error(
             app,
             "updater.download.invalid_url",
             format!("url={}", download_url),
         );
-        return Err(to_user_error("更新包下载地址不是安全的 HTTPS 地址。"));
+        return Err(to_user_error("更新包下载地址不是允许的 HTTPS 发布源。"));
     }
     if let Some(url) = api_download_url {
-        if !url.starts_with("https://") {
+        if !is_allowed_update_url(url) {
             app_logger::log_error(
                 app,
                 "updater.download.invalid_api_url",
                 format!("url={}", url),
             );
-            return Err(to_user_error("更新包 API 下载地址不是安全的 HTTPS 地址。"));
+            return Err(to_user_error("更新包 API 下载地址不是允许的 HTTPS 发布源。"));
         }
     }
 
@@ -759,10 +777,15 @@ pub async fn install_app_update(
     installer_bytes: Vec<u8>,
     file_name: String,
 ) -> AppResult<()> {
+    let safe_file_name = sanitize_update_file_name(&file_name)?;
+    if !safe_file_name.to_lowercase().ends_with(".exe") {
+        return Err(to_user_error("更新包格式无效。"));
+    }
+
     app_logger::log_info(
         &app,
         "updater.install.start",
-        format!("file_name={}, size={}", file_name, installer_bytes.len()),
+        format!("file_name={}, size={}", safe_file_name, installer_bytes.len()),
     );
 
     let temp_dir = std::env::temp_dir().join("packflow-updater");
@@ -775,7 +798,7 @@ pub async fn install_app_update(
         to_user_error(format!("无法创建临时目录：{}", error))
     })?;
 
-    let installer_path = temp_dir.join(&file_name);
+    let installer_path = temp_dir.join(&safe_file_name);
     let mut file = fs::File::create(&installer_path).map_err(|error| {
         app_logger::log_error(
             &app,
@@ -796,5 +819,5 @@ pub async fn install_app_update(
 
     drop(file);
 
-    execute_app_installer(&app, &installer_path, &file_name)
+    execute_app_installer(&app, &installer_path, &safe_file_name)
 }

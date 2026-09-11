@@ -123,7 +123,11 @@ export function HistoryTable() {
               icon={<PlayCircleOutlined />}
               size="small"
               type="primary"
-              onClick={() => void rerunHistoryNow(record)}
+              onClick={() => {
+                void rerunHistoryNow(record).catch(() => {
+                  // store 已写入 error
+                })
+              }}
             />
           </Tooltip>
           <Tooltip title="恢复">
@@ -144,7 +148,11 @@ export function HistoryTable() {
             description="删除后无法恢复，确认删除此构建记录？"
             okText="删除"
             cancelText="取消"
-            onConfirm={() => void deleteHistory(record.id)}
+            onConfirm={() => {
+              void deleteHistory(record.id).catch(() => {
+                // store 已写入 error
+              })
+            }}
           >
             <Tooltip title="删除">
               <Button icon={<DeleteOutlined />} size="small" danger />
