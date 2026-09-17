@@ -1,14 +1,3 @@
----
-AIGC:
-  ContentProducer: '001191110102MAD55U9H0F10002'
-  ContentPropagator: '001191110102MAD55U9H0F10002'
-  Label: '1'
-  ProduceID: '6d1e6445-516a-4bf6-bd25-836df390a1bf'
-  PropagateID: '6d1e6445-516a-4bf6-bd25-836df390a1bf'
-  ReservedCode1: '6dbfb96d-8b6d-4a8a-83ac-3f23cd140e3a'
-  ReservedCode2: '6dbfb96d-8b6d-4a8a-83ac-3f23cd140e3a'
----
-
 # PackFlow Workbench
 
 面向 Windows 的 Maven 多模块项目构建桌面工具。基于 Tauri 2 构建，React 前端负责交互编排，Rust 后端负责项目解析、命令执行、SQLite 持久化和 Windows 本地能力集成。
