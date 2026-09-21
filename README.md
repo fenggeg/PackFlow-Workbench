@@ -2,7 +2,6 @@
 
 面向 Windows 的 Maven 多模块项目打包工作台。基于 Tauri 2，React 19 前端负责交互编排，Rust 后端负责 POM 解析、环境检测、进程执行与 SQLite 持久化。
 
-当前版本：`3.3.6`（`package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 三处版本号保持一致）。
 
 ## 功能概览
 
