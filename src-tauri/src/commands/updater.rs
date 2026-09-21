@@ -672,8 +672,12 @@ fn schedule_cached_update_install(
     let escaped_script_path = script_path.to_string_lossy().replace('\'', "''");
     let script = format!(
         "$ErrorActionPreference = 'SilentlyContinue'\r\n\
-         Wait-Process -Id {}\r\n\
-         Start-Sleep -Milliseconds 300\r\n\
+         $deadline = (Get-Date).AddSeconds(30)\r\n\
+         while ((Get-Process -Id {} -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) {{\r\n\
+         Start-Sleep -Milliseconds 200\r\n\
+         }}\r\n\
+         Stop-Process -Id {} -Force -ErrorAction SilentlyContinue\r\n\
+         Start-Sleep -Milliseconds 500\r\n\
          $installer = '{}'\r\n\
          $target = '{}'\r\n\
          $arguments = {}\r\n\
@@ -682,7 +686,7 @@ fn schedule_cached_update_install(
          Start-Process -FilePath $target\r\n\
          }}\r\n\
          Remove-Item -LiteralPath '{}' -Force\r\n",
-        pid, escaped_installer_path, escaped_exe_path, installer_args, escaped_script_path
+        pid, pid, escaped_installer_path, escaped_exe_path, installer_args, escaped_script_path
     );
 
     fs::write(&script_path, script).map_err(|error| {

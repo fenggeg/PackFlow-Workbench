@@ -323,7 +323,7 @@ export function UpdateChecker() {
                   发布时间：{formatReleaseDate(update.date)}
                 </span>
               ) : null}
-              <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--background)] p-3 text-[13px] leading-relaxed [&_a]:text-[var(--info)]">
+              <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--background)] p-3 text-[13px] leading-relaxed [&_a]:text-[var(--info)] [&_h1]:mb-2 [&_h1]:text-[15px] [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:text-[14px] [&_h2]:font-semibold [&_h3]:mb-1.5 [&_h3]:text-[13px] [&_h3]:font-semibold [&_p]:my-1.5 [&_ul]:my-1.5 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-1.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_code]:rounded-[4px] [&_code]:bg-[var(--muted)] [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-[family-name:var(--font-mono)] [&_code]:text-[12px] [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-[var(--radius)] [&_pre]:bg-[var(--muted)] [&_pre]:p-2.5 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_blockquote]:my-1.5 [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--border-strong)] [&_blockquote]:pl-3 [&_blockquote]:text-[var(--muted-foreground)] [&_hr]:my-3 [&_hr]:border-[var(--border)] [&_strong]:font-semibold">
                 <ReactMarkdown
                   components={{
                     a: ({children, href}) => (
