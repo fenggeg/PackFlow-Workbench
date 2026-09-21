@@ -159,6 +159,8 @@ fn sanitize_update_file_name(file_name: &str) -> AppResult<String> {
 }
 
 /// 仅允许 GitHub Releases 及其 CDN 的 HTTPS 下载地址。
+/// 注意必须包含 `api.github.com`：Release 资产的 api 下载地址就在这里，
+/// 之前遗漏会导致「能检测到更新但无法下载」。
 fn is_allowed_update_url(url: &str) -> bool {
     let Ok(parsed) = Url::parse(url) else {
         return false;
@@ -166,13 +168,17 @@ fn is_allowed_update_url(url: &str) -> bool {
     if parsed.scheme() != "https" {
         return false;
     }
-    matches!(
-        parsed.host_str(),
-        Some("github.com")
-            | Some("objects.githubusercontent.com")
-            | Some("release-assets.githubusercontent.com")
-            | Some("raw.githubusercontent.com")
-    )
+    let Some(host) = parsed.host_str() else {
+        return false;
+    };
+
+    let host = host.to_ascii_lowercase();
+    // GitHub 主站及其子域（api.github.com、codeload.github.com 等）
+    host == "github.com"
+        || host.ends_with(".github.com")
+        // 发布资源 CDN（objects./release-assets./raw.githubusercontent.com 等）
+        || host == "githubusercontent.com"
+        || host.ends_with(".githubusercontent.com")
 }
 
 fn update_cache_dir() -> PathBuf {
@@ -327,23 +333,25 @@ fn download_app_update_sync(
         format!("file_name={}, url={}", file_name, download_url),
     );
 
-    if !is_allowed_update_url(&download_url) {
-        app_logger::log_error(
-            app,
-            "updater.download.invalid_url",
-            format!("url={}", download_url),
-        );
-        return Err(to_user_error("更新包下载地址不是允许的 HTTPS 发布源。"));
-    }
-    if let Some(url) = api_download_url {
+    // 逐个候选地址做白名单过滤：单个地址不合规只应被跳过，
+    // 不能阻断整体下载（否则一个地址变更就会让「能检测到更新但无法下载」再次发生）。
+    let mut candidates: Vec<(&str, &str)> = Vec::new();
+    for (source, url) in [("browser", Some(download_url)), ("asset-api", api_download_url)] {
+        let Some(url) = url.filter(|value| !value.is_empty()) else {
+            continue;
+        };
         if !is_allowed_update_url(url) {
             app_logger::log_error(
                 app,
-                "updater.download.invalid_api_url",
-                format!("url={}", url),
+                "updater.download.rejected_url",
+                format!("source={}, url={}", source, url),
             );
-            return Err(to_user_error("更新包 API 下载地址不是允许的 HTTPS 发布源。"));
+            continue;
         }
+        candidates.push((source, url));
+    }
+    if candidates.is_empty() {
+        return Err(to_user_error("更新包下载地址不是允许的 HTTPS 发布源。"));
     }
 
     let safe_file_name = sanitize_update_file_name(file_name)?;
@@ -399,12 +407,6 @@ fn download_app_update_sync(
             },
         },
     );
-
-    let mut candidates = Vec::new();
-    candidates.push(("browser", download_url));
-    if let Some(url) = api_download_url.filter(|url| !url.is_empty()) {
-        candidates.push(("asset-api", url));
-    }
 
     let mut last_error = None;
     for (source, url) in candidates {
@@ -820,4 +822,61 @@ pub async fn install_app_update(
     drop(file);
 
     execute_app_installer(&app, &installer_path, &safe_file_name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn allows_github_release_urls() {
+        // 浏览器下载地址（Release 资产直链）
+        assert!(is_allowed_update_url(
+            "https://github.com/fenggeg/PackFlow-Workbench/releases/download/v3.3.0/PackFlow.Workbench_x64-setup.exe"
+        ));
+        // GitHub API 资产地址：曾因未在白名单内导致「能检测到更新但无法下载」
+        assert!(is_allowed_update_url(
+            "https://api.github.com/repos/fenggeg/PackFlow-Workbench/releases/assets/577957637"
+        ));
+        // 发布资源 CDN（直链会 302 到这里）
+        assert!(is_allowed_update_url(
+            "https://objects.githubusercontent.com/github-production-release-asset/123"
+        ));
+        assert!(is_allowed_update_url(
+            "https://release-assets.githubusercontent.com/github-production-release-asset/123"
+        ));
+    }
+
+    #[test]
+    fn rejects_non_github_or_insecure_urls() {
+        assert!(!is_allowed_update_url("http://github.com/a/b"));
+        assert!(!is_allowed_update_url("https://example.com/setup.exe"));
+        assert!(!is_allowed_update_url("https://evilgithub.com/setup.exe"));
+        assert!(!is_allowed_update_url("https://github.com.evil.com/setup.exe"));
+        assert!(!is_allowed_update_url("https://githubusercontent.com.evil.com/a"));
+        assert!(!is_allowed_update_url("ftp://github.com/a"));
+        assert!(!is_allowed_update_url(""));
+        assert!(!is_allowed_update_url("not a url"));
+    }
+
+    #[test]
+    fn sanitizes_installer_file_name() {
+        assert_eq!(
+            sanitize_update_file_name("PackFlow.Workbench_x64-setup.exe").unwrap(),
+            "PackFlow.Workbench_x64-setup.exe"
+        );
+        // 路径分量会被剥离，只保留文件名，避免写到缓存目录之外
+        assert_eq!(sanitize_update_file_name("../../evil.exe").unwrap(), "evil.exe");
+        assert_eq!(sanitize_update_file_name("dir\\evil.exe").unwrap(), "evil.exe");
+        assert_eq!(sanitize_update_file_name("C:evil.exe").unwrap(), "evil.exe");
+        assert!(sanitize_update_file_name("   ").is_err());
+    }
+
+    #[test]
+    fn detects_newer_versions() {
+        assert!(is_newer_version("3.2.3", "3.3.0"));
+        assert!(is_newer_version("3.2.1", "3.2.2"));
+        assert!(!is_newer_version("3.3.0", "3.3.0"));
+        assert!(!is_newer_version("3.3.0", "3.2.9"));
+    }
 }

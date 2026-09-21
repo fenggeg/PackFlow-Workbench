@@ -112,6 +112,11 @@ const getFriendlyUpdateErrorMessage = (error: unknown, phase: UpdatePhase) => {
   ) {
     return `${prefix}：安装程序没有正常完成，请关闭应用后重试。`
   }
+  // 后端已给出面向用户的中文说明（例如下载地址被安全策略拒绝）时直接透传，
+  // 避免被泛化成「更新服务暂时不可用」而掩盖真实原因。
+  if (/[\u4e00-\u9fff]/.test(rawMessage)) {
+    return `${prefix}：${getErrorMessage(error)}`
+  }
   return `${prefix}：更新服务暂时不可用，请稍后重试。`
 }
 
