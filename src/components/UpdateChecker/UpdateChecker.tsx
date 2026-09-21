@@ -190,15 +190,22 @@ export function UpdateChecker() {
     }
   }, [])
 
+  // 通过 ref 持有最新 checkUpdate，供启动检查在空依赖 effect 中调用，
+  // 避免 checkUpdate 因 currentVersion 变化而重建时，cleanup 清掉启动定时器导致检查被跳过
+  const checkUpdateRef = useRef(checkUpdate)
   useEffect(() => {
-    // 启动后的静默检查只跑一次：checkUpdate 依赖 currentVersion，否则会被重复触发
+    checkUpdateRef.current = checkUpdate
+  }, [checkUpdate])
+
+  useEffect(() => {
+    // 启动后的静默检查只跑一次：空依赖数组保证定时器不被依赖变化清理
     if (silentCheckedRef.current) return
     silentCheckedRef.current = true
     const timer = window.setTimeout(() => {
-      void checkUpdate(true)
+      void checkUpdateRef.current(true)
     }, 3500)
     return () => window.clearTimeout(timer)
-  }, [checkUpdate])
+  }, [])
 
   useEffect(() => {
     // 周期性静默检查：更新弹窗已打开或正在下载安装时跳过，避免打断进行中的更新

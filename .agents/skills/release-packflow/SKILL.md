@@ -3,7 +3,7 @@ name: release-packflow
 description: >
   PackFlow Workbench（Tauri 桌面应用）专用发版技能。当用户说"发布"、"release"、"发版"、"发布新版本"、"出一个新版本"时触发。
   完整流程：检查未提交文件 → 提交 → 读取最近 tag → 确定新版本号 → 生成 CHANGELOG 小节 →
-  同步更新 package.json 与 src-tauri/tauri.conf.json → 提交并打 v* tag → 推送远端触发 GitHub Actions 构建。
+  同步更新 package.json、src-tauri/tauri.conf.json、src-tauri/Cargo.toml 与 src-tauri/Cargo.lock → 提交并打 v* tag → 推送远端触发 GitHub Actions 构建。
   推送 v* tag 后，CI（.github/workflows/tauri-build.yml）自动构建 NSIS x64 安装包、发布 GitHub Release、
   更新 latest.json 供应用内 updater 拉取。支持指定版本号或自动顺延。
 ---
@@ -24,7 +24,7 @@ description: >
 
 1. **正式发版只靠推送 `v*` tag 触发**。本仓库默认分支是 `master`，而 CI 监听的分支 push 是 `main`，因此 push 到 `master` 不会触发正式发版 CI；只有推 `v*` tag 才会。
 2. **CHANGELOG.md 必须有对应版本小节**，否则 CI 构建失败（`tauri-build.yml` 中 `Write-Error "Missing CHANGELOG.md section for version ..."`）。小节标题格式：`## [版本号] - YYYY-MM-DD`。
-3. **版本号必须同步** `package.json` 的 `version` 和 `src-tauri/tauri.conf.json` 的 `version`，且与 tag 一致（tag 为 `v` + 版本号）。
+3. **版本号必须同步** `package.json` 的 `version`、`src-tauri/tauri.conf.json` 的 `version`、`src-tauri/Cargo.toml` 的 `version` 以及 `src-tauri/Cargo.lock` 中 `name = "app"` 包的 `version`，且与 tag 一致（tag 为 `v` + 版本号）。
 4. CI 需要 secrets：`TAURI_SIGNING_PRIVATE_KEY`、`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（用于 updater 签名）。
 5. 产物命名：`PackFlow Workbench_x64-setup.exe`，输出到 `release-dist/` 并上传到 GitHub Release。
 
@@ -58,7 +58,7 @@ git tag --sort=-v:refname | Select-Object -First 1
 - 记录最近的 tag（例如 `v3.1.0`）。
 - 提取版本号部分（`3.1.0`）。
 
-同时读取 `package.json` 的 `version` 字段和 `src-tauri/tauri.conf.json` 的 `version` 字段确认当前版本（两者应一致）。
+同时读取 `package.json` 的 `version` 字段、`src-tauri/tauri.conf.json` 的 `version` 字段、`src-tauri/Cargo.toml` 的 `version` 字段以及 `src-tauri/Cargo.lock` 中 `name = "app"` 包的 `version` 字段确认当前版本（四处应一致）。
 
 ### 第 3 步：确定新版本号
 
@@ -112,17 +112,21 @@ git log <最近tag>..HEAD --oneline
 
 ### 第 5 步：更新版本号
 
-需要同步更新两个文件中的版本号（保持一致）：
+需要同步更新四个文件中的版本号（保持一致）：
 
 1. **`package.json`** — `version` 字段
 2. **`src-tauri/tauri.conf.json`** — `version` 字段
+3. **`src-tauri/Cargo.toml`** — `version` 字段
+4. **`src-tauri/Cargo.lock`** — `name = "app"` 包的 `version` 字段（注意：只改 `app` 包，不要动其他依赖包的版本）
 
-用 Edit 工具精确替换版本号字符串。两个文件的版本号必须完全相同，且与即将打的 tag 一致。
+用 Edit 工具精确替换版本号字符串。四个文件的版本号必须完全相同，且与即将打的 tag 一致。
+
+**⚠ 若漏改 `Cargo.toml` / `Cargo.lock`，Rust 端版本会与前端不一致，导致应用内"当前版本"显示异常、updater 判断版本出错。**
 
 ### 第 6 步：提交版本更新并打 tag
 
 ```bash
-git add package.json src-tauri/tauri.conf.json CHANGELOG.md
+git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock CHANGELOG.md
 git commit -m "release: v<版本号> - <一句话概括本次更新>"
 git tag v<版本号>
 ```
@@ -155,7 +159,7 @@ git push origin v<版本号>
 2. 最近 tag: `v3.1.0`，当前版本: `3.1.0`
 3. 分析提交记录，默认 patch +1 → 新版本 `3.1.1`
 4. 生成 changelog 插入到 CHANGELOG.md（必须有 `## [3.1.1] - <日期>` 小节）
-5. 更新 package.json 和 tauri.conf.json 版本号为 `3.1.1`
+5. 更新 package.json、tauri.conf.json、Cargo.toml、Cargo.lock 版本号为 `3.1.1`
 6. 提交、打 tag `v3.1.1`
 7. 推送 master 和 tag `v3.1.1`（tag 触发正式发版 CI）
 
