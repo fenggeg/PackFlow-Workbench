@@ -111,6 +111,7 @@ export function UpdateChecker() {
   const [installing, setInstalling] = useState(false)
   const [currentVersion, setCurrentVersion] = useState(() => (isTauriRuntime() ? '' : '开发预览'))
   const [update, setUpdate] = useState<Update | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
   const [progress, setProgress] = useState<DownloadProgress>({downloaded: 0, finished: false})
   const silentCheckedRef = useRef(false)
 
@@ -159,14 +160,17 @@ export function UpdateChecker() {
         }
 
         resetProgress()
+        // 释放旧更新资源后换新，对话框重新打开；「稍后」关闭后保留 update 用于红点提示
+        if (update) void update.close().catch(() => {})
         setUpdate(nextUpdate)
+        setDialogOpen(true)
       } catch (error) {
         if (!silent) flash('error', getFriendlyUpdateErrorMessage(error, 'check'))
       } finally {
         setChecking(false)
       }
     },
-    [currentVersion, flash],
+    [currentVersion, flash, update],
   )
 
   useEffect(() => {
@@ -199,12 +203,12 @@ export function UpdateChecker() {
   useEffect(() => {
     // 周期性静默检查：更新弹窗已打开或正在下载安装时跳过，避免打断进行中的更新
     if (!isTauriRuntime()) return
-    if (update || installing) return
+    if (dialogOpen || installing) return
     const interval = window.setInterval(() => {
       void checkUpdate(true)
     }, UPDATE_CHECK_INTERVAL_MS)
     return () => window.clearInterval(interval)
-  }, [checkUpdate, update, installing])
+  }, [checkUpdate, dialogOpen, installing])
 
   const handleDownloadEvent = (event: DownloadEvent) => {
     if (event.event === 'Started') {
@@ -255,8 +259,8 @@ export function UpdateChecker() {
 
   const closeModal = () => {
     if (installing) return
-    void update?.close().catch(() => {})
-    setUpdate(null)
+    // 保留 update 状态用于「检查更新」按钮的小红点提示，仅关闭对话框
+    setDialogOpen(false)
     resetProgress()
   }
 
@@ -267,11 +271,23 @@ export function UpdateChecker() {
           当前版本 {currentVersion}
         </span>
       ) : null}
-      <Button variant="secondary" size="sm" disabled={checking} onClick={() => void checkUpdate(false)}>
+      <Button
+        variant="secondary"
+        size="sm"
+        disabled={checking}
+        className="relative"
+        onClick={() => void checkUpdate(false)}
+      >
         {checking ? '检查中…' : '检查更新'}
+        {update && !dialogOpen ? (
+          <span
+            className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-[var(--background)] bg-[var(--error)]"
+            title="有可用的新版本"
+          />
+        ) : null}
       </Button>
 
-      <Dialog open={Boolean(update)} onOpenChange={(open) => !open && closeModal()}>
+      <Dialog open={dialogOpen} onOpenChange={(open) => !open && closeModal()}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>发现新版本</DialogTitle>

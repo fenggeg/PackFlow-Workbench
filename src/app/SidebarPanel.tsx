@@ -13,7 +13,7 @@ export function SidebarPanel() {
   if (activePage === 'build') {
     return (
       <aside className="flex w-[260px] shrink-0 flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--sidebar)] xl:w-[312px]">
-        <Tabs defaultValue="git" className="flex min-h-0 flex-1 flex-col px-3 pb-3">
+        <Tabs defaultValue="modules" className="flex min-h-0 flex-1 flex-col px-3 pb-3">
           <TabsList className="mt-1 h-9 shrink-0 justify-start gap-0.5 rounded-none border-b border-[var(--border)] bg-transparent p-0">
             <TabsTrigger value="git" className="h-9 rounded-none border-b-2 border-transparent px-3 data-[state=active]:border-[var(--primary)] data-[state=active]:bg-transparent">
               Git
