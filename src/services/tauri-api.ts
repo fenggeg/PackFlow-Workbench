@@ -2,6 +2,7 @@ import {invoke} from '@tauri-apps/api/core'
 import {listen} from '@tauri-apps/api/event'
 import {getVersion} from '@tauri-apps/api/app'
 import {open, save} from '@tauri-apps/plugin-dialog'
+import {openUrl} from '@tauri-apps/plugin-opener'
 import type {
   BuildArtifact,
   BuildCommandPayload,
@@ -252,6 +253,14 @@ export const api = {
 
   generateBulkExclusionCode: (conflicts: DependencyConflict[]) =>
     invoke<string>('generate_bulk_exclusion_code', { conflicts }),
+
+  openExternalUrl: async (url: string) => {
+    if (!isTauriRuntime()) {
+      window.open(url, '_blank', 'noopener,noreferrer')
+      return
+    }
+    await openUrl(url)
+  },
 }
 
 export async function registerBuildEvents(

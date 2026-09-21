@@ -7,6 +7,7 @@ import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from '@/compon
 import {Toaster} from '@/components/ui/toaster'
 import {ProjectSelector} from '@/components/ProjectSelector/ProjectSelector'
 import {UpdateChecker} from '@/components/UpdateChecker/UpdateChecker'
+import {ExternalLinks} from '@/components/common/ExternalLinks'
 import {useAppStore} from '@/store/useAppStore'
 import {useNavigationStore} from '@/store/navigationStore'
 import {useNavigationConfigStore} from '@/store/useNavigationConfigStore'
@@ -92,6 +93,7 @@ export function AppShell() {
                 <TooltipContent>{inspectorOpen ? '收起检查器' : '展开检查器'}</TooltipContent>
               </Tooltip>
             ) : null}
+            <ExternalLinks />
             <ThemeToggle />
             <UpdateChecker />
           </div>
