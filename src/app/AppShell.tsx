@@ -1,5 +1,5 @@
 import {Folder, GitBranch, PanelRight} from 'lucide-react'
-import {useEffect, useState} from 'react'
+import {useEffect} from 'react'
 import {Button} from '@/components/ui/button'
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@/components/ui/dialog'
 import {StatusPill} from '@/components/ui/status-pill'
@@ -33,8 +33,9 @@ export function AppShell() {
   const setActivePage = useNavigationStore((state) => state.setActivePage)
   const inspectorOpen = useNavigationStore((state) => state.inspectorOpen)
   const setInspectorOpen = useNavigationStore((state) => state.setInspectorOpen)
+  const projectSwitcherOpen = useNavigationStore((state) => state.projectSwitcherOpen)
+  const setProjectSwitcherOpen = useNavigationStore((state) => state.setProjectSwitcherOpen)
   const inspectorAvailable = useInspectorAvailable()
-  const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false)
 
   useEffect(() => {
     // 仅在首次挂载应用「启动时默认页面」，后续用户切换不再被覆盖
@@ -107,11 +108,11 @@ export function AppShell() {
         </div>
         <BottomActionBar />
         <Dialog open={projectSwitcherOpen} onOpenChange={setProjectSwitcherOpen}>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>项目切换</DialogTitle>
             </DialogHeader>
-            <div className="px-1 pb-2">
+            <div className="flex min-h-80 flex-col gap-3 px-5 py-2">
               <ProjectSelector framed={false} onProjectSelected={() => setProjectSwitcherOpen(false)} />
             </div>
           </DialogContent>

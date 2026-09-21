@@ -11,7 +11,6 @@ import {
 import {StatusPill} from '@/components/ui/status-pill'
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip'
 import {useAppStore} from '@/store/useAppStore'
-import {useNavigationStore} from '@/store/navigationStore'
 
 const formatCommitTime = (value: string) => {
   const date = new Date(value)
@@ -33,7 +32,6 @@ export function GitStatusCard() {
   const pullGitUpdates = useAppStore((state) => state.pullGitUpdates)
   const switchGitBranch = useAppStore((state) => state.switchGitBranch)
   const clearGitError = useAppStore((state) => state.clearGitError)
-  const navigateToProjectSelector = useNavigationStore((state) => state.navigateToProjectSelector)
 
   if (!project) {
     return (
@@ -43,9 +41,6 @@ export function GitStatusCard() {
         </CardHeader>
         <CardContent className="flex flex-col items-start gap-2.5">
           <span className="text-[13px] text-[var(--muted-foreground)]">请先选择 Maven 项目。</span>
-          <Button variant="secondary" size="sm" onClick={navigateToProjectSelector}>
-            去选择项目
-          </Button>
         </CardContent>
       </Card>
     )
@@ -168,7 +163,7 @@ export function GitStatusCard() {
           <div className="rounded-[var(--radius)] border border-[var(--warning)]/30 bg-[var(--warning)]/5 px-3 py-2 text-[13px] text-[var(--warning)]">
             远端有 {gitStatus.behindCount} 个提交尚未拉取
             <p className="m-0 mt-1 text-[12px] text-[var(--muted-foreground)]">
-              应用内拉取会使用快进模式；如果需要合并或处理冲突，请在代码编辑器中完成。
+              应用内拉取使用快进模式，本地未提交的修改会保留；若与远端更新冲突将终止拉取，本地代码不受影响。
             </p>
           </div>
         ) : null}

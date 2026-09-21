@@ -1,4 +1,4 @@
-import {Copy, FolderOpen, Trash2} from 'lucide-react'
+import {Copy, File, FileArchive, FolderOpen, Trash2} from 'lucide-react'
 import {useMemo, useState} from 'react'
 import {Button} from '@/components/ui/button'
 import {Card} from '@/components/ui/card'
@@ -13,6 +13,7 @@ import {
 import {Input} from '@/components/ui/input'
 import {MonoText} from '@/components/ui/mono-text'
 import {PageHeader} from '@/components/ui/page-header'
+import {Pagination} from '@/components/ui/pagination'
 import {StatusPill} from '@/components/ui/status-pill'
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip'
 import {api} from '@/services/tauri-api'
@@ -29,6 +30,18 @@ const formatSize = (size: number) => {
   }
   return `${size} B`
 }
+
+const formatTime = (value?: string) => {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
+}
+
+const archiveExtensions = new Set(['jar', 'war', 'zip', 'tar', 'gz', 'rar', '7z', 'ear', 'pom'])
+
+const artifactIcon = (extension: string) =>
+  archiveExtensions.has(extension.toLowerCase()) ? FileArchive : File
 
 const artifactTime = (artifact: BuildArtifact) =>
   artifact.modifiedAt ? new Date(artifact.modifiedAt).getTime() : 0
@@ -101,6 +114,8 @@ export function ArtifactPage() {
   const removeArtifact = useAppStore((state) => state.removeArtifact)
   const [deleteTarget, setDeleteTarget] = useState<BuildArtifact | null>(null)
   const [keyword, setKeyword] = useState('')
+  const [page, setPage] = useState(0)
+  const pageSize = 20
 
   const allArtifacts = useMemo(
     () => dedupeArtifacts([...artifacts, ...history.flatMap((record) => record.artifacts ?? [])]),
@@ -117,6 +132,13 @@ export function ArtifactPage() {
         artifact.modulePath.toLowerCase().includes(query),
     )
   }, [allArtifacts, keyword])
+
+  const pageCount = Math.max(1, Math.ceil(visibleArtifacts.length / pageSize))
+  const currentPage = Math.min(page, pageCount - 1)
+  const pageArtifacts = visibleArtifacts.slice(
+    currentPage * pageSize,
+    currentPage * pageSize + pageSize,
+  )
 
   const copyPath = async (artifact: BuildArtifact) => {
     try {
@@ -155,7 +177,10 @@ export function ArtifactPage() {
           <Input
             placeholder="搜索文件名 / 路径 / 模块"
             value={keyword}
-            onChange={(event) => setKeyword(event.target.value)}
+            onChange={(event) => {
+              setKeyword(event.target.value)
+              setPage(0)
+            }}
           />
         </div>
       ) : null}
@@ -169,67 +194,119 @@ export function ArtifactPage() {
         </Card>
       ) : (
         <Card className="overflow-hidden">
-          <ul className="m-0 list-none divide-y divide-[var(--border)] p-0">
-            {visibleArtifacts.map((artifact) => (
-              <li key={artifact.path} className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-[var(--accent)]">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-[14px] font-medium text-[var(--foreground)]">{artifact.fileName}</span>
-                    <StatusPill>{artifact.extension}</StatusPill>
-                    <StatusPill tone="success">{formatSize(artifact.sizeBytes)}</StatusPill>
-                  </div>
-                  <div className="mt-0.5 text-[12px] text-[var(--muted-foreground)]">
-                    {artifact.modulePath || '根项目'}
-                  </div>
-                  <MonoText className="mt-0.5 block truncate text-[11px] leading-[14px] text-[var(--muted-foreground)]">
-                    {artifact.path}
-                  </MonoText>
-                </div>
-                <div className="flex shrink-0 items-center gap-0.5">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="iconSm"
-                        aria-label="复制路径"
-                        onClick={() => void copyPath(artifact)}
-                      >
-                        <Copy />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>复制路径</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="iconSm"
-                        aria-label="打开目录"
-                        onClick={() => void openArtifactLocation(artifact)}
-                      >
-                        <FolderOpen />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>打开目录</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="iconSm"
-                        className="text-[var(--error)]"
-                        aria-label="删除"
-                        onClick={() => setDeleteTarget(artifact)}
-                      >
-                        <Trash2 />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>删除</TooltipContent>
-                  </Tooltip>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] table-fixed border-collapse text-[13px]">
+              <colgroup>
+                <col className="w-[38%]" />
+                <col className="w-[90px]" />
+                <col className="w-[90px]" />
+                <col className="w-[22%]" />
+                <col className="w-[150px]" />
+                <col className="w-[120px]" />
+              </colgroup>
+              <thead>
+                <tr className="border-b border-[var(--border)] bg-[var(--muted)] text-left text-[12px] font-medium text-[var(--muted-foreground)]">
+                  <th className="px-3 py-2">文件名</th>
+                  <th className="px-3 py-2">类型</th>
+                  <th className="px-3 py-2 text-right">大小</th>
+                  <th className="px-3 py-2">模块</th>
+                  <th className="px-3 py-2">修改时间</th>
+                  <th className="px-3 py-2 text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageArtifacts.map((artifact) => {
+                  const Icon = artifactIcon(artifact.extension)
+                  return (
+                    <tr
+                      key={artifact.path}
+                      className="border-b border-[var(--border)] transition-colors last:border-b-0 hover:bg-[var(--accent)]"
+                    >
+                      <td className="px-3 py-2.5">
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <span className="flex size-8 shrink-0 items-center justify-center rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)] text-[var(--muted-foreground)]">
+                            <Icon className="size-4" />
+                          </span>
+                          <div className="min-w-0">
+                            <div className="truncate text-[13px] font-medium text-[var(--foreground)]" title={artifact.fileName}>
+                              {artifact.fileName}
+                            </div>
+                            <MonoText className="mt-0.5 block truncate text-[11px] leading-[14px] text-[var(--muted-foreground)]">
+                              {artifact.path}
+                            </MonoText>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <StatusPill>{artifact.extension || 'file'}</StatusPill>
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-[family-name:var(--font-mono)] text-[12px] text-[var(--foreground)]">
+                        {formatSize(artifact.sizeBytes)}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className="block truncate text-[12px] text-[var(--muted-foreground)]" title={artifact.modulePath}>
+                          {artifact.modulePath || '根项目'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-[12px] text-[var(--muted-foreground)]">
+                        {formatTime(artifact.modifiedAt)}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <div className="flex items-center justify-end gap-0.5">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="iconSm"
+                                aria-label="复制路径"
+                                onClick={() => void copyPath(artifact)}
+                              >
+                                <Copy />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>复制路径</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="iconSm"
+                                aria-label="打开目录"
+                                onClick={() => void openArtifactLocation(artifact)}
+                              >
+                                <FolderOpen />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>打开目录</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="iconSm"
+                                className="text-[var(--error)]"
+                                aria-label="删除"
+                                onClick={() => setDeleteTarget(artifact)}
+                              >
+                                <Trash2 />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>删除</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <Pagination
+            total={visibleArtifacts.length}
+            pageSize={pageSize}
+            currentPage={currentPage}
+            onPageChange={setPage}
+          />
         </Card>
       )}
       <DeleteArtifactDialog

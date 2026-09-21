@@ -118,6 +118,7 @@ pub fn run() {
             commands::history::list_build_history,
             commands::history::save_build_history,
             commands::history::delete_build_history,
+            commands::network::get_network_info,
             commands::template::list_templates,
             commands::template::save_template,
             commands::template::delete_template,

@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/select'
 import {StatusPill} from '@/components/ui/status-pill'
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip'
+import {motion, slideInUp} from '@/lib/motion'
 import {api} from '@/services/tauri-api'
 import {useAppStore} from '@/store/useAppStore'
 import {describeError, notifyError, notifySuccess} from '@/store/useFeedbackStore'
@@ -152,7 +153,11 @@ export function HistoryTable() {
               const artifacts = record.artifacts ?? []
               const moduleLabel = record.moduleArtifactId ?? (record.modulePath || '全部项目')
               return (
-                <tr key={record.id} className="border-b border-[var(--border)] transition-colors last:border-b-0 hover:bg-[var(--accent)]">
+                <motion.tr
+                  key={record.id}
+                  className="border-b border-[var(--border)] transition-colors last:border-b-0 hover:bg-[var(--accent)]"
+                  {...slideInUp}
+                >
                   <td className="px-3 py-2 font-[family-name:var(--font-mono)] text-[12px] text-[var(--muted-foreground)]">
                     {new Date(record.createdAt).toLocaleString()}
                   </td>
@@ -263,7 +268,7 @@ export function HistoryTable() {
                       </Tooltip>
                     </div>
                   </td>
-                </tr>
+                </motion.tr>
               )
             })}
             {pageRecords.length === 0 ? (

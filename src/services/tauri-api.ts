@@ -22,6 +22,7 @@ import type {
   JdkEntry,
   MavenProject,
   ModuleDependencyGraph,
+  NetworkInfo,
   StartBuildPayload,
 } from '../types/domain'
 
@@ -261,6 +262,8 @@ export const api = {
     }
     await openUrl(url)
   },
+
+  getNetworkInfo: () => invoke<NetworkInfo>('get_network_info'),
 }
 
 export async function registerBuildEvents(

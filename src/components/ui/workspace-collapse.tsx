@@ -1,6 +1,8 @@
 import {useState, type ReactNode} from 'react'
 import {ChevronDown} from 'lucide-react'
+import {AnimatePresence} from 'motion/react'
 import {cn} from '@/lib/utils'
+import {motion} from '@/lib/motion'
 
 export function WorkspaceCollapse({
   items,
@@ -40,7 +42,20 @@ export function WorkspaceCollapse({
                 )}
               />
             </button>
-            {open ? <div className="border-t border-[var(--border)] px-4 py-3">{item.children}</div> : null}
+            <AnimatePresence initial={false}>
+              {open ? (
+                <motion.div
+                  key="content"
+                  initial={{height: 0, opacity: 0}}
+                  animate={{height: 'auto', opacity: 1}}
+                  exit={{height: 0, opacity: 0}}
+                  transition={{duration: 0.15, ease: [0.2, 0, 0, 1]}}
+                  className="overflow-hidden"
+                >
+                  <div className="border-t border-[var(--border)] px-4 py-3">{item.children}</div>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
           </div>
         )
       })}

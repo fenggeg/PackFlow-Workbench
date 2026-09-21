@@ -158,18 +158,34 @@ pub async fn list_git_commits(
 }
 
 fn pull_git_updates_sync(root_path: &str) -> AppResult<GitPullResult> {
+    // 拉取前记录本地是否有未提交修改，用于失败时明确告知本地代码未受影响
+    let had_local_changes = optional_git_output(root_path, &["status", "--porcelain"])?
+        .is_some_and(|output| !output.trim().is_empty());
+
     let pull = run_git(root_path, &["pull", "--ff-only"])?;
     if !pull.success {
+        // 快进拉取失败时工作区保持原样，本地修改不会被覆盖或丢失
+        let hint = if had_local_changes {
+            "本地存在未提交的修改，且与远端更新存在冲突，已终止拉取。本地代码未受影响，请先在代码编辑器中提交或暂存本地改动后再拉取。"
+        } else {
+            "拉取失败，本地代码未受影响。建议在代码编辑器中执行 Git Pull，以便处理冲突或本地改动。"
+        };
         return Err(to_user_error(format!(
-            "拉取失败。建议在代码编辑器中执行 Git Pull，以便处理冲突或本地改动。\n{}",
+            "{}\n{}",
+            hint,
             pull.combined_output()
         )));
     }
 
     let status = check_status(root_path, false)?;
+    let output = if had_local_changes {
+        format!("{}\n本地未提交的修改已保留。", pull.combined_output())
+    } else {
+        pull.combined_output()
+    };
     Ok(GitPullResult {
         success: true,
-        output: pull.combined_output(),
+        output,
         status,
     })
 }

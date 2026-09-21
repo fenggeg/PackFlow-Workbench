@@ -1,9 +1,11 @@
 import {AlertTriangle, Check, Circle, Loader2, X} from 'lucide-react'
 import {useEffect, useState} from 'react'
+import {AnimatePresence} from 'motion/react'
 import {cn} from '@/lib/utils'
 import {Button} from '@/components/ui/button'
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
 import {StatusPill} from '@/components/ui/status-pill'
+import {motion, slideInUp} from '@/lib/motion'
 import {useAppStore} from '@/store/useAppStore'
 import {useBuildProgressStore} from '@/store/useBuildProgressStore'
 import {useNavigationStore} from '@/store/navigationStore'
@@ -101,7 +103,10 @@ export function BuildProgressPanel() {
   const failureMessage = snapshot.message ?? diagnosis?.summary
 
   return (
-    <Card className={status === 'failed' ? 'border-[var(--error)]/40' : undefined}>
+    <AnimatePresence>
+      {visible ? (
+        <motion.div key="build-progress-panel" {...slideInUp}>
+          <Card className={status === 'failed' ? 'border-[var(--error)]/40' : undefined}>
       <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0">
         <div className="flex min-w-0 items-center gap-2">
           <CardTitle>打包进度</CardTitle>
@@ -225,6 +230,9 @@ export function BuildProgressPanel() {
           </span>
         ) : null}
       </CardContent>
-    </Card>
+          </Card>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
   )
 }

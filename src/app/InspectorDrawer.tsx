@@ -1,5 +1,6 @@
 import {Copy, Maximize2, PanelRightOpen} from 'lucide-react'
 import {useEffect, useMemo, useState} from 'react'
+import {AnimatePresence} from 'motion/react'
 import {Button} from '@/components/ui/button'
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
 import {
@@ -11,6 +12,7 @@ import {
 import {StatusPill} from '@/components/ui/status-pill'
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs'
 import {BuildLogPanel} from '@/components/BuildLogPanel/BuildLogPanel'
+import {motion, slideInRight} from '@/lib/motion'
 import {useAppStore} from '@/store/useAppStore'
 import {type InspectorTab, useNavigationStore} from '@/store/navigationStore'
 import {diagnosisCategoryText} from '@/utils/format'
@@ -145,60 +147,72 @@ export function InspectorDrawer() {
 
   return (
     <>
-      {/* 小屏为覆盖式抽屉，需要遮罩避免与主区内容混淆 */}
-      {inspectorOpen ? (
-        <div
-          className="absolute inset-0 z-20 bg-black/20 lg:hidden"
-          onClick={() => setInspectorOpen(false)}
-          aria-hidden
-        />
-      ) : null}
-      {inspectorOpen && (
-        <aside className="absolute inset-y-0 right-0 z-30 flex w-[min(520px,90vw)] flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--card)] lg:relative lg:z-auto lg:w-[380px] xl:w-[480px]">
-          <div className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border)] pl-4 pr-2">
-            <span className="text-[13px] font-semibold">检查器</span>
-            <div className="flex items-center gap-0.5">
-              <Button variant="ghost" size="iconSm" aria-label="全屏查看" onClick={() => setExpanded(true)}>
-                <Maximize2 />
-              </Button>
-              <Button
-                variant="ghost"
-                size="iconSm"
-                aria-label="收起检查器"
-                onClick={() => setInspectorOpen(false)}
-              >
-                <PanelRightOpen className="rotate-180" />
-              </Button>
-            </div>
-          </div>
-          <Tabs
-            value={inspectorTab}
-            onValueChange={(key) => setInspectorTab(key as InspectorTab)}
-            className="flex min-h-0 flex-1 flex-col"
+      <AnimatePresence>
+        {inspectorOpen ? (
+          <motion.div
+            key="inspector-overlay"
+            className="absolute inset-0 z-20 bg-black/20 lg:hidden"
+            initial={{opacity: 0}}
+            animate={{opacity: 1}}
+            exit={{opacity: 0}}
+            transition={{duration: 0.15, ease: [0.2, 0, 0, 1]}}
+            onClick={() => setInspectorOpen(false)}
+            aria-hidden
+          />
+        ) : null}
+      </AnimatePresence>
+      <AnimatePresence>
+        {inspectorOpen ? (
+          <motion.aside
+            key="inspector-drawer"
+            className="absolute inset-y-0 right-0 z-30 flex w-[min(520px,90vw)] flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--card)] lg:relative lg:z-auto lg:w-[380px] xl:w-[480px]"
+            {...slideInRight}
           >
-            <TabsList className="mx-4 mt-2 h-8 shrink-0 rounded-none border-b border-[var(--border)] bg-transparent p-0">
-              <TabsTrigger value="logs" className="rounded-none border-b-2 border-transparent px-3 data-[state=active]:border-[var(--primary)] data-[state=active]:bg-transparent">
-                日志
-              </TabsTrigger>
-              <TabsTrigger value="diagnosis" className="rounded-none border-b-2 border-transparent px-3 data-[state=active]:border-[var(--primary)] data-[state=active]:bg-transparent">
-                构建诊断
-              </TabsTrigger>
-              <TabsTrigger value="details" className="rounded-none border-b-2 border-transparent px-3 data-[state=active]:border-[var(--primary)] data-[state=active]:bg-transparent">
-                构建详情
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent value="logs" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden p-3">
-              <div className="min-h-0 flex-1">{logContent}</div>
-            </TabsContent>
-            <TabsContent value="diagnosis" className="mt-0 min-h-0 flex-1 overflow-y-auto p-4">
-              {diagnosisContent}
-            </TabsContent>
-            <TabsContent value="details" className="mt-0 min-h-0 flex-1 overflow-y-auto p-4">
-              {detailsContent}
-            </TabsContent>
-          </Tabs>
-        </aside>
-      )}
+            <div className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border)] pl-4 pr-2">
+              <span className="text-[13px] font-semibold">检查器</span>
+              <div className="flex items-center gap-0.5">
+                <Button variant="ghost" size="iconSm" aria-label="全屏查看" onClick={() => setExpanded(true)}>
+                  <Maximize2 />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="iconSm"
+                  aria-label="收起检查器"
+                  onClick={() => setInspectorOpen(false)}
+                >
+                  <PanelRightOpen className="rotate-180" />
+                </Button>
+              </div>
+            </div>
+            <Tabs
+              value={inspectorTab}
+              onValueChange={(key) => setInspectorTab(key as InspectorTab)}
+              className="flex min-h-0 flex-1 flex-col"
+            >
+              <TabsList className="mx-4 mt-2 h-8 shrink-0 rounded-none border-b border-[var(--border)] bg-transparent p-0">
+                <TabsTrigger value="logs" className="rounded-none border-b-2 border-transparent px-3 data-[state=active]:border-[var(--primary)] data-[state=active]:bg-transparent">
+                  日志
+                </TabsTrigger>
+                <TabsTrigger value="diagnosis" className="rounded-none border-b-2 border-transparent px-3 data-[state=active]:border-[var(--primary)] data-[state=active]:bg-transparent">
+                  构建诊断
+                </TabsTrigger>
+                <TabsTrigger value="details" className="rounded-none border-b-2 border-transparent px-3 data-[state=active]:border-[var(--primary)] data-[state=active]:bg-transparent">
+                  构建详情
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="logs" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+                <div className="min-h-0 flex-1">{logContent}</div>
+              </TabsContent>
+              <TabsContent value="diagnosis" className="mt-0 min-h-0 flex-1 overflow-y-auto p-4">
+                {diagnosisContent}
+              </TabsContent>
+              <TabsContent value="details" className="mt-0 min-h-0 flex-1 overflow-y-auto p-4">
+                {detailsContent}
+              </TabsContent>
+            </Tabs>
+          </motion.aside>
+        ) : null}
+      </AnimatePresence>
       <Dialog open={expanded} onOpenChange={setExpanded}>
         <DialogContent className="flex h-[85vh] max-w-[90vw] flex-col p-0">
           <DialogHeader className="border-b border-[var(--border)] px-5 py-3">

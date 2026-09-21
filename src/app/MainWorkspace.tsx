@@ -1,6 +1,8 @@
 import {lazy, Suspense} from 'react'
+import {AnimatePresence} from 'motion/react'
 import {type AppPage} from '../store/navigationStore'
 import {useNavigationStore} from '../store/navigationStore'
+import {motion, pageTransition} from '@/lib/motion'
 
 const pageComponents = {
   dashboard: lazy(() => import('../pages/DashboardPage').then((module) => ({default: module.DashboardPage}))),
@@ -24,7 +26,11 @@ export function MainWorkspace() {
           </div>
         }
       >
-        <Page />
+        <AnimatePresence mode="wait">
+          <motion.div key={activePage} {...pageTransition} className="h-full">
+            <Page />
+          </motion.div>
+        </AnimatePresence>
       </Suspense>
     </main>
   )

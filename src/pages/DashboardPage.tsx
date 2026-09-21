@@ -1,5 +1,7 @@
 import {Database, Rocket} from 'lucide-react'
 
+import {NetworkStatusCard} from '@/components/Dashboard/NetworkStatusCard'
+import {SystemTimeCard} from '@/components/Dashboard/SystemTimeCard'
 import {Button} from '@/components/ui/button'
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
 import {PageHeader} from '@/components/ui/page-header'
@@ -32,6 +34,9 @@ export function DashboardPage() {
       />
 
       <div className="grid gap-4 md:grid-cols-2">
+        <SystemTimeCard />
+        <NetworkStatusCard />
+
         <Card>
           <CardHeader>
             <CardTitle>当前环境状态</CardTitle>

@@ -77,6 +77,25 @@
 - **Grid system:** 壳层维持 `56px | 312px | 1fr | (inspector)` 三栏 + 顶栏 48px + 底栏 56px（整体压扁）；工作区内容 `max-width: 1200px` 左对齐而非居中（工具类界面左对齐更符合扫描习惯）。
 - **Motion rules:** 仅允许 transition 类动效（颜色、边框、背景、opacity）；时长 120–150ms；`cubic-bezier(0.2, 0, 0, 1)`。
 
+### 3e. Motion（动效）
+
+- **库：** 使用 `motion`（`motion/react`，v13+）。所有动效参数统一封装在 `src/lib/motion.ts`，业务组件禁止直接写死 duration/ease。
+- **统一参数：** `MOTION_DURATION = 0.15`（150ms）、`MOTION_EASE = [0.2, 0, 0, 1]`（ease-out）。与 3d 的 Motion rules 一致。
+- **预设动画（`src/lib/motion.ts` 导出）：**
+  - `fadeIn` — 纯透明度进出场，用于表格行、列表项等轻量内容。
+  - `slideInRight` — 从右滑入 + 淡入，用于抽屉（InspectorDrawer）。
+  - `slideInUp` — 从下滑入 + 淡入，用于通知（Toaster）。
+- **AnimatePresence：** 进出场动画必须包裹在 `<AnimatePresence>` 中（抽屉、通知、折叠面板）。列表项使用 `layout` 属性实现平滑重排。
+- **使用场景（已落地）：**
+  - `InspectorDrawer` — 抽屉滑入 + 遮罩淡入。
+  - `toaster.tsx` — 通知进出场 + `layout` 重排。
+  - `workspace-collapse.tsx` — 折叠面板高度展开/收起。
+  - `HistoryTable` — 表格行淡入。
+- **约束：**
+  - **合理利用循环动画**（功能性反馈，非装饰）：`animate-spin` 用于加载/等待指示（刷新、构建中、解析中）；`animate-pulse` 用于状态点脉冲（构建中、处理中，配合文字语义）。这些是「系统正在工作」的信号，不是装饰。
+  - **禁止装饰性动画**：弹跳（bounce）、parallax 滚动视差、无限循环的漂浮/呼吸/闪烁装饰元素。它们无信息价值，且干扰长时间盯屏的工程师。
+  - 动效只用于「出现/消失/展开/加载反馈」这类状态切换；尊重 `prefers-reduced-motion`。
+
 ## 7. Anti-Patterns
 
 - **No 彩底 Tag 装饰信息层级。** 这个产品的信息密度靠排版，彩色底会把「状态」和「分类」搅成噪声——Vercel/Stripe 全部用中性 pill + 语义点。

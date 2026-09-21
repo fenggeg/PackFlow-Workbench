@@ -314,3 +314,15 @@ export interface EnvironmentProfile {
   useMavenWrapper: boolean
   updatedAt?: string
 }
+
+export interface NetworkInfo {
+  ip: string
+  city?: string
+  province?: string
+  country?: string
+  continent?: string
+  isp?: string
+  timeZone?: string
+  isoCode?: string
+  network?: string
+}
