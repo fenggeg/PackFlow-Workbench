@@ -9,13 +9,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
-  type AppUpdateDownloadEvent,
-  type AppUpdateInfo,
+  type DownloadEvent,
+  type Update,
   checkForAppUpdate,
-  downloadAppUpdate,
+  downloadAndInstallAppUpdate,
   getCurrentAppVersion,
-  installCachedAppUpdate,
   isTauriRuntime,
+  relaunchApp,
 } from '@/services/tauri-api'
 import {getErrorMessage} from '@/utils/errors'
 import {notifyError, notifyInfo, notifySuccess} from '@/store/useFeedbackStore'
@@ -28,7 +28,8 @@ type DownloadProgress = {
   finished: boolean
 }
 
-type UpdatePhase = 'check' | 'download' | 'install'
+// 周期性静默检查更新的间隔
+const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
 
 const formatBytes = (bytes: number) => {
   if (bytes <= 0) return '0 B'
@@ -38,13 +39,8 @@ const formatBytes = (bytes: number) => {
   return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`
 }
 
-const getRawUpdateNotes = (update: AppUpdateInfo) => {
-  if (typeof update.body === 'string' && update.body.trim()) return update.body
-  return ''
-}
-
-const formatUpdateNotes = (update: AppUpdateInfo) => {
-  const notes = getRawUpdateNotes(update).trim()
+const formatUpdateNotes = (update: Update) => {
+  const notes = (typeof update.body === 'string' ? update.body : '').trim()
   return notes || '本次更新未提供更新日志。'
 }
 
@@ -54,10 +50,9 @@ const formatReleaseDate = (date: string) => {
   return parsed.toLocaleString()
 }
 
-const getFriendlyUpdateErrorMessage = (error: unknown, phase: UpdatePhase) => {
+const getFriendlyUpdateErrorMessage = (error: unknown, phase: 'check' | 'apply') => {
   const rawMessage = getErrorMessage(error).toLowerCase()
-  const prefix =
-    phase === 'check' ? '检查更新失败' : phase === 'download' ? '下载更新失败' : '安装更新失败'
+  const prefix = phase === 'check' ? '检查更新失败' : '安装更新失败'
 
   if (rawMessage.includes('timeout') || rawMessage.includes('timed out')) {
     return `${prefix}：连接更新服务超时，请稍后重试。`
@@ -104,16 +99,7 @@ const getFriendlyUpdateErrorMessage = (error: unknown, phase: UpdatePhase) => {
   ) {
     return `${prefix}：当前权限不足，请以管理员身份运行后重试。`
   }
-  if (
-    rawMessage.includes('install') ||
-    rawMessage.includes('installer') ||
-    rawMessage.includes('process') ||
-    rawMessage.includes('exit')
-  ) {
-    return `${prefix}：安装程序没有正常完成，请关闭应用后重试。`
-  }
-  // 后端已给出面向用户的中文说明（例如下载地址被安全策略拒绝）时直接透传，
-  // 避免被泛化成「更新服务暂时不可用」而掩盖真实原因。
+  // 后端已给出面向用户的中文说明时直接透传，避免被泛化提示掩盖真实原因。
   if (/[\u4e00-\u9fff]/.test(rawMessage)) {
     return `${prefix}：${getErrorMessage(error)}`
   }
@@ -123,11 +109,9 @@ const getFriendlyUpdateErrorMessage = (error: unknown, phase: UpdatePhase) => {
 export function UpdateChecker() {
   const [checking, setChecking] = useState(false)
   const [installing, setInstalling] = useState(false)
-  const [updatePhase, setUpdatePhase] = useState<Exclude<UpdatePhase, 'check'> | null>(null)
   const [currentVersion, setCurrentVersion] = useState(() => (isTauriRuntime() ? '' : '开发预览'))
-  const [update, setUpdate] = useState<AppUpdateInfo | null>(null)
+  const [update, setUpdate] = useState<Update | null>(null)
   const [progress, setProgress] = useState<DownloadProgress>({downloaded: 0, finished: false})
-  const [confirmOpen, setConfirmOpen] = useState(false)
   const silentCheckedRef = useRef(false)
 
   // 统一走全局通知，避免长错误文案被顶栏空间截断
@@ -176,9 +160,6 @@ export function UpdateChecker() {
 
         resetProgress()
         setUpdate(nextUpdate)
-        if (!silent && nextUpdate.downloaded) {
-          flash('info', '安装包已下载，可直接安装更新。')
-        }
       } catch (error) {
         if (!silent) flash('error', getFriendlyUpdateErrorMessage(error, 'check'))
       } finally {
@@ -215,7 +196,17 @@ export function UpdateChecker() {
     return () => window.clearTimeout(timer)
   }, [checkUpdate])
 
-  const handleDownloadEvent = (event: AppUpdateDownloadEvent) => {
+  useEffect(() => {
+    // 周期性静默检查：更新弹窗已打开或正在下载安装时跳过，避免打断进行中的更新
+    if (!isTauriRuntime()) return
+    if (update || installing) return
+    const interval = window.setInterval(() => {
+      void checkUpdate(true)
+    }, UPDATE_CHECK_INTERVAL_MS)
+    return () => window.clearInterval(interval)
+  }, [checkUpdate, update, installing])
+
+  const handleDownloadEvent = (event: DownloadEvent) => {
     if (event.event === 'Started') {
       setProgress({
         downloaded: 0,
@@ -244,51 +235,28 @@ export function UpdateChecker() {
     setProgress((current) => ({...current, finished: true}))
   }
 
-  const downloadUpdate = async () => {
-    if (!update) return
-
-    setInstalling(true)
-    setUpdatePhase('download')
-    try {
-      await downloadAppUpdate(update, handleDownloadEvent, () => {
-        setUpdate((current) => (current ? {...current, downloaded: true} : current))
-      })
-      setUpdate((current) => (current ? {...current, downloaded: true} : current))
-      flash('success', '安装包已下载，确认后即可安装。')
-    } catch (error) {
-      flash('error', getFriendlyUpdateErrorMessage(error, 'download'))
-    } finally {
-      setInstalling(false)
-      setUpdatePhase(null)
-    }
-  }
-
-  const installUpdate = async () => {
-    if (!update) return
-    setInstalling(true)
-    setUpdatePhase('install')
-    try {
-      await installCachedAppUpdate(update)
-    } catch (error) {
-      flash('error', getFriendlyUpdateErrorMessage(error, 'install'))
-      setInstalling(false)
-      setUpdatePhase(null)
-    }
-  }
-
-  const handlePrimaryAction = () => {
+  const applyUpdate = async () => {
     if (!update || installing) return
-    if (update.downloaded) {
-      setConfirmOpen(true)
-      return
+
+    setInstalling(true)
+    try {
+      // 官方更新插件一步完成下载、签名校验与安装：
+      // Windows 上安装前会退出当前进程，由 NSIS 安装器（passive 模式）接管并自动重启应用，
+      // 因此这里的 await 在 Windows 上不会返回，也就不会执行到 relaunchApp。
+      await downloadAndInstallAppUpdate(update, handleDownloadEvent)
+      flash('success', '更新完成，正在重启应用…')
+      await relaunchApp()
+    } catch (error) {
+      flash('error', getFriendlyUpdateErrorMessage(error, 'apply'))
+      setInstalling(false)
+      resetProgress()
     }
-    void downloadUpdate()
   }
 
   const closeModal = () => {
     if (installing) return
+    void update?.close().catch(() => {})
     setUpdate(null)
-    setUpdatePhase(null)
     resetProgress()
   }
 
@@ -313,11 +281,6 @@ export function UpdateChecker() {
               <span className="text-[13px]">
                 当前版本 {update.currentVersion || currentVersion}，最新版本 {update.version}
               </span>
-              {update.downloaded && !installing ? (
-                <span className="text-[13px] text-[var(--success)]">
-                  安装包已下载，点击「安装更新」完成安装。
-                </span>
-              ) : null}
               {update.date ? (
                 <span className="text-[12px] text-[var(--muted-foreground)]">
                   发布时间：{formatReleaseDate(update.date)}
@@ -336,7 +299,7 @@ export function UpdateChecker() {
                   {formatUpdateNotes(update)}
                 </ReactMarkdown>
               </div>
-              {(installing || progress.downloaded > 0 || progress.finished) && (
+              {(installing || progress.downloaded > 0) && (
                 <div className="flex flex-col gap-1.5">
                   <div className="h-1.5 overflow-hidden rounded-full bg-[var(--muted)]">
                     <div
@@ -346,9 +309,7 @@ export function UpdateChecker() {
                   </div>
                   <span className="text-[12px] text-[var(--muted-foreground)]">
                     {progress.finished
-                      ? updatePhase === 'install'
-                        ? '下载完成，正在安装'
-                        : '下载完成，等待安装'
+                      ? '下载完成，正在安装，应用即将自动重启'
                       : progress.total
                         ? `${formatBytes(progress.downloaded)} / ${formatBytes(progress.total)}${downloadSpeedText ? ` · ${downloadSpeedText}` : ''}`
                         : `${formatBytes(progress.downloaded)} 已下载${downloadSpeedText ? ` · ${downloadSpeedText}` : ''}`}
@@ -361,37 +322,8 @@ export function UpdateChecker() {
             <Button variant="secondary" disabled={installing} onClick={closeModal}>
               稍后
             </Button>
-            <Button variant="primary" disabled={installing} onClick={handlePrimaryAction}>
-              {updatePhase === 'download'
-                ? '下载中'
-                : updatePhase === 'install'
-                  ? '安装中'
-                  : update?.downloaded
-                    ? '安装更新'
-                    : '下载更新'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>安装更新</DialogTitle>
-          </DialogHeader>
-          <p className="m-0 px-5 py-2 text-[13px]">安装会关闭当前应用，完成后将自动重新打开。</p>
-          <DialogFooter>
-            <Button variant="secondary" onClick={() => setConfirmOpen(false)}>
-              取消
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => {
-                setConfirmOpen(false)
-                void installUpdate()
-              }}
-            >
-              安装
+            <Button variant="primary" disabled={installing} onClick={() => void applyUpdate()}>
+              {installing ? (progress.finished ? '安装中' : '下载中') : '立即更新'}
             </Button>
           </DialogFooter>
         </DialogContent>

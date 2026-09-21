@@ -49,6 +49,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMyQTMwQ0Y4MzUwQjU3OEEKUldTS1Z3czErQXlqTXU3OVV3Tm8xclhQOUR5WVdkVDh0TEloLzYrd3dOWnViTVdObGlEcUdxb1kK",
       "endpoints": [
+        "https://node-red.gyfwork.cc.cd/api/latest",
         "https://github.com/fenggeg/PackFlow-Workbench/releases/latest/download/latest.json"
       ],
       "windows": {

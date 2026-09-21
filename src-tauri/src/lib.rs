@@ -122,10 +122,6 @@ pub fn run() {
             commands::template::list_templates,
             commands::template::save_template,
             commands::template::delete_template,
-            commands::updater::check_for_app_update,
-            commands::updater::download_app_update,
-            commands::updater::install_cached_app_update,
-            commands::updater::install_app_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

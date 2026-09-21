@@ -3,6 +3,8 @@ import {listen} from '@tauri-apps/api/event'
 import {getVersion} from '@tauri-apps/api/app'
 import {open, save} from '@tauri-apps/plugin-dialog'
 import {openUrl} from '@tauri-apps/plugin-opener'
+import {check, type Update, type DownloadEvent} from '@tauri-apps/plugin-updater'
+import {relaunch} from '@tauri-apps/plugin-process'
 import type {
   BuildArtifact,
   BuildCommandPayload,
@@ -28,22 +30,7 @@ import type {
 
 type TauriWindow = Window & { __TAURI_INTERNALS__?: unknown }
 
-export interface AppUpdateInfo {
-  currentVersion: string
-  version: string
-  date?: string
-  body?: string
-  downloadUrl: string
-  apiDownloadUrl?: string
-  fileSize?: number
-  fileName: string
-  downloaded: boolean
-}
-
-export type AppUpdateDownloadEvent =
-  | { event: 'Started'; data: { contentLength?: number } }
-  | { event: 'Progress'; data: { chunkLength: number } }
-  | { event: 'Finished' }
+export type {Update, DownloadEvent}
 
 export const isTauriRuntime = () =>
   typeof window !== 'undefined' &&
@@ -55,10 +42,13 @@ const requireTauri = () => {
   }
 }
 
-export async function checkForAppUpdate(): Promise<AppUpdateInfo | null> {
+// 应用内更新统一走官方 tauri-plugin-updater：检查端点按序为自建代理（与官方
+// latest.json 同格式）与 GitHub 兜底，见 tauri.conf.json。下载、签名校验、
+// 安装与重启由插件完成，Windows 上安装前自动退出进程，由 NSIS 安装器
+// （passive 模式）接管并在完成后自动重启。
+export async function checkForAppUpdate(): Promise<Update | null> {
   requireTauri()
-  const currentVersion = await getVersion()
-  return invoke<AppUpdateInfo | null>('check_for_app_update', { currentVersion })
+  return check()
 }
 
 export async function getCurrentAppVersion(): Promise<string> {
@@ -66,41 +56,17 @@ export async function getCurrentAppVersion(): Promise<string> {
   return getVersion()
 }
 
-export async function downloadAppUpdate(
-  update: AppUpdateInfo,
-  onEvent: (event: AppUpdateDownloadEvent) => void,
-  onDownloaded?: () => void,
+export async function downloadAndInstallAppUpdate(
+  update: Update,
+  onEvent?: (event: DownloadEvent) => void,
 ): Promise<void> {
   requireTauri()
-
-  const unlisten = await listen<AppUpdateDownloadEvent>(
-    'app-update-download-event',
-    (event) => {
-      onEvent(event.payload)
-      if (event.payload.event === 'Finished') {
-        onDownloaded?.()
-      }
-    },
-  )
-
-  try {
-    await invoke('download_app_update', {
-      downloadUrl: update.downloadUrl,
-      apiDownloadUrl: update.apiDownloadUrl,
-      expectedSize: update.fileSize,
-      fileName: update.fileName,
-    })
-  } finally {
-    unlisten()
-  }
+  await update.downloadAndInstall(onEvent)
 }
 
-export async function installCachedAppUpdate(update: AppUpdateInfo): Promise<void> {
+export async function relaunchApp(): Promise<void> {
   requireTauri()
-  await invoke('install_cached_app_update', {
-    fileName: update.fileName,
-    expectedSize: update.fileSize,
-  })
+  await relaunch()
 }
 
 export async function selectProjectDirectory(): Promise<string | null> {

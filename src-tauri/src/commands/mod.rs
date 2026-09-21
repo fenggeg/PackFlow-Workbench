@@ -8,4 +8,3 @@ pub mod history;
 pub mod network;
 pub mod project;
 pub mod template;
-pub mod updater;

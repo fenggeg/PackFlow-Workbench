@@ -1,43 +1,39 @@
-// 同源路径：由官网托管层反代到 Node-RED，避免跨域
+// 同源路径：由官网托管层反代到 Node-RED，避免跨域。
+// 响应与应用内更新使用同一份官方 Tauri latest.json 格式：
+// { version, notes, pub_date, platforms: { "windows-x86_64": { signature, url } } }
 const releaseApi = '/api/latest'
 const fallbackReleaseUrl = 'https://github.com/fenggeg/PackFlow-Workbench/releases/latest'
 
 const downloadLinks = document.querySelectorAll('[data-download-link]')
 const releaseNote = document.querySelector('[data-release-note]')
 
-function preferWindowsAsset(assets) {
-  return assets.find((asset) => /\.exe$/i.test(asset.name))
-    ?? assets.find((asset) => /setup|installer|nsis|windows|x64/i.test(asset.name))
-    ?? assets.find((asset) => /\.(exe|zip|msi)$/i.test(asset.name))
-    ?? assets[0]
-}
-
 async function hydrateLatestDownload() {
   try {
     const response = await fetch(releaseApi)
 
     if (!response.ok) {
-      throw new Error(`GitHub release request failed: ${response.status}`)
+      throw new Error(`Release request failed: ${response.status}`)
     }
 
     const release = await response.json()
-    const asset = preferWindowsAsset(release.assets ?? [])
-    const downloadUrl = asset?.browser_download_url ?? release.html_url ?? fallbackReleaseUrl
-    const releaseName = release.tag_name ? `下载 ${release.tag_name}` : '下载最新版本'
+    const downloadUrl = release.platforms?.['windows-x86_64']?.url ?? fallbackReleaseUrl
+    const version = typeof release.version === 'string' ? release.version.trim().replace(/^v/, '') : ''
+    const fileName = downloadUrl.split('/').pop() || ''
+    const releaseName = version ? `下载 v${version}` : '下载最新版本'
 
     downloadLinks.forEach((link) => {
       link.href = downloadUrl
       if (link.classList.contains('download-card-link')) {
-        link.textContent = asset ? asset.name : '打开 GitHub 最新 Release'
+        link.textContent = fileName || '打开 GitHub 最新 Release'
       } else {
         link.textContent = releaseName
       }
     })
 
     if (releaseNote) {
-      releaseNote.textContent = asset
-        ? '下载地址来自 GitHub 最新 Release，会随发布版本自动更新。'
-        : '当前 Release 未找到安装包资源，已指向 GitHub 最新 Release 页面。'
+      releaseNote.textContent = version
+        ? '下载地址来自最新发布版本，会随版本发布自动更新。'
+        : '当前未读取到安装包下载地址，已指向 GitHub 最新 Release 页面。'
     }
   } catch {
     downloadLinks.forEach((link) => {
