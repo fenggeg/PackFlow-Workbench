@@ -24,12 +24,15 @@ export function sourceText(source: EnvironmentSource) {
   }[source]
 }
 
-export function statusColor(status: EnvironmentStatus) {
-  return {
-    ok: 'green',
-    warning: 'gold',
-    error: 'red',
-  }[status]
+export function statusToneOf(status: EnvironmentStatus): 'success' | 'warning' | 'error' {
+  switch (status) {
+    case 'ok':
+      return 'success'
+    case 'warning':
+      return 'warning'
+    case 'error':
+      return 'error'
+  }
 }
 
 export function sourceStatus(source: EnvironmentSource, exists: boolean): EnvironmentStatus {

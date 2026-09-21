@@ -1,23 +1,18 @@
+import {Check, Plus, Search, Trash2} from 'lucide-react'
+import {useState} from 'react'
+import {Button} from '@/components/ui/button'
 import {
-  Button,
-  Popconfirm,
-  Space,
-  Tag,
-  Typography,
-} from 'antd'
-import {
-  CheckOutlined,
-  DeleteOutlined,
-  PlusOutlined,
-  SearchOutlined,
-} from '@ant-design/icons'
-import {selectLocalDirectory} from '../../services/tauri-api'
-import {useAppStore} from '../../store/useAppStore'
-
-const {Text} = Typography
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {StatusPill} from '@/components/ui/status-pill'
+import {selectLocalDirectory} from '@/services/tauri-api'
+import {useAppStore} from '@/store/useAppStore'
 
 interface JdkRegistryPanelProps {
-  /** 选择 JDK 后的回调，传入 JDK path（不传则为纯管理面板） */
   onSelect?: (jdkPath: string) => void
 }
 
@@ -27,6 +22,7 @@ export function JdkRegistryPanel({onSelect}: JdkRegistryPanelProps) {
   const scanSystemJdks = useAppStore((state) => state.scanSystemJdks)
   const addJdkToRegistry = useAppStore((state) => state.addJdkToRegistry)
   const removeJdkFromRegistry = useAppStore((state) => state.removeJdkFromRegistry)
+  const [removeTarget, setRemoveTarget] = useState<{id: string; name: string} | null>(null)
 
   const currentJdkPath = environment?.javaHome
 
@@ -38,72 +34,86 @@ export function JdkRegistryPanel({onSelect}: JdkRegistryPanelProps) {
   }
 
   return (
-    <div className="jdk-popover-content">
-      {/* JDK 列表 */}
+    <div className="flex flex-col gap-2">
       {jdkRegistry.length > 0 ? (
-        <div className="jdk-popover-list">
+        <ul className="m-0 list-none divide-y divide-[var(--border)] overflow-hidden rounded-[var(--radius-md)] border border-[var(--border)] p-0">
           {jdkRegistry.map((entry) => {
             const isCurrent = currentJdkPath?.toLowerCase() === entry.path.toLowerCase()
             return (
-              <div
+              <li
                 key={entry.id}
-                className={`jdk-popover-item ${isCurrent ? 'jdk-popover-item-active' : ''}`}
+                className={
+                  isCurrent
+                    ? 'flex cursor-pointer items-center gap-2 bg-[var(--accent)] px-3 py-2'
+                    : 'flex cursor-pointer items-center gap-2 px-3 py-2 transition-colors hover:bg-[var(--accent)]'
+                }
                 onClick={() => onSelect?.(entry.path)}
               >
-                <div className="jdk-popover-item-info">
-                  <Text strong style={{fontSize: 13}}>{entry.name}</Text>
-                  {entry.isDefault && <Tag color="gold" style={{marginLeft: 4, fontSize: 11}}>默认</Tag>}
-                  {isCurrent && <CheckOutlined style={{color: '#16a34a', marginLeft: 4}} />}
-                </div>
-                <div className="jdk-popover-item-actions">
-                  <Text type="secondary" style={{fontSize: 11}} title={entry.path}>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[13px] font-medium">{entry.name}</span>
+                    {entry.isDefault ? <StatusPill tone="warning">默认</StatusPill> : null}
+                    {isCurrent ? <Check className="size-3.5 text-[var(--success)]" /> : null}
+                  </div>
+                  <div className="truncate font-[family-name:var(--font-mono)] text-[11px] text-[var(--muted-foreground)]" title={entry.path}>
                     {entry.path}
-                  </Text>
-                  <Popconfirm
-                    title="移除此 JDK？"
-                    okText="移除"
-                    cancelText="取消"
-                    onConfirm={(e) => {
-                      e?.stopPropagation()
-                      void removeJdkFromRegistry(entry.id)
-                    }}
-                  >
-                    <Button
-                      type="text"
-                      size="small"
-                      danger
-                      icon={<DeleteOutlined />}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  </Popconfirm>
+                  </div>
                 </div>
-              </div>
+                <Button
+                  variant="ghost"
+                  size="iconSm"
+                  className="shrink-0 text-[var(--error)]"
+                  aria-label="移除 JDK"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setRemoveTarget({id: entry.id, name: entry.name})
+                  }}
+                >
+                  <Trash2 />
+                </Button>
+              </li>
             )
           })}
-        </div>
+        </ul>
       ) : (
-        <Text type="secondary" style={{display: 'block', textAlign: 'center', padding: '12px 0'}}>
+        <div className="py-3 text-center text-[13px] text-[var(--muted-foreground)]">
           暂无已注册 JDK，请先扫描或手动添加
-        </Text>
+        </div>
       )}
 
-      {/* 操作按钮 */}
-      <Space style={{marginTop: 8}}>
-        <Button
-          size="small"
-          icon={<SearchOutlined />}
-          onClick={() => void scanSystemJdks()}
-        >
+      <div className="flex gap-1.5">
+        <Button variant="secondary" size="sm" className="gap-1.5" onClick={() => void scanSystemJdks()}>
+          <Search />
           扫描系统 JDK
         </Button>
-        <Button
-          size="small"
-          icon={<PlusOutlined />}
-          onClick={() => void handleAddJdk()}
-        >
+        <Button variant="secondary" size="sm" className="gap-1.5" onClick={() => void handleAddJdk()}>
+          <Plus />
           添加 JDK
         </Button>
-      </Space>
+      </div>
+
+      <Dialog open={Boolean(removeTarget)} onOpenChange={(open) => !open && setRemoveTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>移除此 JDK？</DialogTitle>
+          </DialogHeader>
+          <p className="m-0 px-5 py-1 text-[13px] text-[var(--muted-foreground)]">{removeTarget?.name}</p>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setRemoveTarget(null)}>
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (removeTarget) void removeJdkFromRegistry(removeTarget.id)
+                setRemoveTarget(null)
+              }}
+            >
+              移除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

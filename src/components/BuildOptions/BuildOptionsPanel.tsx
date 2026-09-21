@@ -1,19 +1,23 @@
-import {Card, Checkbox, Input, Space, Tooltip, Typography} from 'antd'
-import {InfoCircleOutlined} from '@ant-design/icons'
-import {useMemo} from 'react'
-import {useAppStore} from '../../store/useAppStore'
-import {splitArgs} from '../../utils/format'
+import {Info} from 'lucide-react'
+import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
+import {Checkbox} from '@/components/ui/checkbox'
+import {Input} from '@/components/ui/input'
+import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip'
+import {useAppStore} from '@/store/useAppStore'
+import {splitArgs} from '@/utils/format'
 
-const { Text } = Typography
-
-const AddonHelp = ({ label, help }: { label: string; help: string }) => (
-  <Space size={4} align="center">
-    <span>{label}</span>
-    <Tooltip title={help}>
-      <InfoCircleOutlined />
+function HelpTip({help}: {help: string}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button type="button" className="inline-flex text-[var(--muted-foreground)]" aria-label="说明">
+          <Info className="size-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-64">{help}</TooltipContent>
     </Tooltip>
-  </Space>
-)
+  )
+}
 
 const commonArgs = [
   {
@@ -48,110 +52,122 @@ const commonArgs = [
   },
 ]
 
-const commonArgValues = commonArgs.map((item) => item.value)
+const goalOptions = [
+  {label: '清理 clean', value: 'clean'},
+  {label: '打包 package', value: 'package'},
+  {label: '安装到本地仓库 install', value: 'install'},
+  {label: '校验 verify', value: 'verify'},
+]
 
 export function BuildOptionsPanel() {
   const buildOptions = useAppStore((state) => state.buildOptions)
   const setBuildOption = useAppStore((state) => state.setBuildOption)
-  const checkedCommonArgs = useMemo(
-    () => buildOptions.customArgs.filter((arg) => commonArgValues.includes(arg)),
-    [buildOptions.customArgs],
-  )
-  const manualCustomArgs = useMemo(
-    () => buildOptions.customArgs.filter((arg) => !commonArgValues.includes(arg)),
-    [buildOptions.customArgs],
-  )
+  const setGoals = useAppStore((state) => state.setGoals)
+  const setCommonArgs = useAppStore((state) => state.setCommonArgs)
+  const setExtraArgs = useAppStore((state) => state.setExtraArgs)
 
-  const setCommonArgs = (values: string[]) => {
-    setBuildOption('customArgs', [...manualCustomArgs, ...values])
+  // 预设开关与手写参数分开存储，互不覆盖；顺序由 store 归一化保证
+  const checkedCommonArgs = buildOptions.commonArgs ?? []
+  const extraArgs = buildOptions.extraArgs ?? []
+
+  const toggleCommonArg = (value: string, checked: boolean) => {
+    setCommonArgs(
+      checked
+        ? [...checkedCommonArgs, value]
+        : checkedCommonArgs.filter((arg) => arg !== value),
+    )
   }
 
-  const setManualArgs = (value: string) => {
-    setBuildOption('customArgs', [...checkedCommonArgs, ...splitArgs(value)])
+  const toggleGoal = (value: string, checked: boolean) => {
+    setGoals(
+      checked
+        ? [...buildOptions.goals, value]
+        : buildOptions.goals.filter((goal) => goal !== value),
+    )
   }
 
   return (
-    <Card title="打包参数" className="panel-card" size="small">
-      <Space direction="vertical" size={14} style={{ width: '100%' }}>
-        <Text type="secondary">
-          默认已启用“同时构建依赖模块”和“跳过测试”，其余参数按需勾选。
-        </Text>
+    <Card>
+      <CardHeader>
+        <CardTitle>打包参数</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3.5">
+        <p className="m-0 text-[13px] text-[var(--muted-foreground)]">
+          默认已启用「同时构建依赖模块」和「跳过测试」，其余参数按需勾选。目标按 Maven 生命周期自动排序。
+        </p>
 
-        <div className="option-block">
-          <Text strong>构建目标</Text>
-          <Checkbox.Group
-            value={buildOptions.goals}
-            options={[
-              { label: '清理 clean', value: 'clean' },
-              { label: '打包 package', value: 'package' },
-              { label: '安装到本地仓库 install', value: 'install' },
-              { label: '校验 verify', value: 'verify' },
-            ]}
-            onChange={(values) =>
-              setBuildOption(
-                'goals',
-                values.map(String),
-              )
-            }
-          />
+        <div className="flex flex-col gap-2">
+          <span className="text-[13px] font-medium">构建目标</span>
+          <div className="flex flex-wrap gap-x-5 gap-y-2">
+            {goalOptions.map((opt) => (
+              <label key={opt.value} className="flex cursor-pointer items-center gap-2 text-[13px]">
+                <Checkbox
+                  checked={buildOptions.goals.includes(opt.value)}
+                  onCheckedChange={(checked) => toggleGoal(opt.value, checked === true)}
+                />
+                {opt.label}
+              </label>
+            ))}
+          </div>
         </div>
 
-        <div className="option-block">
-          <Text strong>常用开关</Text>
-          <Space direction="vertical" size={8}>
+        <div className="flex flex-col gap-2">
+          <span className="text-[13px] font-medium">常用开关</span>
+          <label className="flex cursor-pointer items-center gap-2 text-[13px]">
             <Checkbox
               checked={buildOptions.alsoMake}
-              onChange={(event) => setBuildOption('alsoMake', event.target.checked)}
-            >
-              同时构建依赖模块 (-am){' '}
-              <Tooltip title="同时构建目标模块依赖的上游模块。">
-                <InfoCircleOutlined />
-              </Tooltip>
-            </Checkbox>
+              onCheckedChange={(v) => setBuildOption('alsoMake', v === true)}
+            />
+            同时构建依赖模块 (-am)
+            <HelpTip help="同时构建目标模块依赖的上游模块。" />
+          </label>
+          <label className="flex cursor-pointer items-center gap-2 text-[13px]">
             <Checkbox
               checked={buildOptions.skipTests}
-              onChange={(event) => setBuildOption('skipTests', event.target.checked)}
-            >
-              跳过测试 (-Dmaven.test.skip=true){' '}
-              <Tooltip title="跳过测试编译和执行，适合本地快速打包。">
-                <InfoCircleOutlined />
-              </Tooltip>
-            </Checkbox>
-          </Space>
+              onCheckedChange={(v) => setBuildOption('skipTests', v === true)}
+            />
+            跳过测试 (-Dmaven.test.skip=true)
+            <HelpTip help="跳过测试编译和执行，适合本地快速打包。" />
+          </label>
         </div>
 
-        <div className="option-block">
-          <Text strong>附加参数</Text>
-          <Checkbox.Group
-            value={checkedCommonArgs}
-            onChange={(values) => setCommonArgs(values.map(String))}
-          >
-            <Space direction="vertical" size={8}>
-              {commonArgs.map((arg) => (
-                <Checkbox key={arg.value} value={arg.value}>
-                  {arg.label} ({arg.value}){' '}
-                  <Tooltip title={arg.tip}>
-                    <InfoCircleOutlined />
-                  </Tooltip>
-                </Checkbox>
-              ))}
-            </Space>
-          </Checkbox.Group>
+        <div className="flex flex-col gap-2">
+          <span className="text-[13px] font-medium">附加参数</span>
+          {commonArgs.map((arg) => (
+            <label key={arg.value} className="flex cursor-pointer items-center gap-2 text-[13px]">
+              <Checkbox
+                checked={checkedCommonArgs.includes(arg.value)}
+                onCheckedChange={(checked) => toggleCommonArg(arg.value, checked === true)}
+              />
+              {arg.label} ({arg.value})
+              <HelpTip help={arg.tip} />
+            </label>
+          ))}
         </div>
 
-        <Input
-          addonBefore={<AddonHelp label="Profiles" help="填写 Maven profile，多个用逗号或空格分隔，最终会生成 -P 参数。" />}
-          placeholder="例如 dev,test"
-          value={buildOptions.profiles.join(',')}
-          onChange={(event) => setBuildOption('profiles', splitArgs(event.target.value))}
-        />
-        <Input
-          addonBefore={<AddonHelp label="自定义" help="追加到 Maven 命令末尾的参数，例如 -DskipDocker 或 -Drevision=1.0.0。" />}
-          placeholder="例如 -DskipDocker"
-          value={manualCustomArgs.join(' ')}
-          onChange={(event) => setManualArgs(event.target.value)}
-        />
-      </Space>
+        <label className="flex flex-col gap-1.5 text-[13px]">
+          <span className="flex items-center gap-1.5 font-medium">
+            Profiles
+            <HelpTip help="填写 Maven profile，多个用逗号或空格分隔，最终会生成 -P 参数。" />
+          </span>
+          <Input
+            placeholder="例如 dev,test"
+            value={buildOptions.profiles.join(',')}
+            onChange={(event) => setBuildOption('profiles', splitArgs(event.target.value))}
+          />
+        </label>
+        <label className="flex flex-col gap-1.5 text-[13px]">
+          <span className="flex items-center gap-1.5 font-medium">
+            自定义
+            <HelpTip help="追加到 Maven 命令末尾的参数，例如 -DskipDocker 或 -Drevision=1.0.0。线程数请在「高级参数」中设置。" />
+          </span>
+          <Input
+            placeholder="例如 -DskipDocker"
+            value={extraArgs.join(' ')}
+            onChange={(event) => setExtraArgs(splitArgs(event.target.value))}
+          />
+        </label>
+      </CardContent>
     </Card>
   )
 }

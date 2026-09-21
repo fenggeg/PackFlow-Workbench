@@ -1,12 +1,12 @@
-import {Button, Card, Col, Empty, List, Row, Space, Tag, Typography} from 'antd'
-import {
-  DatabaseOutlined,
-  RocketOutlined,
-} from '@ant-design/icons'
-import {useAppStore} from '../store/useAppStore'
-import {useNavigationStore} from '../store/navigationStore'
+import {Database, Rocket} from 'lucide-react'
 
-const {Title, Text} = Typography
+import {Button} from '@/components/ui/button'
+import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
+import {PageHeader} from '@/components/ui/page-header'
+import {StatusPill} from '@/components/ui/status-pill'
+import {MonoText} from '@/components/ui/mono-text'
+import {useAppStore} from '@/store/useAppStore'
+import {useNavigationStore} from '@/store/navigationStore'
 
 export function DashboardPage() {
   const setActivePage = useNavigationStore((state) => state.setActivePage)
@@ -14,59 +14,98 @@ export function DashboardPage() {
   const environment = useAppStore((state) => state.environment)
   const buildStatus = useAppStore((state) => state.buildStatus)
 
-  const runningTasks = [
-    buildStatus === 'RUNNING' ? 'Maven 构建正在运行' : undefined,
-  ].filter((item): item is string => Boolean(item))
+  const runningTasks = [buildStatus === 'RUNNING' ? 'Maven 构建正在运行' : undefined].filter(
+    (item): item is string => Boolean(item),
+  )
 
   return (
-    <main className="workspace-page">
-      <div className="workspace-heading">
-        <div>
-          <Title level={3}>首页 Dashboard</Title>
-          <Text type="secondary">Maven 多模块项目打包工作台。</Text>
-        </div>
-        <Button type="primary" icon={<RocketOutlined />} onClick={() => setActivePage('build')}>
-          开始打包
-        </Button>
-      </div>
+    <section className="mx-auto w-full max-w-[1180px] p-4 lg:p-6">
+      <PageHeader
+        title="首页 Dashboard"
+        description="Maven 多模块项目打包工作台。"
+        actions={
+          <Button variant="primary" className="gap-1.5" onClick={() => setActivePage('build')}>
+            <Rocket />
+            开始打包
+          </Button>
+        }
+      />
 
-      <Row gutter={[16, 16]}>
-        <Col xs={24} md={12}>
-          <Card title="当前环境状态" className="panel-card">
-            <Space direction="vertical" size={8} style={{width: '100%'}}>
-              <Text>项目：{project?.artifactId ?? '未选择'}</Text>
-              <Text type="secondary" ellipsis title={project?.rootPath}>{project?.rootPath ?? '选择项目后显示路径'}</Text>
-              <Space wrap>
-                <Tag color={environment?.status === 'ok' ? 'green' : environment?.status === 'error' ? 'red' : 'gold'}>
-                  {environment?.status === 'ok' ? '环境正常' : environment?.status === 'error' ? '环境异常' : '待检查'}
-                </Tag>
-                <Tag>JDK：{environment?.javaVersion ?? '未识别'}</Tag>
-                <Tag>Maven：{environment?.mavenVersion ?? (environment?.hasMavenWrapper ? 'mvnw' : '未识别')}</Tag>
-              </Space>
-            </Space>
-          </Card>
-        </Col>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>当前环境状态</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col gap-2">
+              <span className="text-[13px]">项目：{project?.artifactId ?? '未选择'}</span>
+              <MonoText className="truncate text-[12px] text-[var(--muted-foreground)]">
+                {project?.rootPath ?? '选择项目后显示路径'}
+              </MonoText>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                <StatusPill
+                  tone={
+                    environment?.status === 'ok'
+                      ? 'success'
+                      : environment?.status === 'error'
+                        ? 'error'
+                        : 'warning'
+                  }
+                >
+                  {environment?.status === 'ok'
+                    ? '环境正常'
+                    : environment?.status === 'error'
+                      ? '环境异常'
+                      : '待检查'}
+                </StatusPill>
+                <StatusPill>JDK：{environment?.javaVersion ?? '未识别'}</StatusPill>
+                <StatusPill>
+                  Maven：
+                  {environment?.mavenVersion ?? (environment?.hasMavenWrapper ? 'mvnw' : '未识别')}
+                </StatusPill>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
-        <Col xs={24} md={12}>
-          <Card title="正在运行任务" className="panel-card">
+        <Card>
+          <CardHeader>
+            <CardTitle>正在运行任务</CardTitle>
+          </CardHeader>
+          <CardContent>
             {runningTasks.length === 0 ? (
-              <Empty description="当前没有运行中的构建任务" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              <div className="flex min-h-16 items-center justify-center text-[13px] text-[var(--muted-foreground)]">
+                当前没有运行中的构建任务
+              </div>
             ) : (
-              <List dataSource={runningTasks} renderItem={(item) => <List.Item><Tag color="processing">{item}</Tag></List.Item>} />
+              <ul className="m-0 flex list-none flex-col gap-2 p-0">
+                {runningTasks.map((item) => (
+                  <li key={item}>
+                    <StatusPill tone="processing">{item}</StatusPill>
+                  </li>
+                ))}
+              </ul>
             )}
-          </Card>
-        </Col>
+          </CardContent>
+        </Card>
 
-        <Col xs={24}>
-          <Card title="快捷操作" className="panel-card">
-            <Space wrap>
-              <Button type="primary" icon={<RocketOutlined />} onClick={() => setActivePage('build')}>开始打包</Button>
-              <Button icon={<DatabaseOutlined />} onClick={() => setActivePage('artifacts')}>构建产物</Button>
-              <Button onClick={() => setActivePage('history')}>构建历史</Button>
-            </Space>
-          </Card>
-        </Col>
-      </Row>
-    </main>
+        <Card className="md:col-span-2">
+          <CardHeader>
+            <CardTitle>快捷操作</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" className="gap-1.5" onClick={() => setActivePage('artifacts')}>
+                <Database />
+                构建产物
+              </Button>
+              <Button variant="secondary" onClick={() => setActivePage('history')}>
+                构建历史
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </section>
   )
 }

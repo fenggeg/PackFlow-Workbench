@@ -1,75 +1,31 @@
-import type {CSSProperties} from 'react'
+import {cn} from '@/lib/utils'
 
-const overlayStyle: CSSProperties = {
-  position: 'fixed',
-  inset: 0,
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-  justifyContent: 'center',
-  background: '#f8fafc',
-  zIndex: 99999,
-  opacity: 1,
-  transition: 'opacity 0.35s ease-out',
-  pointerEvents: 'auto',
-}
-
-const iconBoxStyle: CSSProperties = {
-  width: 64,
-  height: 64,
-  borderRadius: 16,
-  background: 'linear-gradient(135deg,#16a34a,#15803d)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  marginBottom: 24,
-  boxShadow: '0 8px 24px rgba(22,163,74,0.25)',
-}
-
-const titleStyle: CSSProperties = {
-  fontFamily: "Inter,'Segoe UI','Microsoft YaHei',system-ui,sans-serif",
-  fontSize: 20,
-  fontWeight: 600,
-  color: '#111827',
-  letterSpacing: '-0.025em',
-}
-
-const spinnerStyle: CSSProperties = {
-  marginTop: 32,
-  width: 36,
-  height: 36,
-  border: '3px solid #e5e7eb',
-  borderTopColor: '#16a34a',
-  borderRadius: '50%',
-  animation: 'splash-spin-fb 0.8s linear infinite',
-}
-
+/**
+ * 启动页：与产品内视觉保持一致
+ * - 使用同一套设计令牌（浅色/深色自动跟随）
+ * - 标识与顶栏 logo 同构（圆角方块 + PF）
+ * - 进度条与打包进度条同构（2px 细条 + 主色不定量动画）
+ */
 export function SplashOverlay({visible}: {visible: boolean}) {
   return (
     <div
-      style={{
-        ...overlayStyle,
-        opacity: visible ? 1 : 0,
-        pointerEvents: visible ? 'auto' : 'none',
-      }}
+      className={cn(
+        'fixed inset-0 z-[99999] flex flex-col items-center justify-center bg-[var(--background)] transition-opacity duration-200',
+        visible ? 'opacity-100' : 'invisible opacity-0',
+      )}
+      style={{pointerEvents: visible ? 'auto' : 'none'}}
+      aria-hidden={!visible}
     >
-      <div style={iconBoxStyle}>
-        <svg
-          width="32"
-          height="32"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="white"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-          <line x1="4" y1="22" x2="4" y2="15" />
-        </svg>
+      <div className="flex size-10 items-center justify-center rounded-[var(--radius-md)] bg-[var(--primary)] text-[13px] font-semibold tracking-[-0.01em] text-[var(--primary-foreground)]">
+        PF
       </div>
-      <div style={titleStyle}>打包部署工作台</div>
-      <div style={spinnerStyle} />
+      <div className="mt-5 text-[16px] font-semibold tracking-[-0.01em] text-[var(--foreground)]">
+        PackFlow Workbench
+      </div>
+      <div className="mt-1.5 text-[12px] text-[var(--muted-foreground)]">正在加载工作区…</div>
+      <div className="mt-7 h-0.5 w-[120px] overflow-hidden rounded-full bg-[var(--border)]">
+        <div className="splash-bar h-full w-1/3 rounded-full bg-[var(--primary)]" />
+      </div>
     </div>
   )
 }

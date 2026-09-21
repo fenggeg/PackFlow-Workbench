@@ -1,14 +1,21 @@
-import {Alert, Button, Card, Empty, List, Select, Space, Tag, Tooltip, Typography} from 'antd'
-import {DownloadOutlined, HistoryOutlined, SyncOutlined} from '@ant-design/icons'
-import {useAppStore} from '../../store/useAppStore'
-
-const { Text } = Typography
+import {Download, History, X} from 'lucide-react'
+import {Button} from '@/components/ui/button'
+import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {StatusPill} from '@/components/ui/status-pill'
+import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip'
+import {useAppStore} from '@/store/useAppStore'
+import {useNavigationStore} from '@/store/navigationStore'
 
 const formatCommitTime = (value: string) => {
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return value
-  }
+  if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString()
 }
 
@@ -26,141 +33,188 @@ export function GitStatusCard() {
   const pullGitUpdates = useAppStore((state) => state.pullGitUpdates)
   const switchGitBranch = useAppStore((state) => state.switchGitBranch)
   const clearGitError = useAppStore((state) => state.clearGitError)
+  const navigateToProjectSelector = useNavigationStore((state) => state.navigateToProjectSelector)
 
   if (!project) {
-    return null
-  }
-
-  if (!gitStatus?.isGitRepo) {
     return (
-      <Card title="Git 状态" className="panel-card" size="small">
-        <Space direction="vertical" size={10} style={{ width: '100%' }}>
-          {gitError ? (
-            <Alert type="error" showIcon closable message={gitError} onClose={clearGitError} />
-          ) : null}
-          <Text type="secondary">当前目录未识别为 Git 仓库。</Text>
-        </Space>
+      <Card>
+        <CardHeader>
+          <CardTitle>Git 状态</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col items-start gap-2.5">
+          <span className="text-[13px] text-[var(--muted-foreground)]">请先选择 Maven 项目。</span>
+          <Button variant="secondary" size="sm" onClick={navigateToProjectSelector}>
+            去选择项目
+          </Button>
+        </CardContent>
       </Card>
     )
   }
 
-  const statusTag = gitStatus.hasRemoteUpdates
-    ? <Tag color="orange">落后 {gitStatus.behindCount}</Tag>
-    : gitStatus.hasLocalChanges
-      ? <Tag color="gold">本地有改动</Tag>
-      : <Tag color="green">已同步</Tag>
+  if (!gitStatus?.isGitRepo) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Git 状态</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2.5">
+          {gitError ? (
+            <div className="flex items-start justify-between gap-2 rounded-[var(--radius)] border border-[var(--error)]/30 bg-[var(--error)]/5 px-3 py-2 text-[13px] text-[var(--error)]">
+              {gitError}
+              <button type="button" onClick={clearGitError} aria-label="关闭">
+                <X className="size-3.5" />
+              </button>
+            </div>
+          ) : null}
+          <span className="text-[13px] text-[var(--muted-foreground)]">当前目录未识别为 Git 仓库。</span>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const statusPill = gitStatus.hasRemoteUpdates ? (
+    <StatusPill tone="warning">落后 {gitStatus.behindCount}</StatusPill>
+  ) : gitStatus.hasLocalChanges ? (
+    <StatusPill tone="info">本地有改动</StatusPill>
+  ) : (
+    <StatusPill tone="success">已同步</StatusPill>
+  )
 
   return (
-    <Card
-      title="Git 状态"
-      className="panel-card"
-      size="small"
-      extra={statusTag}
-    >
-      <Space direction="vertical" size={10} style={{ width: '100%' }}>
+    <Card>
+      <CardHeader className="flex-row items-center justify-between space-y-0">
+        <CardTitle>Git 状态</CardTitle>
+        {statusPill}
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2.5">
         {gitError ? (
-          <Alert type="error" showIcon closable message={gitError} onClose={clearGitError} />
+          <div className="flex items-start justify-between gap-2 rounded-[var(--radius)] border border-[var(--error)]/30 bg-[var(--error)]/5 px-3 py-2 text-[13px] text-[var(--error)]">
+            {gitError}
+            <button type="button" onClick={clearGitError} aria-label="关闭">
+              <X className="size-3.5" />
+            </button>
+          </div>
         ) : null}
 
-        <div className="git-row">
-          <Text type="secondary">当前分支</Text>
+        <div className="flex items-center gap-2">
+          <span className="shrink-0 text-[12px] text-[var(--muted-foreground)]">当前分支</span>
           <Select
-            showSearch
-            size="small"
             value={gitStatus.branch}
-            placeholder="detached HEAD 或无本地分支"
-            loading={gitChecking || gitSwitching}
             disabled={gitSwitching || gitStatus.branches.length === 0}
-            options={gitStatus.branches.map((branch) => ({
-              label: branch.isCurrent ? `${branch.name}（当前）` : branch.name,
-              value: branch.name,
-            }))}
-            onChange={(branchName) => {
-              if (branchName !== gitStatus.branch) {
-                void switchGitBranch(branchName)
-              }
+            onValueChange={(branchName) => {
+              if (branchName !== gitStatus.branch) void switchGitBranch(branchName)
             }}
-          />
+          >
+            <SelectTrigger className="h-7 flex-1 text-[12px]">
+              <SelectValue placeholder="detached HEAD 或无本地分支" />
+            </SelectTrigger>
+            <SelectContent>
+              {gitStatus.branches.map((branch) => (
+                <SelectItem key={branch.name} value={branch.name}>
+                  {branch.isCurrent ? `${branch.name}（当前）` : branch.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
-        <Space wrap>
-          <Tooltip title="检查远端">
-            <Button
-              size="small"
-              icon={<SyncOutlined />}
-              loading={gitChecking}
-              onClick={() => void fetchGitUpdates()}
-            />
+        <div className="flex items-center gap-1.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="secondary"
+                size="iconSm"
+                disabled={gitChecking}
+                aria-label="检查远端"
+                onClick={() => void fetchGitUpdates()}
+              >
+                <Download />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>检查远端</TooltipContent>
           </Tooltip>
-          <Tooltip title="刷新提交">
-            <Button
-              size="small"
-              icon={<HistoryOutlined />}
-              loading={gitCommitsLoading}
-              onClick={() => void loadGitCommits()}
-            />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="secondary"
+                size="iconSm"
+                disabled={gitCommitsLoading}
+                aria-label="刷新提交"
+                onClick={() => void loadGitCommits()}
+              >
+                <History />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>刷新提交</TooltipContent>
           </Tooltip>
-          <Tooltip title="应用内拉取">
-            <Button
-              size="small"
-              type="primary"
-              icon={<DownloadOutlined />}
-              loading={gitPulling}
-              disabled={!gitStatus.hasRemoteUpdates}
-              onClick={() => void pullGitUpdates()}
-            />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="primary"
+                size="sm"
+                className="h-7 gap-1.5"
+                disabled={gitPulling || !gitStatus.hasRemoteUpdates}
+                onClick={() => void pullGitUpdates()}
+              >
+                <Download />
+                {gitPulling ? '拉取中…' : '应用内拉取'}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>应用内拉取</TooltipContent>
           </Tooltip>
-        </Space>
+        </div>
 
         {gitStatus.hasRemoteUpdates ? (
-          <Alert
-            type="warning"
-            showIcon
-            message={`远端有 ${gitStatus.behindCount} 个提交尚未拉取`}
-            description="应用内拉取会使用快进模式；如果需要合并或处理冲突，请在代码编辑器中完成。"
-          />
+          <div className="rounded-[var(--radius)] border border-[var(--warning)]/30 bg-[var(--warning)]/5 px-3 py-2 text-[13px] text-[var(--warning)]">
+            远端有 {gitStatus.behindCount} 个提交尚未拉取
+            <p className="m-0 mt-1 text-[12px] text-[var(--muted-foreground)]">
+              应用内拉取会使用快进模式；如果需要合并或处理冲突，请在代码编辑器中完成。
+            </p>
+          </div>
         ) : null}
 
         {gitStatus.hasLocalChanges ? (
-          <Text type="warning" className="git-compact-tip">
-            本地有未提交改动，不影响打包。
-          </Text>
+          <span className="text-[12px] text-[var(--warning)]">本地有未提交改动，不影响打包。</span>
         ) : null}
 
         {!gitStatus.hasRemoteUpdates && !gitStatus.hasLocalChanges && gitStatus.message ? (
-          <Alert type={gitStatus.upstream ? 'success' : 'info'} showIcon message={gitStatus.message} />
+          <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-[13px] text-[var(--muted-foreground)]">
+            {gitStatus.message}
+          </div>
         ) : null}
 
-        <div className="git-commit-section">
-          <div className="git-commit-heading">
-            <Text strong>最近提交</Text>
-            <Text type="secondary">{gitCommits.length} 条</Text>
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[13px] font-medium">最近提交</span>
+            <span className="text-[12px] text-[var(--muted-foreground)]">{gitCommits.length} 条</span>
           </div>
           {gitCommits.length === 0 && !gitCommitsLoading ? (
-            <Empty description="暂无提交记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            <div className="flex min-h-12 items-center justify-center text-[13px] text-[var(--muted-foreground)]">
+              暂无提交记录
+            </div>
           ) : (
-            <List
-              className="git-commit-list"
-              loading={gitCommitsLoading}
-              dataSource={gitCommits}
-              renderItem={(commit) => (
-                <List.Item className="git-commit-item">
-                  <Space direction="vertical" size={3} className="git-commit-content">
-                    <Text strong ellipsis={{ tooltip: commit.subject }}>
-                      {commit.subject}
-                    </Text>
-                    <Space size={8} wrap>
-                      <Tag color="blue">{commit.shortHash}</Tag>
-                      <Text type="secondary">{commit.author}</Text>
-                      <Text type="secondary">{formatCommitTime(commit.date)}</Text>
-                    </Space>
-                  </Space>
-                </List.Item>
-              )}
-            />
+            <ul className="m-0 list-none divide-y divide-[var(--border)] p-0">
+              {gitCommits.map((commit) => (
+                <li key={commit.hash} className="flex flex-col gap-1 py-2">
+                  <span className="truncate text-[13px] font-medium" title={commit.subject}>
+                    {commit.subject}
+                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusPill tone="info">{commit.shortHash}</StatusPill>
+                    <span className="text-[12px] text-[var(--muted-foreground)]">{commit.author}</span>
+                    <span className="text-[12px] text-[var(--muted-foreground)]">
+                      {formatCommitTime(commit.date)}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
           )}
+          {gitCommitsLoading ? (
+            <span className="text-[12px] text-[var(--muted-foreground)]">加载提交…</span>
+          ) : null}
         </div>
-      </Space>
+      </CardContent>
     </Card>
   )
 }

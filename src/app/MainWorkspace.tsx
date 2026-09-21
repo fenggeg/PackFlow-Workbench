@@ -1,9 +1,6 @@
-import {type AppPage} from '../store/navigationStore'
 import {lazy, Suspense} from 'react'
-
-interface MainWorkspaceProps {
-  activePage: AppPage
-}
+import {type AppPage} from '../store/navigationStore'
+import {useNavigationStore} from '../store/navigationStore'
 
 const pageComponents = {
   dashboard: lazy(() => import('../pages/DashboardPage').then((module) => ({default: module.DashboardPage}))),
@@ -12,14 +9,23 @@ const pageComponents = {
   history: lazy(() => import('../pages/HistoryPage').then((module) => ({default: module.HistoryPage}))),
 } satisfies Record<AppPage, ReturnType<typeof lazy>>
 
-export function MainWorkspace({activePage}: MainWorkspaceProps) {
+export function MainWorkspace() {
+  // 直接订阅 store，避免 activePage 通过 props 逐层传递造成视图与状态脱节
+  const activePage = useNavigationStore((state) => state.activePage)
   const Page = pageComponents[activePage]
 
   return (
-    <section className="main-workspace">
-      <Suspense fallback={<div className="workspace-loading">加载工作区...</div>}>
+    <main className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-[var(--background)] [scrollbar-gutter:stable]">
+      <Suspense
+        fallback={
+          <div className="flex min-h-64 flex-col items-center justify-center gap-3 p-6">
+            <span className="size-5 animate-spin rounded-full border-2 border-[var(--border-strong)] border-t-[var(--primary)]" />
+            <span className="text-[13px] text-[var(--muted-foreground)]">加载工作区...</span>
+          </div>
+        }
+      >
         <Page />
       </Suspense>
-    </section>
+    </main>
   )
 }

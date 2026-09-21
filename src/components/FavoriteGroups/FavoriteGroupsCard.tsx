@@ -1,32 +1,37 @@
-import {Button, Card, Dropdown, Empty, Input, List, Modal, Space, Tooltip, Typography} from 'antd'
-import {
-    CheckOutlined,
-    DeleteOutlined,
-    EditOutlined,
-    MoreOutlined,
-    PushpinFilled,
-    PushpinOutlined,
-    SaveOutlined
-} from '@ant-design/icons'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
+import {Check, MoreHorizontal, Pencil, Pin, PinOff, Save, Trash2} from 'lucide-react'
 import {useState} from 'react'
-import {useAppStore} from '../../store/useAppStore'
-import type {BuildTemplate} from '../../types/domain'
-
-const { Text } = Typography
+import {Button} from '@/components/ui/button'
+import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {Input} from '@/components/ui/input'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import {SaveTemplateDialog} from '@/components/BuildTemplate/SaveTemplateDialog'
+import {useAppStore} from '@/store/useAppStore'
+import {describeError, notifyError, notifySuccess} from '@/store/useFeedbackStore'
+import type {BuildTemplate} from '@/types/domain'
 
 export function FavoriteGroupsCard() {
   const project = useAppStore((state) => state.project)
   const templates = useAppStore((state) => state.templates)
   const applyTemplate = useAppStore((state) => state.applyTemplate)
-  const saveTemplate = useAppStore((state) => state.saveTemplate)
   const updateTemplate = useAppStore((state) => state.updateTemplate)
   const deleteTemplate = useAppStore((state) => state.deleteTemplate)
   const [saving, setSaving] = useState(false)
-  const [savingLoading, setSavingLoading] = useState(false)
-  const [editing, setEditing] = useState<BuildTemplate>()
-  const [editingLoading, setEditingLoading] = useState(false)
-  const [name, setName] = useState('')
+  const [editing, setEditing] = useState<BuildTemplate | undefined>(undefined)
   const [editingName, setEditingName] = useState('')
+  const [editingLoading, setEditingLoading] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<BuildTemplate | null>(null)
 
   const openEdit = (template: BuildTemplate) => {
     setEditing(template)
@@ -34,156 +39,204 @@ export function FavoriteGroupsCard() {
   }
 
   const saveEditing = async () => {
-    if (!editing || !editingName.trim()) {
-      return
-    }
+    if (!editing || !editingName.trim()) return
     setEditingLoading(true)
-    await updateTemplate({ ...editing, name: editingName.trim() })
-    setEditingLoading(false)
-    setEditing(undefined)
-    setEditingName('')
+    try {
+      await updateTemplate({...editing, name: editingName.trim()})
+      setEditing(undefined)
+      setEditingName('')
+    } catch (error) {
+      notifyError('保存失败', describeError(error))
+    } finally {
+      setEditingLoading(false)
+    }
+  }
+
+  const togglePin = async (template: BuildTemplate) => {
+    try {
+      await updateTemplate({...template, pinned: !template.pinned})
+    } catch (error) {
+      notifyError('操作失败', describeError(error))
+    }
   }
 
   return (
-    <Card
-      title="常用组合"
-      className="panel-card favorite-groups-card"
-      size="small"
-      extra={
-        <Button
-          size="small"
-          type="text"
-          icon={<SaveOutlined />}
-          disabled={!project}
-          onClick={() => setSaving(true)}
-        />
-      }
-    >
-      {templates.length === 0 ? (
-        <Empty description="暂无常用组合" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-      ) : (
-        <List
-          size="small"
-          dataSource={templates}
-          renderItem={(template) => (
-            <List.Item
-              style={{ padding: '6px 0' }}
-              actions={[
-                <Tooltip key="apply" title="应用常用组合">
-                  <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => applyTemplate(template)} />
-                </Tooltip>,
-                <Dropdown
-                  key="more"
-                  menu={{
-                    items: [
-                      {
-                        key: 'pin',
-                        icon: template.pinned ? <PushpinFilled /> : <PushpinOutlined />,
-                        label: template.pinned ? '取消置顶' : '置顶',
-                        onClick: () => void updateTemplate({ ...template, pinned: !template.pinned }),
-                      },
-                      {
-                        key: 'edit',
-                        icon: <EditOutlined />,
-                        label: '编辑名称',
-                        onClick: () => openEdit(template),
-                      },
-                      {
-                        key: 'delete',
-                        icon: <DeleteOutlined />,
-                        label: '删除',
-                        danger: true,
-                        onClick: () => {
-                          Modal.confirm({
-                            title: '删除常用组合？',
-                            content: `确定要删除「${template.name || '未命名组合'}」吗？`,
-                            okText: '删除',
-                            okType: 'danger',
-                            cancelText: '取消',
-                            onOk: () => void deleteTemplate(template.id),
-                          })
-                        },
-                      },
-                    ],
-                  }}
-                  trigger={['click']}
-                >
-                  <Button size="small" type="text" icon={<MoreOutlined />} />
-                </Dropdown>,
-              ]}
+    <Card>
+      <CardHeader className="flex-row items-center justify-between space-y-0">
+        <CardTitle>构建模板</CardTitle>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="iconSm"
+              disabled={!project}
+              aria-label="保存当前选择"
+              onClick={() => setSaving(true)}
             >
-              <Space className="favorite-item" direction="vertical" size={2}>
-                <div
-                  style={{
-                    fontWeight: 'bold',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    maxWidth: '100%',
-                  }}
-                  title={template.name || '未命名组合'}
-                >
-                  {template.pinned ? <PushpinFilled className="favorite-pin" /> : null}
-                  {template.name || '未命名组合'}
+              <Save />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>保存当前选择为构建模板</TooltipContent>
+        </Tooltip>
+      </CardHeader>
+      <CardContent>
+        {templates.length === 0 ? (
+          <div className="flex min-h-16 items-center justify-center text-[13px] text-[var(--muted-foreground)]">
+            暂无构建模板，配置好参数后点击右上角保存。
+          </div>
+        ) : (
+          <ul className="m-0 list-none divide-y divide-[var(--border)] p-0">
+            {templates.map((template) => (
+              <li key={template.id} className="flex items-center gap-2 py-2">
+                <div className="min-w-0 flex-1">
+                  <div
+                    className="truncate text-[13px] font-medium"
+                    title={template.name || '未命名模板'}
+                  >
+                    {template.pinned ? <Pin className="mr-1 inline size-3 text-[var(--muted-foreground)]" /> : null}
+                    {template.name || '未命名模板'}
+                  </div>
+                  <div
+                    className="truncate text-[12px] text-[var(--muted-foreground)]"
+                    title={template.modulePath || '全部项目'}
+                  >
+                    {template.modulePath || '全部项目'}
+                  </div>
                 </div>
-                <Text type="secondary" className="favorite-meta" ellipsis={{ tooltip: template.modulePath || '全部项目' }}>
-                  {template.modulePath || '全部项目'}
-                </Text>
-              </Space>
-            </List.Item>
-          )}
-        />
-      )}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="primary"
+                      size="iconSm"
+                      aria-label="应用构建模板"
+                      onClick={() => applyTemplate(template)}
+                    >
+                      <Check />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>应用构建模板</TooltipContent>
+                </Tooltip>
+                {/* 使用 Radix 菜单：Portal 渲染不会被侧栏滚动容器裁剪，且自带键盘与 ARIA 支持 */}
+                <DropdownMenu.Root>
+                  <DropdownMenu.Trigger asChild>
+                    <Button variant="ghost" size="iconSm" aria-label="更多操作">
+                      <MoreHorizontal />
+                    </Button>
+                  </DropdownMenu.Trigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content
+                      align="end"
+                      sideOffset={4}
+                      className="z-50 min-w-32 overflow-hidden rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--popover)] py-1 shadow-[0_8px_24px_rgba(15,23,42,0.12)]"
+                    >
+                      <DropdownMenu.Item
+                        className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-[13px] outline-none data-[highlighted]:bg-[var(--accent)]"
+                        onSelect={() => void togglePin(template)}
+                      >
+                        {template.pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+                        {template.pinned ? '取消置顶' : '置顶'}
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Item
+                        className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-[13px] outline-none data-[highlighted]:bg-[var(--accent)]"
+                        onSelect={() => openEdit(template)}
+                      >
+                        <Pencil className="size-3.5" />
+                        编辑名称
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Item
+                        className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-[13px] text-[var(--error)] outline-none data-[highlighted]:bg-[var(--accent)]"
+                        onSelect={() => setDeleteTarget(template)}
+                      >
+                        <Trash2 className="size-3.5" />
+                        删除
+                      </DropdownMenu.Item>
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Root>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
 
-      <Modal
-        title="保存当前选择为常用组合"
-        open={saving}
-        okText="保存"
-        cancelText="取消"
-        confirmLoading={savingLoading}
-        onCancel={() => {
-          if (!savingLoading) {
-            setSaving(false)
-          }
-        }}
-        onOk={async () => {
-          const trimmed = name.trim()
-          if (!trimmed) {
-            return
-          }
-          setSavingLoading(true)
-          await saveTemplate(trimmed)
-          setSavingLoading(false)
-          setName('')
-          setSaving(false)
-        }}
-      >
-        <Input
-          placeholder="例如 网关联调"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-        />
-      </Modal>
-      <Modal
-        title="编辑常用组合"
+      <SaveTemplateDialog open={saving} onOpenChange={setSaving} defaultName={project?.artifactId} />
+
+      <Dialog
         open={Boolean(editing)}
-        okText="保存"
-        cancelText="取消"
-        confirmLoading={editingLoading}
-        onCancel={() => {
-          if (!editingLoading) {
+        onOpenChange={(open) => {
+          if (!open && !editingLoading) {
             setEditing(undefined)
             setEditingName('')
           }
         }}
-        onOk={saveEditing}
       >
-        <Input
-          placeholder="组合名称"
-          value={editingName}
-          onChange={(event) => setEditingName(event.target.value)}
-        />
-      </Modal>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>编辑构建模板</DialogTitle>
+          </DialogHeader>
+          <div className="px-5 py-2">
+            <Input
+              autoFocus
+              maxLength={40}
+              placeholder="模板名称"
+              value={editingName}
+              onChange={(event) => setEditingName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  void saveEditing()
+                }
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="secondary"
+              disabled={editingLoading}
+              onClick={() => {
+                setEditing(undefined)
+                setEditingName('')
+              }}
+            >
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              disabled={editingLoading || !editingName.trim()}
+              onClick={() => void saveEditing()}
+            >
+              {editingLoading ? '保存中…' : '保存'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>删除构建模板？</DialogTitle>
+          </DialogHeader>
+          <p className="m-0 px-5 py-2 text-[13px]">
+            确定要删除「{deleteTarget?.name || '未命名模板'}」吗？
+          </p>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setDeleteTarget(null)}>
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (deleteTarget) {
+                  void deleteTemplate(deleteTarget.id).then(() => notifySuccess('已删除构建模板'))
+                }
+                setDeleteTarget(null)
+              }}
+            >
+              删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   )
 }

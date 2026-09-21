@@ -175,12 +175,20 @@ export interface BuildDiagnosis {
 export interface BuildOptions {
   projectRoot: string
   selectedModulePath: string
+  /** 始终按 Maven 生命周期顺序保存 */
   goals: string[]
   profiles: string[]
   properties: Record<string, string | boolean>
   alsoMake: boolean
   skipTests: boolean
+  /** 合成后的最终附加参数：由 commonArgs / threadCount / extraArgs 派生，不要直接写入 */
   customArgs: string[]
+  /** 「常用开关」预设参数 */
+  commonArgs?: string[]
+  /** 并行构建线程数（-T） */
+  threadCount?: number
+  /** 用户手写的附加参数 */
+  extraArgs?: string[]
   editableCommand: string
 }
 
@@ -247,6 +255,9 @@ export interface BuildTemplate {
   alsoMake: boolean
   skipTests: boolean
   customArgs: string[]
+  commonArgs?: string[]
+  threadCount?: number
+  extraArgs?: string[]
   useMavenWrapper: boolean
   javaHome?: string
   mavenHome?: string

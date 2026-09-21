@@ -2,7 +2,10 @@ import {create} from 'zustand'
 import {api, createDefaultBuildOptions, isTauriRuntime, selectProjectDirectory} from '../services/tauri-api'
 import {diagnoseBuildFailure} from '../services/buildDiagnosisService'
 import {appendBoundedItems} from '../utils/boundedBuffer'
+import {normalizeBuildOptions} from '../utils/buildOptions'
 import {getErrorMessage} from '../utils/errors'
+import {notifyError, notifySuccess} from './useFeedbackStore'
+import {useBuildProgressStore} from './useBuildProgressStore'
 import {useEnvironmentStore} from './useEnvironmentStore'
 import type {
     BuildArtifact,
@@ -66,7 +69,6 @@ interface AppState {
   pullGitUpdates: () => Promise<void>
   switchGitBranch: (branchName: string) => Promise<void>
   clearGitError: () => void
-  setSelectedModule: (moduleId: string) => void
   setSelectedModules: (moduleIds: string[]) => void
   selectAllProject: () => void
   setBuildOption: <K extends keyof BuildOptions>(
@@ -74,7 +76,17 @@ interface AppState {
     value: BuildOptions[K],
   ) => void
   setEditableCommand: (command: string) => void
+  /** 高频改动（逐字输入）走防抖，避免每次按键都发一次 IPC */
+  scheduleCommandPreview: () => void
+  /** 立即冲刷待执行的预览请求，开始构建前必须调用 */
+  flushCommandPreview: () => Promise<void>
   refreshCommandPreview: () => Promise<void>
+  setGoals: (goals: string[]) => void
+  setCommonArgs: (args: string[]) => void
+  setExtraArgs: (args: string[]) => void
+  setThreadCount: (threadCount?: number) => void
+  clearError: () => void
+  reloadProjectModules: (rootPath: string) => Promise<void>
   refreshEnvironment: () => Promise<void>
   updateEnvironment: (settings: EnvironmentSettings) => Promise<void>
   applyEnvironmentProfile: (profileId: string) => Promise<void>
@@ -106,20 +118,13 @@ interface AppState {
 
 const envStore = () => useEnvironmentStore.getState()
 
-const findModule = (
-  modules: MavenModule[],
-  moduleId: string,
-): MavenModule | undefined => {
-  for (const moduleItem of modules) {
-    if (moduleItem.id === moduleId) {
-      return moduleItem
-    }
-    const child = findModule(moduleItem.children ?? [], moduleId)
-    if (child) {
-      return child
-    }
-  }
-  return undefined
+/**
+ * 错误统一出口：写入 store 的同时弹出通知。
+ * 之前只有 ProjectSelector 消费 error，导致绝大多数失败对用户完全不可见。
+ */
+const fail = (message: string) => {
+  useAppStore.setState({error: message})
+  notifyError(message)
 }
 
 const moduleSelectionLabel = (modules: MavenModule[], modulePath: string) => {
@@ -156,6 +161,8 @@ const flushPendingLogs = () => {
   useAppStore.setState((state) => ({
     logs: appendBoundedItems(state.logs, batch, 5000),
   }))
+  // 进度与日志同源：整批一次性推导，避免每行都触发一次状态更新
+  useBuildProgressStore.getState().ingestLines(batch.map((event) => event.line))
 }
 
 const scheduleLogFlush = (event: BuildLogEvent) => {
@@ -247,6 +254,17 @@ const notifyBuildFinished = (status: PersistedBuildStatus, durationMs: number, a
 
 // 命令预览请求序号，防止慢响应覆盖新命令
 let previewRequestId = 0
+let previewTimer: ReturnType<typeof setTimeout> | null = null
+
+const clearPreviewTimer = () => {
+  if (previewTimer) {
+    clearTimeout(previewTimer)
+    previewTimer = null
+  }
+}
+
+/** 初始化幂等标志：React StrictMode 下 effect 会执行两次 */
+let initializeStarted = false
 
 export const useAppStore = create<AppState>((set, get) => ({
   buildOptions: createDefaultBuildOptions(),
@@ -271,6 +289,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   initialized: false,
 
   initialize: async () => {
+    // StrictMode / 多次挂载下只初始化一次，避免重复加载历史与解析项目
+    if (initializeStarted) return
+    initializeStarted = true
     try {
       await get().loadHistoryAndTemplates()
       await envStore().loadSettings()
@@ -286,7 +307,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (error) {
       // 非首次启动时，记录错误让用户感知；首次启动或浏览器预览则保持空白工作台
       if (isTauriRuntime()) {
-        set({error: getErrorMessage(error)})
+        fail(getErrorMessage(error))
       }
     } finally {
       set({initialized: true})
@@ -300,13 +321,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         await get().parseProjectPath(rootPath)
       }
     } catch (error) {
-      set({ error: getErrorMessage(error) })
+      fail(getErrorMessage(error))
     }
   },
 
   parseProjectPath: async (rootPath: string) => {
     if (get().buildStatus === 'RUNNING') {
-      set({ error: '构建进行中，请先停止当前构建再切换项目。' })
+      fail('构建进行中，请先停止当前构建再切换项目。')
       return
     }
     set({
@@ -328,6 +349,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       clearTimeout(logFlushTimer)
       logFlushTimer = null
     }
+    clearPreviewTimer()
+    useBuildProgressStore.getState().reset()
     try {
       const [project] = await Promise.all([
         api.parseMavenProject(rootPath),
@@ -347,7 +370,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         // 同步到 envStore 以便后续操作使用
         await envStore().syncActiveProfileId(resolvedActiveProfileId)
       }
-      const buildOptions = createDefaultBuildOptions(project.rootPath, '')
+      const buildOptions = normalizeBuildOptions(createDefaultBuildOptions(project.rootPath, ''))
       set({
         project,
         environment: envStore().environment,
@@ -365,7 +388,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       await get().refreshCommandPreview()
       void get().checkGitStatus(project.rootPath)
     } catch (error) {
-      set({error: getErrorMessage(error)})
+      fail(getErrorMessage(error))
     } finally {
       set({loading: false})
     }
@@ -376,7 +399,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       await envStore().removeSavedProject(rootPath)
       set({savedProjectPaths: envStore().savedProjectPaths})
     } catch (error) {
-      set({error: getErrorMessage(error)})
+      fail(getErrorMessage(error))
     }
   },
 
@@ -457,11 +480,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       const result = await api.pullGitUpdates(targetPath)
       set({ gitStatus: result.status, gitError: undefined })
       await get().loadGitCommits(targetPath)
-      await get().parseProjectPath(targetPath)
+      // 只刷新模块结构，保留构建日志、产物与已选模块
+      await get().reloadProjectModules(targetPath)
+      notifySuccess('已拉取远端更新')
     } catch (error) {
       const gitError = getErrorMessage(error)
       await get().checkGitStatus(targetPath)
       set({ gitError })
+      notifyError('拉取失败', gitError)
     } finally {
       set({ gitPulling: false })
     }
@@ -478,11 +504,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       const result = await api.switchGitBranch(targetPath, branchName)
       set({ gitStatus: result.status, gitError: undefined })
       await get().loadGitCommits(targetPath)
-      await get().parseProjectPath(targetPath)
+      // 只刷新模块结构，保留构建日志、产物与已选模块
+      await get().reloadProjectModules(targetPath)
+      notifySuccess(`已切换到分支 ${branchName}`)
     } catch (error) {
       const gitError = getErrorMessage(error)
       await get().checkGitStatus(targetPath)
       set({ gitError })
+      notifyError('切换分支失败', gitError)
     } finally {
       set({ gitSwitching: false })
     }
@@ -490,24 +519,6 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   clearGitError: () => {
     set({ gitError: undefined })
-  },
-
-  setSelectedModule: (moduleId: string) => {
-    const project = get().project
-    const selectedModule = project ? findModule(project.modules, moduleId) : undefined
-    if (!selectedModule) {
-      return
-    }
-    set((state) => ({
-      selectedModule,
-      selectedModules: [selectedModule],
-      selectedModuleIds: [selectedModule.id],
-      buildOptions: {
-        ...state.buildOptions,
-        selectedModulePath: selectedModule.relativePath,
-      },
-    }))
-    void get().refreshCommandPreview()
   },
 
   setSelectedModules: (moduleIds: string[]) => {
@@ -519,8 +530,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     const selectedModules = moduleIds
       .map((moduleId) => allModules.find((moduleItem) => moduleItem.id === moduleId))
       .filter((moduleItem): moduleItem is MavenModule => Boolean(moduleItem))
+    // 根聚合模块的 relativePath 为空串，直接 join 会产出 "-pl ,sub" 这类非法参数
     const selectedModulePath = selectedModules
-      .map((moduleItem) => moduleItem.relativePath)
+      .map((moduleItem) => moduleItem.relativePath.trim())
+      .filter(Boolean)
       .join(',')
 
     set((state) => ({
@@ -533,6 +546,37 @@ export const useAppStore = create<AppState>((set, get) => ({
       },
     }))
     void get().refreshCommandPreview()
+  },
+
+  clearError: () => set({error: undefined}),
+
+  /**
+   * 仅刷新项目模块信息（Git 拉取 / 切分支后使用）。
+   * 旧实现调用 parseProjectPath，会连带清空日志、产物、诊断与已选模块。
+   */
+  reloadProjectModules: async (rootPath: string) => {
+    try {
+      const project = await api.parseMavenProject(rootPath)
+      const previousPaths = get().selectedModules.map((moduleItem) => moduleItem.relativePath)
+      const allModules = flattenModules(project.modules)
+      const selectedModules = previousPaths
+        .map((path) => allModules.find((moduleItem) => moduleItem.relativePath === path))
+        .filter((moduleItem): moduleItem is MavenModule => Boolean(moduleItem))
+
+      set((state) => ({
+        project,
+        selectedModule: selectedModules[0],
+        selectedModules,
+        selectedModuleIds: selectedModules.map((moduleItem) => moduleItem.id),
+        buildOptions: {
+          ...state.buildOptions,
+          selectedModulePath: selectedModules.map((moduleItem) => moduleItem.relativePath).join(','),
+        },
+      }))
+      await get().refreshCommandPreview()
+    } catch (error) {
+      fail(getErrorMessage(error))
+    }
   },
 
   selectAllProject: () => {
@@ -550,12 +594,40 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setBuildOption: (key, value) => {
     set((state) => ({
-      buildOptions: {
+      buildOptions: normalizeBuildOptions({
         ...state.buildOptions,
         [key]: value,
-      },
+      }),
     }))
-    void get().refreshCommandPreview()
+    get().scheduleCommandPreview()
+  },
+
+  setGoals: (goals) => {
+    set((state) => ({
+      buildOptions: normalizeBuildOptions({...state.buildOptions, goals}),
+    }))
+    get().scheduleCommandPreview()
+  },
+
+  setCommonArgs: (commonArgs) => {
+    set((state) => ({
+      buildOptions: normalizeBuildOptions({...state.buildOptions, commonArgs}),
+    }))
+    get().scheduleCommandPreview()
+  },
+
+  setExtraArgs: (extraArgs) => {
+    set((state) => ({
+      buildOptions: normalizeBuildOptions({...state.buildOptions, extraArgs}),
+    }))
+    get().scheduleCommandPreview()
+  },
+
+  setThreadCount: (threadCount) => {
+    set((state) => ({
+      buildOptions: normalizeBuildOptions({...state.buildOptions, threadCount}),
+    }))
+    get().scheduleCommandPreview()
   },
 
   setEditableCommand: (command: string) => {
@@ -567,8 +639,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     }))
   },
 
+  scheduleCommandPreview: () => {
+    clearPreviewTimer()
+    previewTimer = setTimeout(() => {
+      previewTimer = null
+      void get().refreshCommandPreview()
+    }, 200)
+  },
+
+  flushCommandPreview: async () => {
+    clearPreviewTimer()
+    await get().refreshCommandPreview()
+  },
+
   refreshCommandPreview: async () => {
-    const { buildOptions, environment } = get()
+    const { environment } = get()
+    // 发送前先归一化，保证 goals 顺序与 customArgs 合成结果一致
+    const buildOptions = normalizeBuildOptions(get().buildOptions)
+    set({buildOptions})
     if (!environment || !buildOptions.projectRoot) {
       return
     }
@@ -593,7 +681,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (requestId !== previewRequestId) {
         return
       }
-      set({ error: getErrorMessage(error) })
+      fail(getErrorMessage(error))
     }
   },
 
@@ -606,7 +694,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         await get().refreshCommandPreview()
       }
     } catch (error) {
-      set({error: getErrorMessage(error)})
+      fail(getErrorMessage(error))
     }
   },
 
@@ -619,7 +707,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         await get().refreshCommandPreview()
       }
     } catch (error) {
-      set({error: getErrorMessage(error)})
+      fail(getErrorMessage(error))
     }
   },
 
@@ -632,7 +720,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         await get().refreshCommandPreview()
       }
     } catch (error) {
-      set({error: getErrorMessage(error)})
+      fail(getErrorMessage(error))
     }
   },
 
@@ -645,7 +733,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         await get().refreshCommandPreview()
       }
     } catch (error) {
-      set({error: getErrorMessage(error)})
+      fail(getErrorMessage(error))
     }
   },
 
@@ -658,7 +746,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         await get().refreshCommandPreview()
       }
     } catch (error) {
-      set({error: getErrorMessage(error)})
+      fail(getErrorMessage(error))
     }
   },
 
@@ -671,7 +759,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         await get().refreshCommandPreview()
       }
     } catch (error) {
-      set({error: getErrorMessage(error)})
+      fail(getErrorMessage(error))
     }
   },
 
@@ -684,7 +772,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         await get().refreshCommandPreview()
       }
     } catch (error) {
-      set({error: getErrorMessage(error)})
+      fail(getErrorMessage(error))
     }
   },
 
@@ -699,7 +787,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       await envStore().scanSystemJdks()
       set({jdkRegistry: envStore().jdkRegistry})
     } catch (error) {
-      set({error: getErrorMessage(error)})
+      fail(getErrorMessage(error))
     }
   },
 
@@ -708,7 +796,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       await envStore().addJdkToRegistry(path, name)
       set({jdkRegistry: envStore().jdkRegistry})
     } catch (error) {
-      set({error: getErrorMessage(error)})
+      fail(getErrorMessage(error))
     }
   },
 
@@ -717,7 +805,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       await envStore().removeJdkFromRegistry(jdkId)
       set({jdkRegistry: envStore().jdkRegistry})
     } catch (error) {
-      set({error: getErrorMessage(error)})
+      fail(getErrorMessage(error))
     }
   },
 
@@ -726,14 +814,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       await envStore().setDefaultJdk(jdkId)
       set({jdkRegistry: envStore().jdkRegistry})
     } catch (error) {
-      set({error: getErrorMessage(error)})
+      fail(getErrorMessage(error))
     }
   },
 
   startBuild: async () => {
     const { buildOptions, environment, selectedModules } = get()
     if (!environment || !buildOptions.projectRoot || !buildOptions.editableCommand.trim()) {
-      set({ error: '请先选择项目并确认构建命令。' })
+      fail('请先选择项目并确认构建命令。')
+      return
+    }
+
+    // 先冲刷防抖中的预览请求，确保用的是最新参数生成的命令
+    await get().flushCommandPreview()
+    const command = get().buildOptions.editableCommand.trim()
+    if (!command) {
+      fail('请先选择项目并确认构建命令。')
       return
     }
 
@@ -747,11 +843,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       durationMs: 0,
       error: undefined,
     })
+    useBuildProgressStore.getState().startRun({
+      totalModules: selectedModules.length > 0 ? selectedModules.length : 1,
+      goals: buildOptions.goals,
+      skipTests: buildOptions.skipTests,
+    })
 
     try {
       const currentBuildId = await api.startBuild({
         projectRoot: buildOptions.projectRoot,
-        command: buildOptions.editableCommand,
+        command,
         modulePath: buildOptions.selectedModulePath,
         moduleArtifactId: moduleSelectionLabel(selectedModules, buildOptions.selectedModulePath),
         javaHome: environment.javaHome,
@@ -781,12 +882,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         error: message,
         logs: appendSystemLog(state.logs, get().currentBuildId, `构建启动或停止请求失败：${message}`),
       }))
+      notifyError('构建启动失败', message)
     }
   },
 
   cancelBuild: async () => {
     const currentBuildId = get().currentBuildId
     set({ buildCancelling: true })
+    useBuildProgressStore.getState().markCancelling()
     if (!currentBuildId) {
       set((state) => ({
         logs: appendSystemLog(state.logs, undefined, '已请求停止，等待构建进程初始化完成。'),
@@ -811,6 +914,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         error: message,
         logs: appendSystemLog(state.logs, currentBuildId, `停止请求发送失败：${message}`),
       }))
+      notifyError('停止构建失败', message)
     }
   },
 
@@ -835,6 +939,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       logFlushTimer = null
     }
     set({ logs: [], diagnosis: undefined })
+    useBuildProgressStore.getState().reset()
   },
 
   finishBuild: (event: BuildFinishedEvent) => {
@@ -874,6 +979,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       buildOptions: { ...buildOptions },
       artifacts: [],
     }
+    // 同步进度状态：失败/取消立即标记，成功则进入产物扫描阶段
+    if (event.status === 'FAILED') {
+      useBuildProgressStore.getState().fail(diagnosis?.summary)
+    } else if (event.status === 'CANCELLED') {
+      useBuildProgressStore.getState().cancelComplete()
+    } else {
+      useBuildProgressStore.getState().startArtifactScan()
+    }
+
     void (async () => {
       try {
         const artifacts = event.status === 'SUCCESS'
@@ -884,6 +998,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           || (!get().buildRunToken && get().currentBuildId === undefined && get().buildStatus !== 'RUNNING')
         if (stillSameRun && get().buildStatus !== 'RUNNING') {
           set({ artifacts })
+        }
+        if (event.status === 'SUCCESS') {
+          useBuildProgressStore.getState().complete()
         }
         notifyBuildFinished(event.status, event.durationMs, artifacts.length)
         await api.saveBuildHistory({ ...record, artifacts: stillSameRun ? artifacts : [] })
@@ -909,8 +1026,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         api.listTemplates(),
       ])
       set({ history, templates: sortTemplates(templates) })
-    } catch {
+    } catch (error) {
       set({ history: [], templates: [] })
+      // 浏览器预览下没有后端，避免无意义的报错打扰
+      if (isTauriRuntime()) {
+        notifyError('加载历史与模板失败', getErrorMessage(error))
+      }
     }
   },
 
@@ -920,8 +1041,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       set((state) => ({
         history: state.history.filter((record) => record.id !== historyId),
       }))
+      notifySuccess('已删除构建记录')
     } catch (error) {
-      set({ error: getErrorMessage(error) })
+      fail(getErrorMessage(error))
     }
   },
 
@@ -930,12 +1052,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     const selectedModules = project
       ? findModulesByPaths(project.modules, record.modulePath)
       : []
-    const buildOptions = record.buildOptions
-      ? { ...record.buildOptions, editableCommand: record.command }
-      : {
-          ...createDefaultBuildOptions(record.projectRoot, record.modulePath),
-          editableCommand: record.command,
-        }
+    const buildOptions = normalizeBuildOptions(
+      record.buildOptions
+        ? { ...record.buildOptions, editableCommand: record.command }
+        : {
+            ...createDefaultBuildOptions(record.projectRoot, record.modulePath),
+            editableCommand: record.command,
+          },
+    )
     set({
       selectedModule: selectedModules[0],
       selectedModules,
@@ -958,7 +1082,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   saveTemplate: async (name: string) => {
     const { buildOptions, environment } = get()
     if (!buildOptions.projectRoot) {
-      set({ error: '请先选择项目。' })
+      fail('请先选择项目。')
       return
     }
     const template: BuildTemplate = {
@@ -972,6 +1096,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       alsoMake: buildOptions.alsoMake,
       skipTests: buildOptions.skipTests,
       customArgs: buildOptions.customArgs,
+      commonArgs: buildOptions.commonArgs,
+      threadCount: buildOptions.threadCount,
+      extraArgs: buildOptions.extraArgs,
       useMavenWrapper: environment?.useMavenWrapper ?? false,
       javaHome: environment?.javaHome,
       mavenHome: environment?.mavenHome,
@@ -980,8 +1107,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await api.saveTemplate(template)
       await get().loadHistoryAndTemplates()
+      notifySuccess('已保存构建模板', name)
     } catch (error) {
-      set({ error: getErrorMessage(error) })
+      fail(getErrorMessage(error))
     }
   },
 
@@ -990,7 +1118,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       await api.saveTemplate(template)
       await get().loadHistoryAndTemplates()
     } catch (error) {
-      set({ error: getErrorMessage(error) })
+      fail(getErrorMessage(error))
     }
   },
 
@@ -1003,7 +1131,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       selectedModule: selectedModules[0],
       selectedModules,
       selectedModuleIds: selectedModules.map((moduleItem) => moduleItem.id),
-      buildOptions: {
+      buildOptions: normalizeBuildOptions({
         ...state.buildOptions,
         projectRoot: template.projectRoot,
         selectedModulePath: template.modulePath,
@@ -1013,18 +1141,23 @@ export const useAppStore = create<AppState>((set, get) => ({
         alsoMake: template.alsoMake,
         skipTests: template.skipTests,
         customArgs: template.customArgs,
-      },
+        commonArgs: template.commonArgs,
+        threadCount: template.threadCount,
+        extraArgs: template.extraArgs,
+      }),
       artifacts: [],
     }))
     void get().refreshCommandPreview()
+    notifySuccess('已应用构建模板', template.name)
   },
 
   deleteTemplate: async (templateId: string) => {
     try {
       await api.deleteTemplate(templateId)
       await get().loadHistoryAndTemplates()
+      notifySuccess('已删除构建模板')
     } catch (error) {
-      set({ error: getErrorMessage(error) })
+      fail(getErrorMessage(error))
     }
   },
 
@@ -1033,7 +1166,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const projectRoot = get().project?.rootPath
       await api.deleteBuildArtifact(path, recordOnly, projectRoot)
     } catch (error) {
-      set({ error: getErrorMessage(error) })
+      fail(getErrorMessage(error))
       return
     }
     const currentState = get()
@@ -1057,7 +1190,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await Promise.all(changedHistoryRecords.map((record) => api.saveBuildHistory(record)))
     } catch (error) {
-      set({ error: getErrorMessage(error) })
+      fail(getErrorMessage(error))
     }
   },
 }))

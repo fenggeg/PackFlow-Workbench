@@ -1,40 +1,54 @@
-import {Alert, Button, Card, Collapse, Empty, Modal, Progress, Space, Spin, Tag, Typography, message} from 'antd'
-import {CodeOutlined, CopyOutlined, StopOutlined, ThunderboltOutlined, WarningOutlined} from '@ant-design/icons'
-import {listen} from '@tauri-apps/api/event'
-import {useEffect, useRef, useState} from 'react'
-import {api} from '../../services/tauri-api'
-import {useAppStore} from '../../store/useAppStore'
-import type {ConflictScanProgress, DependencyConflict, DependencyConflictResult} from '../../types/domain'
+import {Code, Copy, Square, Zap} from 'lucide-react'
+import {useState} from 'react'
+import {Button} from '@/components/ui/button'
+import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {StatusPill} from '@/components/ui/status-pill'
+import {api} from '@/services/tauri-api'
+import {useAppStore} from '@/store/useAppStore'
+import {useDependencyStore} from '@/store/useDependencyStore'
+import {describeError, notifyError, notifyInfo, notifySuccess} from '@/store/useFeedbackStore'
+import type {DependencyConflict, ModuleConflictResult} from '@/types/domain'
 
-const {Text} = Typography
-
-function ConflictRow({conflict, onPreview}: {conflict: DependencyConflict; onPreview: (code: string) => void}) {
+function ConflictRow({
+  conflict,
+  onPreview,
+}: {
+  conflict: DependencyConflict
+  onPreview: (code: string) => void
+}) {
   const handleGenerate = async () => {
     try {
       const code = await api.generateExclusionCode(conflict.groupId, conflict.artifactId)
       onPreview(code)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      message.error('生成失败：' + msg)
+    } catch (error) {
+      notifyError('生成排除代码失败', describeError(error))
     }
   }
 
   return (
-    <div className="dependency-info-block" style={{padding: '8px 0'}}>
-      <Space align="center" size={8}>
-        <Tag color="red" style={{margin: 0}}>{conflict.groupId}:{conflict.artifactId}</Tag>
-      </Space>
-      <div style={{marginTop: 4, fontSize: 13}}>
-        <Text type="secondary">冲突版本：</Text>
-        <Text delete>{conflict.requestedVersion}</Text>
-        <Text style={{margin: '0 8px'}}>&rarr;</Text>
-        <Text strong style={{color: '#52c41a'}}>{conflict.selectedVersion}</Text>
+    <div className="border-b border-[var(--border)] py-2 last:border-b-0">
+      <StatusPill tone="error">
+        {conflict.groupId}:{conflict.artifactId}
+      </StatusPill>
+      <div className="mt-1 text-[13px]">
+        <span className="text-[var(--muted-foreground)]">冲突版本：</span>
+        <span className="line-through">{conflict.requestedVersion}</span>
+        <span className="mx-2">→</span>
+        <span className="font-medium text-[var(--success)]">{conflict.selectedVersion}</span>
       </div>
-      <div style={{marginTop: 2, fontSize: 12}}>
-        <Text type="secondary">依赖路径：{conflict.dependencyPath}</Text>
+      <div className="mt-0.5 text-[12px] text-[var(--muted-foreground)]">
+        依赖路径：{conflict.dependencyPath}
       </div>
-      <div style={{marginTop: 4}}>
-        <Button size="small" icon={<CodeOutlined />} onClick={handleGenerate}>
+      <div className="mt-1.5">
+        <Button variant="secondary" size="sm" className="gap-1.5" onClick={() => void handleGenerate()}>
+          <Code />
           生成排除代码
         </Button>
       </div>
@@ -42,309 +56,256 @@ function ConflictRow({conflict, onPreview}: {conflict: DependencyConflict; onPre
   )
 }
 
-function ExclusionPreviewModal({open, code, onClose}: {open: boolean; code: string; onClose: () => void}) {
+function ExclusionPreviewModal({
+  open,
+  code,
+  onClose,
+}: {
+  open: boolean
+  code: string
+  onClose: () => void
+}) {
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(code)
       setCopied(true)
-      message.success('已复制到剪贴板')
+      notifySuccess('已复制排除代码')
       setTimeout(() => setCopied(false), 2000)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      message.error('复制失败：' + msg)
+    } catch (error) {
+      notifyError('复制失败', describeError(error))
     }
   }
 
   return (
-    <Modal
-      title="Maven 排除代码预览"
-      open={open}
-      onCancel={onClose}
-      width={520}
-      footer={
-        <Space>
-          <Button onClick={onClose}>关闭</Button>
-          <Button type="primary" icon={<CopyOutlined />} onClick={handleCopy}>
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Maven 排除代码预览</DialogTitle>
+        </DialogHeader>
+        <div className="px-5 py-2">
+          <p className="m-0 mb-2 text-[13px] text-[var(--muted-foreground)]">
+            将以下代码添加到对应 &lt;dependency&gt; 声明中即可排除冲突的传递依赖：
+          </p>
+          <pre
+            data-allow-context-menu
+            className="m-0 overflow-x-auto rounded-[var(--radius)] bg-[var(--console-bg)] p-3 font-[family-name:var(--font-mono)] text-[13px] leading-relaxed text-[var(--console-text)]"
+          >
+            <code>{code}</code>
+          </pre>
+        </div>
+        <DialogFooter>
+          <Button variant="secondary" onClick={onClose}>
+            关闭
+          </Button>
+          <Button variant="primary" className="gap-1.5" onClick={() => void handleCopy()}>
+            <Copy />
             {copied ? '已复制' : '复制到剪贴板'}
           </Button>
-        </Space>
-      }
-    >
-      <Text type="secondary" style={{display: 'block', marginBottom: 8}}>
-        将以下代码添加到对应 &lt;dependency&gt; 声明中即可排除冲突的传递依赖：
-      </Text>
-      <pre
-        style={{
-          background: '#1e1e1e',
-          color: '#d4d4d4',
-          padding: '12px 16px',
-          borderRadius: 6,
-          fontSize: 13,
-          lineHeight: 1.6,
-          overflowX: 'auto',
-          margin: 0,
-          fontFamily: "'Consolas', 'Monaco', 'Courier New', monospace",
-        }}
-      >
-        <code>{code}</code>
-      </pre>
-    </Modal>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
+}
+
+const formatTime = (seconds: number) => {
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return m > 0 ? `${m}分${s}秒` : `${s}秒`
 }
 
 export function DependencyConflictPanel() {
   const project = useAppStore((state) => state.project)
-  const [scanning, setScanning] = useState(false)
-  const [result, setResult] = useState<DependencyConflictResult | undefined>()
-  const [error, setError] = useState<string | undefined>()
-  const [progress, setProgress] = useState<ConflictScanProgress | undefined>()
-  const [elapsed, setElapsed] = useState(0)
+  const scanning = useDependencyStore((state) => state.scanning)
+  const elapsed = useDependencyStore((state) => state.elapsed)
+  const progress = useDependencyStore((state) => state.progress)
+  const result = useDependencyStore((state) => state.result)
+  const error = useDependencyStore((state) => state.error)
+  const startScan = useDependencyStore((state) => state.startScan)
+  const cancelScan = useDependencyStore((state) => state.cancelScan)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewCode, setPreviewCode] = useState('')
-  const abortRef = useRef(false)
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [detailModule, setDetailModule] = useState<ModuleConflictResult | null>(null)
 
-  // 监听后端进度事件
-  useEffect(() => {
-    let unlisten: (() => void) | undefined
-    let disposed = false
-
-    listen<ConflictScanProgress>('dependency-conflict-progress', (event) => {
-      if (disposed) return
-      setProgress(event.payload)
-    }).then((fn) => {
-      if (disposed) {
-        fn()
-        return
-      }
-      unlisten = fn
-    }).catch(() => {
-      // 浏览器预览下监听失败可忽略
-    })
-
-    return () => {
-      disposed = true
-      unlisten?.()
-    }
-  }, [])
-
-  const startTimer = () => {
-    stopTimer()
-    setElapsed(0)
-    timerRef.current = setInterval(() => {
-      setElapsed((prev) => prev + 1)
-    }, 1000)
-  }
-
-  const stopTimer = () => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current)
-      timerRef.current = null
-    }
-  }
-
-  const handleScan = async () => {
+  const handleScan = () => {
     if (!project?.rootPath) {
-      message.warning('请先选择项目')
+      notifyError('请先选择 Maven 项目再扫描')
       return
     }
-    setScanning(true)
-    setError(undefined)
-    setResult(undefined)
-    setProgress(undefined)
-    abortRef.current = false
-    startTimer()
-    try {
-      const data = await api.detectDependencyConflicts(project.rootPath)
-      if (abortRef.current) return
-      setResult(data)
-      if (!data.hasConflicts) {
-        message.success('未发现依赖冲突')
-      }
-    } catch (err) {
-      if (abortRef.current) return
-      const msg = err instanceof Error ? err.message : String(err)
-      setError(msg)
-      message.error('扫描失败：' + msg)
-    } finally {
-      stopTimer()
-      setScanning(false)
-    }
-  }
-
-  const handleCancel = () => {
-    abortRef.current = true
-    setScanning(false)
-    stopTimer()
-    message.info('扫描已取消')
-  }
-
-  const handlePreview = (code: string) => {
-    setPreviewCode(code)
-    setPreviewOpen(true)
+    void startScan(project.rootPath)
   }
 
   const handleBulkPreview = async (conflicts: DependencyConflict[]) => {
     try {
       const code = await api.generateBulkExclusionCode(conflicts)
       if (code) {
-        handlePreview(code)
+        setPreviewCode(code)
+        setPreviewOpen(true)
       } else {
-        message.info('无冲突可生成排除代码')
+        notifyInfo('无冲突可生成排除代码')
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      message.error('批量生成失败：' + msg)
+      notifyError('批量生成失败', describeError(err))
     }
   }
 
-  const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60)
-    const s = seconds % 60
-    return m > 0 ? `${m}分${s}秒` : `${s}秒`
-  }
-
-  const progressPercent = progress && progress.totalModules > 0
-    ? Math.round((progress.scannedModules / progress.totalModules) * 100)
-    : undefined
+  const progressPercent =
+    progress && progress.totalModules > 0
+      ? Math.round((progress.scannedModules / progress.totalModules) * 100)
+      : undefined
 
   return (
-    <Card title="依赖冲突检测" className="panel-card" size="small">
-      <Space direction="vertical" size={12} style={{width: '100%'}}>
-        <Text type="secondary">
+    <Card>
+      <CardHeader>
+        <CardTitle>依赖冲突检测</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <p className="m-0 text-[13px] text-[var(--muted-foreground)]">
           通过 mvn dependency:tree -Dverbose 分析项目中各模块的传递依赖冲突，并可生成 Maven 排除代码。
-        </Text>
+        </p>
 
-        <Space style={{width: '100%'}}>
+        <div className="flex gap-2">
           <Button
-            type="primary"
-            icon={<ThunderboltOutlined />}
-            loading={scanning}
+            variant="primary"
+            className="flex-1 gap-1.5"
+            disabled={scanning || !project}
             onClick={handleScan}
-            disabled={!project}
-            style={{flex: 1}}
           >
+            <Zap />
             {scanning ? '正在扫描...' : '扫描依赖冲突'}
           </Button>
-          {scanning && (
+          {scanning ? (
             <Button
-              icon={<StopOutlined />}
-              onClick={handleCancel}
-              danger
+              variant="destructive"
+              className="gap-1.5"
+              title="后端扫描无法中断，仅放弃等待本次结果"
+              onClick={cancelScan}
             >
-              取消
+              <Square />
+              放弃等待
             </Button>
-          )}
-        </Space>
+          ) : null}
+        </div>
 
         {scanning ? (
-          <div style={{padding: '8px 0'}}>
+          <div className="flex flex-col gap-2 py-2">
             {progressPercent !== undefined ? (
               <>
-                <Progress
-                  percent={progressPercent}
-                  size="small"
-                  format={() =>
-                    progress
-                      ? `${progress.scannedModules} / ${progress.totalModules} 模块`
-                      : ''
-                  }
-                />
-                {progress?.currentModule && (
-                  <div style={{marginTop: 4, fontSize: 12}}>
-                    <Text type="secondary" ellipsis>
-                      正在扫描：{progress.currentModule}
-                    </Text>
+                <div className="flex items-center justify-between text-[12px] text-[var(--muted-foreground)]">
+                  <span>
+                    {progress ? `${progress.scannedModules} / ${progress.totalModules} 模块` : ''}
+                  </span>
+                  <span>{progressPercent}%</span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-[var(--muted)]">
+                  <div
+                    className="h-full rounded-full bg-[var(--primary)] transition-all duration-150"
+                    style={{width: `${progressPercent}%`}}
+                  />
+                </div>
+                {progress?.currentModule ? (
+                  <div className="truncate text-[12px] text-[var(--muted-foreground)]">
+                    正在扫描：{progress.currentModule}
                   </div>
-                )}
+                ) : null}
               </>
             ) : (
-              <div style={{textAlign: 'center', padding: '16px 0'}}>
-                <Spin />
-                <div style={{marginTop: 8}}><Text type="secondary">正在启动 dependency:tree...</Text></div>
+              <div className="flex flex-col items-center gap-2 py-4">
+                <span className="size-4 animate-spin rounded-full border-2 border-[var(--border-strong)] border-t-[var(--primary)]" />
+                <span className="text-[13px] text-[var(--muted-foreground)]">正在启动 dependency:tree...</span>
               </div>
             )}
-            {elapsed > 2 && (
-              <div style={{marginTop: 4, fontSize: 12, textAlign: 'right'}}>
-                <Text type="secondary">已用时 {formatTime(elapsed)}</Text>
+            {elapsed > 2 ? (
+              <div className="text-right text-[12px] text-[var(--muted-foreground)]">
+                已用时 {formatTime(elapsed)}
               </div>
-            )}
+            ) : null}
           </div>
         ) : null}
 
         {error ? (
-          <Alert type="error" showIcon message="扫描失败" description={error} />
+          <div className="rounded-[var(--radius)] border border-[var(--error)]/30 bg-[var(--error)]/5 px-3 py-2 text-[13px] text-[var(--error)]">
+            扫描失败
+            <p className="m-0 mt-1 text-[12px]">{error}</p>
+          </div>
         ) : null}
 
         {result && !result.hasConflicts ? (
-          <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={<Text type="secondary">未发现依赖冲突，所有依赖版本一致</Text>}
-          />
+          <div className="flex min-h-16 items-center justify-center text-[13px] text-[var(--muted-foreground)]">
+            未发现依赖冲突，所有依赖版本一致
+          </div>
         ) : null}
 
-        {result && result.hasConflicts && (
-          <div style={{fontSize: 12, textAlign: 'right'}}>
-            <Text type="secondary">
-              共 {result.modules.length} 个模块存在冲突，扫描耗时 {formatTime(elapsed)}
-            </Text>
+        {result && result.hasConflicts ? (
+          <div className="text-right text-[12px] text-[var(--muted-foreground)]">
+            共 {result.modules.length} 个模块存在冲突，扫描耗时 {formatTime(elapsed)}
           </div>
-        )}
+        ) : null}
 
         {result?.modules.map((mod) => (
-          <div key={mod.moduleId}>
-            <div style={{marginBottom: 4}}>
-              <div style={{display: 'flex', alignItems: 'center', gap: 4, minWidth: 0}}>
-                <WarningOutlined style={{color: '#faad14', flexShrink: 0}} />
-                <Text strong style={{minWidth: 0}}>{mod.artifactId}</Text>
-                <Tag color="orange" style={{flexShrink: 0, marginInlineEnd: 0}}>{mod.conflicts.length} 个冲突</Tag>
-              </div>
+          <div key={mod.moduleId} className="rounded-[var(--radius-md)] border border-[var(--border)] px-3 py-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <StatusPill tone="warning" className="max-w-[140px] truncate">
+                {mod.artifactId}
+              </StatusPill>
+              <StatusPill tone="warning">{mod.conflicts.length} 个冲突</StatusPill>
+            </div>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
               <Button
-                size="small"
-                type="link"
-                icon={<CodeOutlined />}
-                onClick={() => handleBulkPreview(mod.conflicts)}
-                style={{padding: 0, fontSize: 12, marginTop: 4}}
+                variant="secondary"
+                size="sm"
+                className="h-7 gap-1.5 text-[12px]"
+                onClick={() => setDetailModule(mod)}
               >
+                查看详情
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1.5 text-[12px]"
+                onClick={() => void handleBulkPreview(mod.conflicts)}
+              >
+                <Code />
                 批量排除
               </Button>
             </div>
-            <Collapse
-              size="small"
-              ghost
-              items={[
-                {
-                  key: 'conflicts',
-                  label: `显示 ${mod.conflicts.length} 个冲突详情`,
-                  children: (
-                    <div>
-                      {mod.conflicts.map((conflict) => (
-                        <ConflictRow
-                          key={`${conflict.groupId}:${conflict.artifactId}:${conflict.requestedVersion}`}
-                          conflict={conflict}
-                          onPreview={handlePreview}
-                        />
-                      ))}
-                    </div>
-                  ),
-                },
-              ]}
-            />
           </div>
         ))}
 
-        {result && !project ? (
-          <Alert type="warning" showIcon message="请先选择 Maven 项目再扫描" />
+        {!project ? (
+          <div className="rounded-[var(--radius)] border border-[var(--warning)]/30 bg-[var(--warning)]/5 px-3 py-2 text-[13px] text-[var(--warning)]">
+            请先选择 Maven 项目再扫描
+          </div>
         ) : null}
-      </Space>
+      </CardContent>
 
-      <ExclusionPreviewModal
-        open={previewOpen}
-        code={previewCode}
-        onClose={() => setPreviewOpen(false)}
-      />
+      <Dialog open={Boolean(detailModule)} onOpenChange={(open) => !open && setDetailModule(null)}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{detailModule?.artifactId} 的冲突详情</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto px-5 py-2">
+            {detailModule?.conflicts.map((conflict) => (
+              <ConflictRow
+                key={`${conflict.groupId}:${conflict.artifactId}:${conflict.requestedVersion}:${conflict.dependencyPath}`}
+                conflict={conflict}
+                onPreview={(code) => {
+                  setPreviewCode(code)
+                  setPreviewOpen(true)
+                }}
+              />
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setDetailModule(null)}>
+              关闭
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ExclusionPreviewModal open={previewOpen} code={previewCode} onClose={() => setPreviewOpen(false)} />
     </Card>
   )
 }

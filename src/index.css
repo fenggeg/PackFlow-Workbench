@@ -1,57 +1,253 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
 :root {
-  --pf-color-primary: #16a34a;
-  --pf-color-primary-hover: #15803d;
-  --pf-color-text: #111827;
-  --pf-color-text-secondary: #64748b;
-  --pf-color-text-muted: #94a3b8;
-  --pf-color-bg: #f8fafc;
-  --pf-color-surface: #ffffff;
-  --pf-color-surface-muted: #f1f5f9;
-  --pf-color-border: #e5e7eb;
-  --pf-color-border-soft: #eef2f7;
-  --pf-color-success: #16a34a;
-  --pf-color-warning: #d97706;
-  --pf-color-danger: #dc2626;
-  --pf-color-info: #2563eb;
-  --pf-color-console-bg: #0f172a;
-  --pf-color-console-text: #d1d5db;
-  --pf-radius-sm: 6px;
-  --pf-radius-md: 8px;
-  --pf-radius-lg: 12px;
-  --pf-radius-xl: 16px;
-  --pf-shadow-panel: 0 1px 2px rgba(15, 23, 42, 0.04);
-  --pf-shadow-soft: 0 8px 24px rgba(15, 23, 42, 0.06);
-  color: var(--pf-color-text);
-  background: var(--pf-color-bg);
-  font-family: Inter, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
-  font-synthesis: none;
-  line-height: 1.5;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  --radius: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+
+  /* Vercel / Stripe engineering-minimal neutrals */
+  --background: #fafafa;
+  --foreground: #171717;
+  --card: #ffffff;
+  --card-foreground: #171717;
+  --popover: #ffffff;
+  --popover-foreground: #171717;
+  --primary: #171717;
+  --primary-foreground: #ffffff;
+  --primary-hover: #333333;
+  --secondary: #f5f5f5;
+  --secondary-foreground: #171717;
+  --muted: #f5f5f5;
+  --muted-foreground: #666666;
+  --accent: #f5f5f5;
+  --accent-foreground: #171717;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: #eaeaea;
+  --border-strong: #e0e0e0;
+  --input: #e0e0e0;
+  --ring: #171717;
+  --placeholder: #a1a1a1;
+
+  /* Semantic — color only for status, never large fills */
+  --success: #16a34a;
+  --warning: #d97706;
+  --error: #dc2626;
+  --info: #2563eb;
+
+  /* Console — independent dark island */
+  --console-bg: #0a0a0a;
+  --console-text: #d4d4d4;
+  --console-muted: #737373;
+  --console-border: #262626;
+
+  --sidebar: #ffffff;
+  --sidebar-foreground: #171717;
+  --sidebar-border: #eaeaea;
+  --sidebar-accent: #f5f5f5;
 }
 
-* {
-  box-sizing: border-box;
+.dark {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+  --card: #171717;
+  --card-foreground: #ededed;
+  --popover: #171717;
+  --popover-foreground: #ededed;
+  --primary: #ededed;
+  --primary-foreground: #171717;
+  --secondary: #262626;
+  --secondary-foreground: #ededed;
+  --muted: #262626;
+  --muted-foreground: #a1a1a1;
+  --accent: #262626;
+  --accent-foreground: #ededed;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #262626;
+  --border-strong: #404040;
+  --input: #404040;
+  --ring: #ededed;
+  --placeholder: #737373;
+  --sidebar: #171717;
+  --sidebar-foreground: #ededed;
+  --sidebar-border: #262626;
+  --sidebar-accent: #262626;
 }
 
-html,
-body {
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-placeholder: var(--placeholder);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-error: var(--error);
+  --color-info: var(--info);
+  --color-console-bg: var(--console-bg);
+  --color-console-text: var(--console-text);
+  --color-console-muted: var(--console-muted);
+  --color-console-border: var(--console-border);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --radius-sm: var(--radius);
+  --radius-md: calc(var(--radius) + 2px);
+  --radius-lg: calc(var(--radius) + 4px);
+  --font-sans: Inter, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "Geist Mono", "JetBrains Mono", "Cascadia Code", Consolas, monospace;
 }
 
-body {
-  min-width: 960px;
-  margin: 0;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    box-sizing: border-box;
+    /* 统一滚动条外观，避免 WebView 默认系统样式破坏整体风格 */
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--border-strong);
+    border: 3px solid transparent;
+    border-radius: 9999px;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--placeholder);
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  /* 深色控制台岛屿使用配套滚动条，保持暗色一致性 */
+  [data-scroll-surface='console'] {
+    scrollbar-color: #3f3f46 transparent;
+  }
+  [data-scroll-surface='console']::-webkit-scrollbar-thumb {
+    background-color: #3f3f46;
+  }
+  [data-scroll-surface='console']::-webkit-scrollbar-thumb:hover {
+    background-color: #52525b;
+  }
+
+  html,
+  body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+  body {
+    min-width: 0;
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.5;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  #root {
+    width: 100%;
+    height: 100%;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: rgba(23, 23, 23, 0.12);
+  }
+  /* 深色控制台使用独立的选区高亮，否则全局浅色选区在近黑底上完全看不见 */
+  [data-scroll-surface='console']::selection,
+  [data-scroll-surface='console'] ::selection {
+    background: rgba(96, 165, 250, 0.42);
+    color: var(--console-text);
+  }
 }
 
-#root {
-  width: 100%;
-  height: 100%;
+/* 日志行：悬挂缩进让自动换行后的续行与首行左对齐，避免视觉错位 */
+.log-line {
+  padding-left: 2ch;
+  text-indent: -2ch;
+  /* 显式允许鼠标选中（部分容器会继承不可选样式） */
+  user-select: text;
+  -webkit-user-select: text;
 }
 
-@keyframes splash-spin-fb {
-  to { transform: rotate(360deg); }
+/* 启动动画的进度条与产品内进度条保持一致：细条 + 主色 + 缓动 */
+.splash-bar {
+  animation: splash-indeterminate 1.1s ease-in-out infinite;
+}
+
+/* 进度条：进行中的条纹动画，仅用于「进行中」状态，完成/失败使用静态色 */
+@keyframes progress-stripe {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 16px 0;
+  }
+}
+
+.progress-stripes {
+  background-image: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.28) 25%,
+    transparent 25%,
+    transparent 50%,
+    rgba(255, 255, 255, 0.28) 50%,
+    rgba(255, 255, 255, 0.28) 75%,
+    transparent 75%,
+    transparent
+  );
+  background-size: 16px 16px;
+  animation: progress-stripe 0.7s linear infinite;
+}
+
+@keyframes splash-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
+}
+
+/* Window drag region for custom title bar */
+[data-tauri-drag-region] {
+  cursor: default;
+  user-select: none;
 }

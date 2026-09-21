@@ -1,18 +1,13 @@
-import {Typography} from 'antd'
-import {WorkbenchHistoryPanel} from '../components/HistoryTable/WorkbenchHistoryPanel'
-
-const {Title, Text} = Typography
+import {PageHeader} from '@/components/ui/page-header'
+import {HistoryTable} from '@/components/HistoryTable/HistoryTable'
 
 export function HistoryPage() {
   return (
-    <main className="workspace-page">
-      <div className="workspace-heading">
-        <div>
-          <Title level={3}>历史管理</Title>
-          <Text type="secondary">统一查看构建记录和部署记录。</Text>
-        </div>
+    <section className="mx-auto w-full max-w-[1180px] p-4 lg:p-6">
+      <PageHeader title="历史管理" description="统一查看构建记录和部署记录。" />
+      <div className="min-w-0">
+        <HistoryTable />
       </div>
-      <WorkbenchHistoryPanel />
-    </main>
+    </section>
   )
 }

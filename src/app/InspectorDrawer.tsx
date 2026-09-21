@@ -1,21 +1,26 @@
-import {CopyOutlined, FullscreenOutlined, MenuUnfoldOutlined} from '@ant-design/icons'
-import {Button, Card, Drawer, Empty, List, Modal, Space, Tabs, Tag, Typography} from 'antd'
+import {Copy, Maximize2, PanelRightOpen} from 'lucide-react'
 import {useEffect, useMemo, useState} from 'react'
-import {BuildLogPanel} from '../components/BuildLogPanel/BuildLogPanel'
-import {useAppStore} from '../store/useAppStore'
-import {type InspectorTab, useNavigationStore} from '../store/navigationStore'
+import {Button} from '@/components/ui/button'
+import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
 import {
-    diagnosisCategoryText,
-} from '../utils/format'
-
-const {Text} = Typography
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {StatusPill} from '@/components/ui/status-pill'
+import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs'
+import {BuildLogPanel} from '@/components/BuildLogPanel/BuildLogPanel'
+import {useAppStore} from '@/store/useAppStore'
+import {type InspectorTab, useNavigationStore} from '@/store/navigationStore'
+import {diagnosisCategoryText} from '@/utils/format'
+import {useInspectorAvailable} from './inspectorAvailability'
 
 export function InspectorDrawer() {
   const inspectorOpen = useNavigationStore((state) => state.inspectorOpen)
   const inspectorTab = useNavigationStore((state) => state.inspectorTab)
   const setInspectorOpen = useNavigationStore((state) => state.setInspectorOpen)
   const setInspectorTab = useNavigationStore((state) => state.setInspectorTab)
-  const setInspectorLogSource = useNavigationStore((state) => state.setInspectorLogSource)
   const buildStatus = useAppStore((state) => state.buildStatus)
   const diagnosis = useAppStore((state) => state.diagnosis)
   const logs = useAppStore((state) => state.logs)
@@ -23,27 +28,40 @@ export function InspectorDrawer() {
   const selectedModules = useAppStore((state) => state.selectedModules)
   const [expanded, setExpanded] = useState(false)
 
+  // 只有构建页或已有构建上下文时才出现，避免在首页/产物页展示无关面板
+  const available = useInspectorAvailable()
+
   useEffect(() => {
+    if (!available) return
     if (buildStatus === 'RUNNING') {
       setInspectorOpen(true)
       setInspectorTab('logs')
-      setInspectorLogSource('build')
     }
     if (buildStatus === 'FAILED') {
       setInspectorOpen(true)
       setInspectorTab('diagnosis')
-      setInspectorLogSource('build')
     }
-  }, [buildStatus, setInspectorOpen, setInspectorTab, setInspectorLogSource])
+  }, [available, buildStatus, setInspectorOpen, setInspectorTab])
 
-  const logContent = useMemo(() => {
-    return <BuildLogPanel />
-  }, [])
+  useEffect(() => {
+    if (!inspectorOpen || expanded) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setInspectorOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [expanded, inspectorOpen, setInspectorOpen])
+
+  useEffect(() => {
+    if (!available && inspectorOpen) {
+      setInspectorOpen(false)
+    }
+  }, [available, inspectorOpen, setInspectorOpen])
+
+  const logContent = useMemo(() => <BuildLogPanel fill />, [])
 
   const diagnosisText = useMemo(() => {
-    if (!diagnosis) {
-      return ''
-    }
+    if (!diagnosis) return ''
     return [
       `错误类型：${diagnosisCategoryText[diagnosis.category]}`,
       `摘要：${diagnosis.summary}`,
@@ -61,117 +79,134 @@ export function InspectorDrawer() {
 
   const diagnosisContent = useMemo(() => {
     return (
-      <Card
-        title="构建诊断"
-        className="panel-card"
-        size="small"
-        extra={(
+      <Card>
+        <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardTitle>构建诊断</CardTitle>
           <Button
-            size="small"
-            icon={<CopyOutlined />}
+            variant="secondary"
+            size="sm"
+            className="h-7 gap-1.5"
             disabled={!diagnosis}
             onClick={() => void navigator.clipboard?.writeText(diagnosisText)}
           >
+            <Copy className="size-3.5" />
             复制
           </Button>
-        )}
-      >
-        {diagnosis ? (
-          <Space direction="vertical" size={10} style={{width: '100%'}}>
-            <Space size={8} wrap>
-              <Tag color="error">{diagnosisCategoryText[diagnosis.category]}</Tag>
-              <Text strong>{diagnosis.summary}</Text>
-            </Space>
-            <Text strong>建议动作</Text>
-            <List
-              size="small"
-              dataSource={diagnosis.suggestedActions}
-              renderItem={(item) => <List.Item>{item}</List.Item>}
-            />
-          </Space>
-        ) : (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="构建失败后自动生成诊断" />
-        )}
+        </CardHeader>
+        <CardContent>
+          {diagnosis ? (
+            <div className="flex flex-col gap-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusPill tone="error">{diagnosisCategoryText[diagnosis.category]}</StatusPill>
+                <span className="text-[13px] font-medium">{diagnosis.summary}</span>
+              </div>
+              <div className="text-[13px] font-medium">建议动作</div>
+              <ul className="m-0 flex list-none flex-col gap-1 p-0">
+                {diagnosis.suggestedActions.map((item) => (
+                  <li key={item} className="text-[13px] text-[var(--muted-foreground)]">
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <div className="flex min-h-24 items-center justify-center text-[13px] text-[var(--muted-foreground)]">
+              构建失败后自动生成诊断
+            </div>
+          )}
+        </CardContent>
       </Card>
     )
   }, [diagnosis, diagnosisText])
 
   const detailsContent = useMemo(() => {
     return (
-      <Card title="构建上下文" className="panel-card" size="small">
-        <Space direction="vertical" size={8} style={{width: '100%'}}>
-          <Text type="secondary">构建状态：{buildStatus}</Text>
-          <Text type="secondary">日志行数：{logs.length}</Text>
-          <Text type="secondary">选中模块：{selectedModules.length || '全部项目'}</Text>
-          <Text type="secondary">当前产物：{artifacts.length}</Text>
-        </Space>
+      <Card>
+        <CardHeader>
+          <CardTitle>构建上下文</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[13px]">
+            <dt className="text-[var(--muted-foreground)]">构建状态</dt>
+            <dd className="m-0">{buildStatus}</dd>
+            <dt className="text-[var(--muted-foreground)]">日志行数</dt>
+            <dd className="m-0">{logs.length}</dd>
+            <dt className="text-[var(--muted-foreground)]">选中模块</dt>
+            <dd className="m-0">{selectedModules.length || '全部项目'}</dd>
+            <dt className="text-[var(--muted-foreground)]">当前产物</dt>
+            <dd className="m-0">{artifacts.length}</dd>
+          </dl>
+        </CardContent>
       </Card>
     )
   }, [buildStatus, logs.length, selectedModules.length, artifacts.length])
 
+  if (!available) return null
+
   return (
     <>
-      {!inspectorOpen && (
-        <Button
-          className="inspector-floating-toggle"
-          type="default"
-          icon={<MenuUnfoldOutlined />}
-          aria-label="展开详情面板"
-          onClick={() => setInspectorOpen(true)}
+      {/* 小屏为覆盖式抽屉，需要遮罩避免与主区内容混淆 */}
+      {inspectorOpen ? (
+        <div
+          className="absolute inset-0 z-20 bg-black/20 lg:hidden"
+          onClick={() => setInspectorOpen(false)}
+          aria-hidden
         />
+      ) : null}
+      {inspectorOpen && (
+        <aside className="absolute inset-y-0 right-0 z-30 flex w-[min(520px,90vw)] flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--card)] lg:relative lg:z-auto lg:w-[380px] xl:w-[480px]">
+          <div className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border)] pl-4 pr-2">
+            <span className="text-[13px] font-semibold">检查器</span>
+            <div className="flex items-center gap-0.5">
+              <Button variant="ghost" size="iconSm" aria-label="全屏查看" onClick={() => setExpanded(true)}>
+                <Maximize2 />
+              </Button>
+              <Button
+                variant="ghost"
+                size="iconSm"
+                aria-label="收起检查器"
+                onClick={() => setInspectorOpen(false)}
+              >
+                <PanelRightOpen className="rotate-180" />
+              </Button>
+            </div>
+          </div>
+          <Tabs
+            value={inspectorTab}
+            onValueChange={(key) => setInspectorTab(key as InspectorTab)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <TabsList className="mx-4 mt-2 h-8 shrink-0 rounded-none border-b border-[var(--border)] bg-transparent p-0">
+              <TabsTrigger value="logs" className="rounded-none border-b-2 border-transparent px-3 data-[state=active]:border-[var(--primary)] data-[state=active]:bg-transparent">
+                日志
+              </TabsTrigger>
+              <TabsTrigger value="diagnosis" className="rounded-none border-b-2 border-transparent px-3 data-[state=active]:border-[var(--primary)] data-[state=active]:bg-transparent">
+                构建诊断
+              </TabsTrigger>
+              <TabsTrigger value="details" className="rounded-none border-b-2 border-transparent px-3 data-[state=active]:border-[var(--primary)] data-[state=active]:bg-transparent">
+                构建详情
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="logs" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+              <div className="min-h-0 flex-1">{logContent}</div>
+            </TabsContent>
+            <TabsContent value="diagnosis" className="mt-0 min-h-0 flex-1 overflow-y-auto p-4">
+              {diagnosisContent}
+            </TabsContent>
+            <TabsContent value="details" className="mt-0 min-h-0 flex-1 overflow-y-auto p-4">
+              {detailsContent}
+            </TabsContent>
+          </Tabs>
+        </aside>
       )}
-      <Drawer
-        title="检查器"
-        open={inspectorOpen}
-        onClose={() => setInspectorOpen(false)}
-        width={520}
-        styles={{
-          body: {
-            padding: '16px',
-          },
-        }}
-        extra={
-          <Button
-            size="small"
-            type="text"
-            icon={<FullscreenOutlined />}
-            aria-label="全屏查看"
-            onClick={() => setExpanded(true)}
-          />
-        }
-      >
-        <Tabs
-          className="inspector-tabs"
-          activeKey={inspectorTab}
-          onChange={(key) => setInspectorTab(key as InspectorTab)}
-          items={[
-            {
-              key: 'logs',
-              label: '日志',
-              children: logContent,
-            },
-            {
-              key: 'diagnosis',
-              label: '构建诊断',
-              children: diagnosisContent,
-            },
-            {
-              key: 'details',
-              label: '构建详情',
-              children: detailsContent,
-            },
-          ]}
-        />
-      </Drawer>
-      <Modal
-        title="检查器"
-        open={expanded}
-        footer={null}
-        width="90vw"
-        onCancel={() => setExpanded(false)}
-      >
-        {logContent}
-      </Modal>
+      <Dialog open={expanded} onOpenChange={setExpanded}>
+        <DialogContent className="flex h-[85vh] max-w-[90vw] flex-col p-0">
+          <DialogHeader className="border-b border-[var(--border)] px-5 py-3">
+            <DialogTitle>检查器</DialogTitle>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-hidden p-4">{logContent}</div>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

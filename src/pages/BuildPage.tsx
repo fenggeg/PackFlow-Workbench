@@ -1,24 +1,22 @@
-import {Collapse, Space, Typography} from 'antd'
-import {AdvancedOptionsPanel} from '../components/AdvancedOptions/AdvancedOptionsPanel'
-import {BuildNextActionsPanel} from '../components/BuildCenter/BuildNextActionsPanel'
-import {BuildOptionsPanel} from '../components/BuildOptions/BuildOptionsPanel'
-import {EnvPanel} from '../components/EnvPanel/EnvPanel'
-
-const {Title, Text} = Typography
+import {PageHeader} from '@/components/ui/page-header'
+import {WorkspaceCollapse} from '@/components/ui/workspace-collapse'
+import {AdvancedOptionsPanel} from '@/components/AdvancedOptions/AdvancedOptionsPanel'
+import {BuildNextActionsPanel} from '@/components/BuildCenter/BuildNextActionsPanel'
+import {BuildOptionsPanel} from '@/components/BuildOptions/BuildOptionsPanel'
+import {BuildProgressPanel} from '@/components/BuildProgress/BuildProgressPanel'
+import {EnvPanel} from '@/components/EnvPanel/EnvPanel'
 
 export function BuildPage() {
   return (
-    <main className="workspace-page">
-      <div className="workspace-heading">
-        <div>
-          <Title level={3}>构建中心</Title>
-          <Text type="secondary">选模块、配参数、开始构建，结果会自动记录到产物与历史。</Text>
-        </div>
-      </div>
-      <Space direction="vertical" size={20} style={{width: '100%'}}>
+    <section className="mx-auto w-full max-w-[1180px] p-4 lg:p-6">
+      <PageHeader
+        title="构建中心"
+        description="选模块、配参数、开始构建，结果会自动记录到产物与历史。"
+      />
+      <div className="flex min-w-0 flex-col gap-4 lg:gap-5">
+        <BuildProgressPanel />
         <BuildOptionsPanel />
-        <Collapse
-          className="workspace-collapse"
+        <WorkspaceCollapse
           items={[
             {
               key: 'environment',
@@ -33,7 +31,7 @@ export function BuildPage() {
           ]}
         />
         <BuildNextActionsPanel />
-      </Space>
-    </main>
+      </div>
+    </section>
   )
 }

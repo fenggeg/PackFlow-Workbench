@@ -1,136 +1,143 @@
-import {useState} from 'react'
-import {Button, Modal, Select, Space, Switch, Typography} from 'antd'
-import {ArrowDownOutlined, ArrowUpOutlined} from '@ant-design/icons'
-import {type AppPage} from '../../store/navigationStore'
-import {type NavigationItemConfig, useNavigationConfigStore} from '../../store/useNavigationConfigStore'
-
-const { Text } = Typography
+import {ArrowDown, ArrowUp} from 'lucide-react'
+import {Button} from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {type AppPage} from '@/store/navigationStore'
+import {useNavigationConfigStore} from '@/store/useNavigationConfigStore'
 
 interface NavigationSettingsProps {
   open: boolean
   onClose: () => void
 }
 
-export function NavigationSettings({ open, onClose }: NavigationSettingsProps) {
-  const { items, defaultPage, toggleVisibility, moveItem, setDefaultPage, resetToDefault } = useNavigationConfigStore()
-  const [localItems, setLocalItems] = useState<NavigationItemConfig[]>(items)
-
-  const handleToggleVisibility = (key: AppPage) => {
-    toggleVisibility(key)
-    setLocalItems((prev) =>
-      prev.map((item) =>
-        item.key === key ? { ...item, visible: !item.visible } : item
-      )
-    )
-  }
+export function NavigationSettings({open, onClose}: NavigationSettingsProps) {
+  // 单一数据源：直接读写 store，避免本地副本与 store 不一致
+  const items = useNavigationConfigStore((state) => state.items)
+  const defaultPage = useNavigationConfigStore((state) => state.defaultPage)
+  const toggleVisibility = useNavigationConfigStore((state) => state.toggleVisibility)
+  const moveItem = useNavigationConfigStore((state) => state.moveItem)
+  const setDefaultPage = useNavigationConfigStore((state) => state.setDefaultPage)
+  const resetToDefault = useNavigationConfigStore((state) => state.resetToDefault)
 
   const handleMoveUp = (index: number) => {
-    if (index > 0) {
-      moveItem(index, index - 1)
-      setLocalItems((prev) => {
-        const newItems = [...prev]
-        ;[newItems[index - 1], newItems[index]] = [newItems[index], newItems[index - 1]]
-        return newItems
-      })
-    }
+    if (index > 0) moveItem(index, index - 1)
   }
 
   const handleMoveDown = (index: number) => {
-    if (index < items.length - 1) {
-      moveItem(index, index + 1)
-      setLocalItems((prev) => {
-        const newItems = [...prev]
-        ;[newItems[index], newItems[index + 1]] = [newItems[index + 1], newItems[index]]
-        return newItems
-      })
-    }
-  }
-
-  const handleReset = () => {
-    resetToDefault()
-    setLocalItems(items)
+    if (index < items.length - 1) moveItem(index, index + 1)
   }
 
   return (
-    <Modal
-      title="导航栏设置"
-      open={open}
-      onCancel={onClose}
-      footer={[
-        <Button key="reset" onClick={handleReset}>
-          恢复默认
-        </Button>,
-        <Button key="close" type="primary" onClick={onClose}>
-          完成
-        </Button>,
-      ]}
-      width={400}
-    >
-      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-        <div>
-          <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-            启动时默认打开页面
-          </Text>
-          <Select
-            value={defaultPage}
-            onChange={(value) => setDefaultPage(value as AppPage)}
-            style={{ width: '100%' }}
-            options={items.map((item) => ({
-              value: item.key,
-              label: item.label,
-              disabled: !item.visible,
-            }))}
-          />
-        </div>
-        <div>
-          <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-            拖拽排序或使用箭头调整导航栏顺序，开关控制是否在主页显示
-          </Text>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {localItems.map((item, index) => (
-            <div
-              key={item.key}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '8px 12px',
-                border: '1px solid #f0f0f0',
-                borderRadius: '6px',
-                backgroundColor: item.visible ? '#fafafa' : '#f5f5f5',
-              }}
-            >
-              <Space>
-                <Text strong={item.visible} delete={!item.visible}>
-                  {item.label}
-                </Text>
-              </Space>
-              <Space>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<ArrowUpOutlined />}
-                  disabled={index === 0}
-                  onClick={() => handleMoveUp(index)}
-                />
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<ArrowDownOutlined />}
-                  disabled={index === items.length - 1}
-                  onClick={() => handleMoveDown(index)}
-                />
-                <Switch
-                  size="small"
-                  checked={item.visible}
-                  onChange={() => handleToggleVisibility(item.key)}
-                />
-              </Space>
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>导航栏设置</DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col gap-4 px-5 py-2">
+          <div className="flex flex-col gap-2">
+            <span className="text-[12px] text-[var(--muted-foreground)]">启动时默认打开页面</span>
+            <Select value={defaultPage} onValueChange={(value) => setDefaultPage(value as AppPage)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {items.map((item) => (
+                  <SelectItem key={item.key} value={item.key} disabled={!item.visible}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-2">
+            <span className="text-[12px] text-[var(--muted-foreground)]">
+              使用箭头调整导航栏顺序，开关控制是否在主页显示
+            </span>
+            <div className="flex flex-col gap-2">
+              {items.map((item, index) => (
+                <div
+                  key={item.key}
+                  className={
+                    item.visible
+                      ? 'flex items-center justify-between rounded-[var(--radius)] border border-[var(--border)] bg-[var(--card)] px-3 py-2'
+                      : 'flex items-center justify-between rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)] px-3 py-2 opacity-60'
+                  }
+                >
+                  <span
+                    className={
+                      item.visible
+                        ? 'text-[13px] font-medium text-[var(--foreground)]'
+                        : 'text-[13px] text-[var(--muted-foreground)] line-through'
+                    }
+                  >
+                    {item.label}
+                  </span>
+                  <div className="flex items-center gap-0.5">
+                    <Button
+                      variant="ghost"
+                      size="iconSm"
+                      disabled={index === 0}
+                      aria-label="上移"
+                      onClick={() => handleMoveUp(index)}
+                    >
+                      <ArrowUp />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="iconSm"
+                      disabled={index === items.length - 1}
+                      aria-label="下移"
+                      onClick={() => handleMoveDown(index)}
+                    >
+                      <ArrowDown />
+                    </Button>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={item.visible}
+                      aria-label={`${item.label} 显示开关`}
+                      onClick={() => toggleVisibility(item.key)}
+                      className={
+                        item.visible
+                          ? 'relative h-5 w-9 rounded-full bg-[var(--primary)] transition-colors'
+                          : 'relative h-5 w-9 rounded-full bg-[var(--border-strong)] transition-colors'
+                      }
+                    >
+                      <span
+                        className={
+                          item.visible
+                            ? 'absolute right-0.5 top-0.5 size-4 rounded-full bg-[var(--background)] transition-transform'
+                            : 'absolute left-0.5 top-0.5 size-4 rounded-full bg-[var(--background)] transition-transform'
+                        }
+                      />
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
           </div>
         </div>
-      </Space>
-    </Modal>
+        <DialogFooter>
+          <Button variant="secondary" onClick={resetToDefault}>
+            恢复默认
+          </Button>
+          <Button variant="primary" onClick={onClose}>
+            完成
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
