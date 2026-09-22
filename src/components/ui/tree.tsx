@@ -186,30 +186,43 @@ export function Tree({
   }, [nodes])
 
   const toggleCheck = (node: TreeNodeData) => {
-    // 勾选父模块会带上它的整棵子树；不反向勾选祖先，
-    // 否则「只选一个子模块」会连带把父聚合模块也纳入 -pl，导致构建范围与历史记录被放大。
+    // 勾选父模块会带上它的整棵子树；子模块勾选时只在「所有子孙都已勾选」的情况下才反向勾选祖先，
+    // 避免只选一个子模块就连带把父聚合模块也纳入 -pl，导致构建范围与历史记录被放大。
     const all = collectKeys([node])
     const allChecked = all.every((k) => checkedKeys.has(k))
     const next = new Set(checkedKeys)
     if (allChecked) {
       for (const k of all) next.delete(k)
-      // 取消子模块后，若其祖先的所有子孙都已取消，则祖先也应一并取消，
+      // 取消子模块后，若其祖先的子孙并非全部勾选，则祖先应一并取消（半选态由 isIndeterminate 派生），
       // 避免父模块残留勾选却没有任何子模块被选中的「空壳」状态。
-      pruneEmptyAncestors(node, next)
+      pruneAncestorsOnUncheck(node, next)
     } else {
       for (const k of all) next.add(k)
+      // 子模块全部勾选后，父模块自动进入勾选态，保持父子选择一致。
+      promoteAncestorsOnCheck(node, next)
     }
     onCheckedChange(next)
   }
 
-  // 从 node 的父级向上回溯：只要某祖先的整棵子树都不在 checkedKeys 中，就把它一并移除。
-  const pruneEmptyAncestors = (node: TreeNodeData, keys: Set<string>) => {
+  // 取消勾选后向上回溯：只要某祖先的子孙并非全部勾选，就把它从勾选态移除。
+  const pruneAncestorsOnUncheck = (node: TreeNodeData, keys: Set<string>) => {
     const parent = parentMap.get(node.key)
     if (!parent) return
     const descendants = collectKeys(parent.children ?? [])
-    if (descendants.length > 0 && descendants.every((k) => !keys.has(k))) {
+    if (descendants.length > 0 && !descendants.every((k) => keys.has(k))) {
       keys.delete(parent.key)
-      pruneEmptyAncestors(parent, keys)
+      pruneAncestorsOnUncheck(parent, keys)
+    }
+  }
+
+  // 勾选后向上回溯：只要某祖先的所有子孙都已勾选，就把它一并勾选。
+  const promoteAncestorsOnCheck = (node: TreeNodeData, keys: Set<string>) => {
+    const parent = parentMap.get(node.key)
+    if (!parent) return
+    const descendants = collectKeys(parent.children ?? [])
+    if (descendants.length > 0 && descendants.every((k) => keys.has(k))) {
+      keys.add(parent.key)
+      promoteAncestorsOnCheck(parent, keys)
     }
   }
 
