@@ -170,6 +170,21 @@ export function Tree({
     })
   }
 
+  // 子节点 key -> 父节点，供取消勾选时向上清理「空壳」祖先
+  const parentMap = useMemo(() => {
+    const map = new Map<string, TreeNodeData>()
+    const walk = (list: TreeNodeData[]) => {
+      for (const n of list) {
+        for (const child of n.children ?? []) {
+          map.set(child.key, n)
+          walk([child])
+        }
+      }
+    }
+    walk(nodes)
+    return map
+  }, [nodes])
+
   const toggleCheck = (node: TreeNodeData) => {
     // 勾选父模块会带上它的整棵子树；不反向勾选祖先，
     // 否则「只选一个子模块」会连带把父聚合模块也纳入 -pl，导致构建范围与历史记录被放大。
@@ -178,10 +193,24 @@ export function Tree({
     const next = new Set(checkedKeys)
     if (allChecked) {
       for (const k of all) next.delete(k)
+      // 取消子模块后，若其祖先的所有子孙都已取消，则祖先也应一并取消，
+      // 避免父模块残留勾选却没有任何子模块被选中的「空壳」状态。
+      pruneEmptyAncestors(node, next)
     } else {
       for (const k of all) next.add(k)
     }
     onCheckedChange(next)
+  }
+
+  // 从 node 的父级向上回溯：只要某祖先的整棵子树都不在 checkedKeys 中，就把它一并移除。
+  const pruneEmptyAncestors = (node: TreeNodeData, keys: Set<string>) => {
+    const parent = parentMap.get(node.key)
+    if (!parent) return
+    const descendants = collectKeys(parent.children ?? [])
+    if (descendants.length > 0 && descendants.every((k) => !keys.has(k))) {
+      keys.delete(parent.key)
+      pruneEmptyAncestors(parent, keys)
+    }
   }
 
   const isIndeterminate = (node: TreeNodeData) => {

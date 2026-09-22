@@ -24,9 +24,9 @@ import {ThemeToggle} from './ThemeToggle'
 import {TitleBarControls} from './TitleBarControls'
 import {useInspectorAvailable} from './inspectorAvailability'
 
-/** 快捷键提示最多出现 2 次，之后不再打扰 */
+/** 快捷键提示只出现 1 次，之后不再打扰 */
 const PALETTE_HINT_KEY = 'packflow.command-palette-hint'
-const PALETTE_HINT_MAX = 2
+const PALETTE_HINT_MAX = 1
 
 const branchTone = (hasLocalChanges?: boolean, hasRemoteUpdates?: boolean) => {
   if (hasRemoteUpdates) return 'warning' as const
@@ -48,7 +48,7 @@ export function AppShell() {
   const [paletteOpen, setPaletteOpen] = useState(false)
 
   /**
-   * 快捷键本身不可见，只在启动后轻提示几次。
+   * 快捷键本身不可见，只在首次启动时提示一次。
    * 用 localStorage 计数，提示过就不再打扰 —— 避免每次启动都弹。
    */
   useEffect(() => {
