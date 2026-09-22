@@ -1,5 +1,5 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import {Check, MoreHorizontal, Pencil, Pin, PinOff, Save, Trash2} from 'lucide-react'
+import {Check, Download, MoreHorizontal, Pencil, Pin, PinOff, Save, Trash2} from 'lucide-react'
 import {useState} from 'react'
 import {Button} from '@/components/ui/button'
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
@@ -20,6 +20,7 @@ import {SaveTemplateDialog} from '@/components/BuildTemplate/SaveTemplateDialog'
 import {useAppStore} from '@/store/useAppStore'
 import {describeError, notifyError, notifySuccess} from '@/store/useFeedbackStore'
 import type {BuildTemplate} from '@/types/domain'
+import {downloadTextFile, timestampSuffix} from '@/utils/download'
 
 export function FavoriteGroupsCard() {
   const project = useAppStore((state) => state.project)
@@ -60,24 +61,51 @@ export function FavoriteGroupsCard() {
     }
   }
 
+  /** 导出全部模板为 JSON，便于备份或在另一台机器上恢复 */
+  const exportTemplates = () => {
+    if (templates.length === 0) return
+    downloadTextFile(
+      `packflow-templates-${timestampSuffix()}.json`,
+      JSON.stringify(templates, null, 2),
+      'application/json;charset=utf-8',
+    )
+    notifySuccess(`已导出 ${templates.length} 个构建模板`)
+  }
+
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between space-y-0">
         <CardTitle>构建模板</CardTitle>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="iconSm"
-              disabled={!project}
-              aria-label="保存当前选择"
-              onClick={() => setSaving(true)}
-            >
-              <Save />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>保存当前选择为构建模板</TooltipContent>
-        </Tooltip>
+        <div className="flex items-center gap-0.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="iconSm"
+                disabled={templates.length === 0}
+                aria-label="导出构建模板"
+                onClick={exportTemplates}
+              >
+                <Download />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>导出构建模板（JSON）</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="iconSm"
+                disabled={!project}
+                aria-label="保存当前选择"
+                onClick={() => setSaving(true)}
+              >
+                <Save />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>保存当前选择为构建模板</TooltipContent>
+          </Tooltip>
+        </div>
       </CardHeader>
       <CardContent>
         {templates.length === 0 ? (

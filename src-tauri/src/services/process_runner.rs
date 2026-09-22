@@ -599,6 +599,27 @@ fn cancel_build_by_id(
                 }
             }
         });
+    } else if job_handle.is_some() {
+        // 进程已启动但还没登记到 processes（启动瞬间的竞态）。
+        // 关闭 job handle 会通过 KILL_ON_JOB_CLOSE 终止进程树，
+        // 同时必须打上 cancelled 标记，否则 wait 线程会把它误报成 FAILED。
+        close_job_on_failure(job_handle);
+        if let Ok(mut cancelled_builds) = state.cancelled_builds.lock() {
+            cancelled_builds.insert(build_id.to_string());
+        }
+        app_logger::log_warn(
+            &app,
+            "build.cancel.pending",
+            format!("build_id={}", build_id),
+        );
+        let _ = window.emit(
+            "build-log",
+            BuildLogEvent {
+                build_id: build_id.to_string(),
+                stream: "system".to_string(),
+                line: "构建进程刚启动，已通过任务对象请求终止进程树。".to_string(),
+            },
+        );
     } else {
         close_job_on_failure(job_handle);
         app_logger::log_warn(

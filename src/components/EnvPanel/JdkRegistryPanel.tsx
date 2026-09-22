@@ -1,4 +1,4 @@
-import {Check, Plus, Search, Trash2} from 'lucide-react'
+import {Check, Plus, Search, Star, Trash2} from 'lucide-react'
 import {useState} from 'react'
 import {Button} from '@/components/ui/button'
 import {
@@ -22,6 +22,7 @@ export function JdkRegistryPanel({onSelect}: JdkRegistryPanelProps) {
   const scanSystemJdks = useAppStore((state) => state.scanSystemJdks)
   const addJdkToRegistry = useAppStore((state) => state.addJdkToRegistry)
   const removeJdkFromRegistry = useAppStore((state) => state.removeJdkFromRegistry)
+  const setDefaultJdk = useAppStore((state) => state.setDefaultJdk)
   const [removeTarget, setRemoveTarget] = useState<{id: string; name: string} | null>(null)
 
   const currentJdkPath = environment?.javaHome
@@ -59,6 +60,20 @@ export function JdkRegistryPanel({onSelect}: JdkRegistryPanelProps) {
                     {entry.path}
                   </div>
                 </div>
+                <Button
+                  variant="ghost"
+                  size="iconSm"
+                  className={entry.isDefault ? 'shrink-0 text-[var(--warning)]' : 'shrink-0'}
+                  aria-label={entry.isDefault ? '已是默认 JDK' : '设为默认 JDK'}
+                  title={entry.isDefault ? '已是默认 JDK' : '设为默认 JDK'}
+                  disabled={entry.isDefault}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    void setDefaultJdk(entry.id)
+                  }}
+                >
+                  <Star />
+                </Button>
                 <Button
                   variant="ghost"
                   size="iconSm"

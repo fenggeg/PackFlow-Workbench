@@ -96,11 +96,21 @@ export const useDependencyStore = create<DependencyState>((set, get) => ({
 
   cancelScan: () => {
     if (!get().scanning) return
-    // 后端没有中断命令，这里只放弃等待：结果不会被应用
+    // 后端现在有真正的中断命令：先终止 mvn 进程树，再放弃等待
     activeToken += 1
     stopElapsedTimer()
     set({scanning: false, progress: undefined, elapsed: 0})
-    notifyInfo('已放弃等待本次扫描', '后端扫描仍在继续，完成后结果不会写入面板。')
+    void api
+      .cancelDependencyScan()
+      .then((killed) => {
+        notifyInfo(
+          '已取消依赖冲突扫描',
+          killed ? '已终止 dependency:tree 进程。' : '扫描进程已结束，结果不会写入面板。',
+        )
+      })
+      .catch(() => {
+        notifyInfo('已放弃等待本次扫描', '结果不会写入面板。')
+      })
   },
 
   clear: () => {

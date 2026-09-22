@@ -49,6 +49,7 @@ const signature = (snapshot: BuildProgressSnapshot) =>
     snapshot.completedModules,
     snapshot.totalModules,
     snapshot.message ?? '',
+    snapshot.indeterminate ? '1' : '0',
     snapshot.stages.map((stage) => stage.status).join(''),
     snapshot.subSteps.map((step) => step.status).join(''),
   ].join('|')

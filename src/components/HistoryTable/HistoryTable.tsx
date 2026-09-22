@@ -1,4 +1,4 @@
-import {Copy, FolderOpen, Maximize2, RotateCcw, Trash2} from 'lucide-react'
+import {Copy, Download, FolderOpen, Maximize2, RotateCcw, Trash2} from 'lucide-react'
 import {useMemo, useState} from 'react'
 import {Button} from '@/components/ui/button'
 import {
@@ -24,6 +24,7 @@ import {api} from '@/services/tauri-api'
 import {useAppStore} from '@/store/useAppStore'
 import {describeError, notifyError, notifySuccess} from '@/store/useFeedbackStore'
 import type {BuildHistoryRecord} from '@/types/domain'
+import {downloadTextFile, timestampSuffix, toCsv, withBom} from '@/utils/download'
 
 const statusTone: Record<BuildHistoryRecord['status'], 'success' | 'error' | 'warning'> = {
   SUCCESS: 'success',
@@ -89,6 +90,28 @@ export function HistoryTable() {
       )
     })
   }, [history, keyword, statusFilter])
+
+  /** 导出当前筛选结果为 CSV（带 BOM，Excel 直接打开不乱码） */
+  const exportCsv = () => {
+    const rows: Array<Array<string | number>> = [
+      ['构建时间', '结果', '项目路径', '模块', '命令', '耗时(秒)', '产物数'],
+      ...filteredHistory.map((record) => [
+        new Date(record.createdAt).toLocaleString(),
+        record.status,
+        record.projectRoot,
+        record.moduleArtifactId ?? record.modulePath ?? '全部项目',
+        record.command,
+        (record.durationMs / 1000).toFixed(1),
+        record.artifacts?.length ?? 0,
+      ]),
+    ]
+    downloadTextFile(
+      `packflow-history-${timestampSuffix()}.csv`,
+      withBom(toCsv(rows)),
+      'text/csv;charset=utf-8',
+    )
+    notifySuccess(`已导出 ${filteredHistory.length} 条历史记录`)
+  }
 
   const pageCount = Math.max(1, Math.ceil(filteredHistory.length / pageSize))
   const currentPage = Math.min(page, pageCount - 1)
@@ -338,6 +361,20 @@ export function HistoryTable() {
             <SelectItem value="CANCELLED">已停止</SelectItem>
           </SelectContent>
         </Select>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="secondary"
+              size="iconSm"
+              aria-label="导出当前筛选结果"
+              disabled={filteredHistory.length === 0}
+              onClick={exportCsv}
+            >
+              <Download />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>导出当前筛选结果（CSV）</TooltipContent>
+        </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button variant="secondary" size="iconSm" aria-label="放大查看" onClick={() => toggleExpanded(true)}>

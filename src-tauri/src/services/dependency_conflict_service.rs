@@ -7,7 +7,38 @@ use std::io::{BufRead, BufReader};
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
+
+/// 一次 dependency:tree 全量扫描的超时上限。
+/// 大项目或依赖未缓存时可能跑很久，没有上限会永久占用一个 blocking 线程。
+const SCAN_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// 当前扫描进程 pid（0 表示没有在扫描）
+static ACTIVE_SCAN_PID: AtomicU32 = AtomicU32::new(0);
+/// 取消/超时标记
+static SCAN_CANCELLED: AtomicBool = AtomicBool::new(false);
+
+/// 请求中断依赖冲突扫描：直接终止 mvn 进程树，而不是让前端干等。
+/// 返回是否真的发出了终止命令。
+pub fn cancel_dependency_scan() -> bool {
+    SCAN_CANCELLED.store(true, Ordering::SeqCst);
+    let pid = ACTIVE_SCAN_PID.load(Ordering::SeqCst);
+    if pid == 0 {
+        return false;
+    }
+    kill_pid(pid)
+}
+
+fn kill_pid(pid: u32) -> bool {
+    Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
 
 /// 进度事件 payload
 #[derive(Clone, serde::Serialize)]
@@ -52,7 +83,20 @@ pub fn detect_dependency_conflicts(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
+    SCAN_CANCELLED.store(false, Ordering::SeqCst);
     let mut child = cmd.spawn().map_err(|e| to_user_error(format!("无法启动 dependency:tree: {}", e)))?;
+    let scan_pid = child.id();
+    ACTIVE_SCAN_PID.store(scan_pid, Ordering::SeqCst);
+
+    // 看门狗：超过上限仍未结束就终止进程树。子进程被杀后 stdout 管道会 EOF，
+    // 阻塞在读循环的主线程因此能够退出，避免永久占用 blocking 线程。
+    std::thread::spawn(move || {
+        std::thread::sleep(SCAN_TIMEOUT);
+        if ACTIVE_SCAN_PID.load(Ordering::SeqCst) == scan_pid {
+            let _ = kill_pid(scan_pid);
+            SCAN_CANCELLED.store(true, Ordering::SeqCst);
+        }
+    });
 
     let stdout = child.stdout.take().ok_or_else(|| to_user_error("无法获取 dependency:tree 的标准输出"))?;
     let stderr = child.stderr.take().ok_or_else(|| to_user_error("无法获取 dependency:tree 的标准错误"))?;
@@ -73,9 +117,13 @@ pub fn detect_dependency_conflicts(
     let mut module_sections: HashMap<String, Vec<String>> = HashMap::new();
     let mut current_module_id = String::new();
     let mut scanned_count = 0usize;
-    let mut last_progress_emit = std::time::Instant::now();
+    let mut last_progress_emit = Instant::now();
 
     for line_result in reader.lines() {
+        // 用户取消或超时后停止解析剩余输出
+        if SCAN_CANCELLED.load(Ordering::SeqCst) {
+            break;
+        }
         let line = match line_result {
             Ok(l) => l,
             Err(_) => continue,
@@ -89,7 +137,7 @@ pub fn detect_dependency_conflicts(
             current_module_id = module_name;
 
             // 节流：每 500ms 推送一次进度事件，避免高频 emit
-            if last_progress_emit.elapsed() >= std::time::Duration::from_millis(500) {
+            if last_progress_emit.elapsed() >= Duration::from_millis(500) {
                 let _ = app.emit("dependency-conflict-progress", ConflictScanProgress {
                     current_module: current_module_id.clone(),
                     scanned_modules: scanned_count,
@@ -109,6 +157,12 @@ pub fn detect_dependency_conflicts(
 
     let exit_status = child.wait().map_err(|e| to_user_error(format!("等待 dependency:tree 结束失败: {}", e)))?;
     let stderr_lines = stderr_handle.join().unwrap_or_default();
+    ACTIVE_SCAN_PID.store(0, Ordering::SeqCst);
+
+    // 取消/超时优先于其他判定：此时结果不完整，必须明确报错而不是当成「无冲突」
+    if SCAN_CANCELLED.load(Ordering::SeqCst) {
+        return Err(to_user_error("已取消依赖冲突扫描，结果未生成。"));
+    }
 
     if !exit_status.success() && module_sections.is_empty() {
         if !stderr_lines.is_empty() {
@@ -116,6 +170,21 @@ pub fn detect_dependency_conflicts(
         }
         return Err(to_user_error("dependency:tree 执行失败且无输出。"));
     }
+
+    // 非零退出但解析出了部分模块：结果可用但不可信，必须显式告知用户，
+    // 否则「扫描失败」会被误读成「没有冲突」。
+    let warning = if !exit_status.success() {
+        let code = exit_status
+            .code()
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "未知".to_string());
+        Some(format!(
+            "dependency:tree 以非零状态退出（退出码 {}），以下结果可能不完整。",
+            code
+        ))
+    } else {
+        None
+    };
 
     // 解析每个模块的依赖树，提取冲突
     let coord_re = Regex::new(COORD_PATTERN).unwrap();
@@ -159,6 +228,7 @@ pub fn detect_dependency_conflicts(
         root_path: root_path.to_string(),
         modules: module_results,
         has_conflicts,
+        warning,
     })
 }
 

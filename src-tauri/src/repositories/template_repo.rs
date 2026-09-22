@@ -1,6 +1,7 @@
 use crate::error::AppResult;
 use crate::models::template::BuildTemplate;
 use crate::repositories::storage::open_database;
+use crate::services::app_logger;
 use chrono::Utc;
 use rusqlite::{params, OptionalExtension};
 use tauri::AppHandle;
@@ -17,9 +18,17 @@ pub fn list(app: &AppHandle) -> AppResult<Vec<BuildTemplate>> {
     let mut templates = Vec::new();
     for row in rows {
         let payload = row.map_err(|error| format!("无法读取常用模板：{}", error))?;
-        let template = serde_json::from_str(&payload)
-            .map_err(|error| format!("常用模板数据格式异常：{}", error))?;
-        templates.push(template);
+        // 逐行容错：单条损坏只影响该模板，不让整个模板列表不可用
+        match serde_json::from_str::<BuildTemplate>(&payload) {
+            Ok(template) => templates.push(template),
+            Err(error) => {
+                app_logger::log_error(
+                    app,
+                    "template.record.invalid",
+                    format!("已跳过无法解析的模板：{}", error),
+                );
+            }
+        }
     }
 
     Ok(templates)

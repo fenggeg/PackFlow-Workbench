@@ -10,6 +10,11 @@ export const diagnosisCategoryText: Record<BuildDiagnosis['category'], string> =
   profile_invalid: 'profile 不存在',
   module_invalid: '模块路径错误',
   test_failed: '单元测试失败',
+  compilation_error: '编译错误',
+  out_of_memory: '内存不足',
+  plugin_resolution: '插件解析失败',
+  jre_no_compiler: '使用了 JRE 而非 JDK',
+  encoding_error: '编码错误',
   unknown: '未知错误',
 }
 

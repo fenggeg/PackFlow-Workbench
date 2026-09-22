@@ -1,10 +1,12 @@
 import {Folder, GitBranch, PanelRight} from 'lucide-react'
-import {useEffect} from 'react'
+import {useEffect, useState} from 'react'
 import {Button} from '@/components/ui/button'
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@/components/ui/dialog'
 import {StatusPill} from '@/components/ui/status-pill'
 import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from '@/components/ui/tooltip'
 import {Toaster} from '@/components/ui/toaster'
+import {CommandPalette} from '@/components/CommandPalette/CommandPalette'
+import {DataToolsMenu} from '@/components/DataTools/DataToolsMenu'
 import {ProjectSelector} from '@/components/ProjectSelector/ProjectSelector'
 import {UpdateChecker} from '@/components/UpdateChecker/UpdateChecker'
 import {ExternalLinks} from '@/components/common/ExternalLinks'
@@ -36,6 +38,19 @@ export function AppShell() {
   const projectSwitcherOpen = useNavigationStore((state) => state.projectSwitcherOpen)
   const setProjectSwitcherOpen = useNavigationStore((state) => state.setProjectSwitcherOpen)
   const inspectorAvailable = useInspectorAvailable()
+  const [paletteOpen, setPaletteOpen] = useState(false)
+
+  // Ctrl/Cmd + K 打开命令面板：桌面工具里最常用的全局快捷入口
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setPaletteOpen((value) => !value)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   useEffect(() => {
     // 仅在首次挂载应用「启动时默认页面」，后续用户切换不再被覆盖
@@ -94,6 +109,7 @@ export function AppShell() {
                 <TooltipContent>{inspectorOpen ? '收起检查器' : '展开检查器'}</TooltipContent>
               </Tooltip>
             ) : null}
+            <DataToolsMenu />
             <ExternalLinks />
             <ThemeToggle />
             <UpdateChecker />
@@ -107,6 +123,7 @@ export function AppShell() {
           <InspectorDrawer />
         </div>
         <BottomActionBar />
+        <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
         <Dialog open={projectSwitcherOpen} onOpenChange={setProjectSwitcherOpen}>
           <DialogContent className="max-w-lg">
             <DialogHeader>

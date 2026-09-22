@@ -1,6 +1,9 @@
 import {Download, History, X} from 'lucide-react'
+import {useMemo, useState} from 'react'
 import {Button} from '@/components/ui/button'
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
+import {Input} from '@/components/ui/input'
+import {Pagination} from '@/components/ui/pagination'
 import {
   Select,
   SelectContent,
@@ -18,6 +21,9 @@ const formatCommitTime = (value: string) => {
   return date.toLocaleString()
 }
 
+/** 提交列表每页条数：侧栏空间有限，一次铺开会挤压其它信息 */
+const COMMIT_PAGE_SIZE = 8
+
 export function GitStatusCard() {
   const project = useAppStore((state) => state.project)
   const gitStatus = useAppStore((state) => state.gitStatus)
@@ -32,6 +38,27 @@ export function GitStatusCard() {
   const pullGitUpdates = useAppStore((state) => state.pullGitUpdates)
   const switchGitBranch = useAppStore((state) => state.switchGitBranch)
   const clearGitError = useAppStore((state) => state.clearGitError)
+  const [commitQuery, setCommitQuery] = useState('')
+  const [commitPage, setCommitPage] = useState(0)
+
+  // 提交记录较多时需要检索与分页，否则侧栏被撑得很长
+  const filteredCommits = useMemo(() => {
+    const keyword = commitQuery.trim().toLowerCase()
+    if (!keyword) return gitCommits
+    return gitCommits.filter(
+      (commit) =>
+        commit.subject.toLowerCase().includes(keyword)
+        || commit.author.toLowerCase().includes(keyword)
+        || commit.shortHash.toLowerCase().includes(keyword),
+    )
+  }, [commitQuery, gitCommits])
+
+  const commitPageCount = Math.max(1, Math.ceil(filteredCommits.length / COMMIT_PAGE_SIZE))
+  const currentCommitPage = Math.min(commitPage, commitPageCount - 1)
+  const visibleCommits = filteredCommits.slice(
+    currentCommitPage * COMMIT_PAGE_SIZE,
+    currentCommitPage * COMMIT_PAGE_SIZE + COMMIT_PAGE_SIZE,
+  )
 
   if (!project) {
     return (
@@ -172,6 +199,12 @@ export function GitStatusCard() {
           <span className="text-[12px] text-[var(--warning)]">本地有未提交改动，不影响打包。</span>
         ) : null}
 
+        {gitStatus.aheadCount > 0 ? (
+          <span className="text-[12px] text-[var(--muted-foreground)]">
+            本地领先远端 {gitStatus.aheadCount} 个提交，尚未推送。
+          </span>
+        ) : null}
+
         {!gitStatus.hasRemoteUpdates && !gitStatus.hasLocalChanges && gitStatus.message ? (
           <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-[13px] text-[var(--muted-foreground)]">
             {gitStatus.message}
@@ -181,15 +214,31 @@ export function GitStatusCard() {
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <span className="text-[13px] font-medium">最近提交</span>
-            <span className="text-[12px] text-[var(--muted-foreground)]">{gitCommits.length} 条</span>
+            <span className="text-[12px] text-[var(--muted-foreground)]">
+              {commitQuery.trim() ? `${filteredCommits.length} / ${gitCommits.length} 条` : `${gitCommits.length} 条`}
+            </span>
           </div>
+          {gitCommits.length > 0 ? (
+            <Input
+              placeholder="搜索提交说明 / 作者 / hash"
+              value={commitQuery}
+              onChange={(event) => {
+                setCommitQuery(event.target.value)
+                setCommitPage(0)
+              }}
+            />
+          ) : null}
           {gitCommits.length === 0 && !gitCommitsLoading ? (
             <div className="flex min-h-12 items-center justify-center text-[13px] text-[var(--muted-foreground)]">
               暂无提交记录
             </div>
+          ) : filteredCommits.length === 0 ? (
+            <div className="flex min-h-12 items-center justify-center text-[13px] text-[var(--muted-foreground)]">
+              没有匹配的提交
+            </div>
           ) : (
             <ul className="m-0 list-none divide-y divide-[var(--border)] p-0">
-              {gitCommits.map((commit) => (
+              {visibleCommits.map((commit) => (
                 <li key={commit.hash} className="flex flex-col gap-1 py-2">
                   <span className="truncate text-[13px] font-medium" title={commit.subject}>
                     {commit.subject}
@@ -205,6 +254,14 @@ export function GitStatusCard() {
               ))}
             </ul>
           )}
+          {filteredCommits.length > COMMIT_PAGE_SIZE ? (
+            <Pagination
+              total={filteredCommits.length}
+              pageSize={COMMIT_PAGE_SIZE}
+              currentPage={currentCommitPage}
+              onPageChange={setCommitPage}
+            />
+          ) : null}
           {gitCommitsLoading ? (
             <span className="text-[12px] text-[var(--muted-foreground)]">加载提交…</span>
           ) : null}

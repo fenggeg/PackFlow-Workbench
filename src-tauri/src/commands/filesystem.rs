@@ -55,15 +55,21 @@ pub async fn scan_build_artifacts(
     app: AppHandle,
     project_root: String,
     module_path: String,
+    since_millis: Option<u64>,
 ) -> AppResult<Vec<BuildArtifact>> {
     app_logger::log_info(
         &app,
         "filesystem.artifacts.scan.start",
-        format!("project_root={}, module_path={}", project_root, module_path),
+        format!(
+            "project_root={}, module_path={}, since_millis={:?}",
+            project_root, module_path, since_millis
+        ),
     );
 
-    let result =
-        blocking::run(move || scan_build_artifacts_sync(&project_root, &module_path)).await;
+    let result = blocking::run(move || {
+        scan_build_artifacts_sync(&project_root, &module_path, since_millis)
+    })
+    .await;
     match &result {
         Ok(artifacts) => app_logger::log_info(
             &app,
@@ -79,38 +85,60 @@ pub async fn scan_build_artifacts(
     result
 }
 
+/// 扫描构建产物。
+///
+/// `since_millis` 为本次构建的开始时间（epoch 毫秒）时，只返回在此之后被写过的文件，
+/// 即「本次构建真正产出的产物」，避免把历史遗留的同名 jar 也算进来。
+/// 若一次构建没有重新打包任何模块（例如只跑到了 compile），过滤结果会为空，
+/// 此时回退为不过滤，避免出现「构建成功但产物为空」的误导。
 fn scan_build_artifacts_sync(
     project_root: &str,
     module_path: &str,
+    since_millis: Option<u64>,
 ) -> AppResult<Vec<BuildArtifact>> {
     let root = PathBuf::from(project_root);
     if !root.exists() {
         return Err(to_user_error(format!("项目路径不存在：{}", project_root)));
     }
 
-    let mut artifacts = Vec::new();
     let module_paths = module_path
         .split(',')
         .map(str::trim)
         .filter(|item| !item.is_empty())
         .collect::<Vec<_>>();
 
-    if module_paths.is_empty() {
-        scan_target_dirs(&root, &root, &mut artifacts)?;
-    } else {
-        for module in module_paths {
-            let module_root = root.join(module);
-            scan_target_dir(&root, &module_root.join("target"), module, &mut artifacts)?;
+    fn collect(
+        root: &Path,
+        module_paths: &[&str],
+        since: Option<std::time::SystemTime>,
+    ) -> AppResult<Vec<BuildArtifact>> {
+        let mut artifacts = Vec::new();
+        if module_paths.is_empty() {
+            scan_target_dirs(root, root, &mut artifacts, since)?;
+        } else {
+            for module in module_paths {
+                let module_root = root.join(module);
+                scan_target_dir(root, &module_root.join("target"), module, &mut artifacts, since)?;
+            }
         }
+        artifacts.sort_by(|left, right| {
+            right
+                .modified_at
+                .cmp(&left.modified_at)
+                .then_with(|| right.size_bytes.cmp(&left.size_bytes))
+        });
+        artifacts.truncate(20);
+        Ok(artifacts)
     }
 
-    artifacts.sort_by(|left, right| {
-        right
-            .modified_at
-            .cmp(&left.modified_at)
-            .then_with(|| right.size_bytes.cmp(&left.size_bytes))
-    });
-    artifacts.truncate(20);
+    let since = since_millis
+        .filter(|value| *value > 0)
+        .map(|value| std::time::UNIX_EPOCH + std::time::Duration::from_millis(value));
+
+    let artifacts = collect(&root, &module_paths, since)?;
+    if artifacts.is_empty() && since.is_some() {
+        return collect(&root, &module_paths, None);
+    }
     Ok(artifacts)
 }
 
@@ -118,6 +146,7 @@ fn scan_target_dirs(
     project_root: &Path,
     current: &Path,
     artifacts: &mut Vec<BuildArtifact>,
+    since: Option<std::time::SystemTime>,
 ) -> AppResult<()> {
     let entries = match fs::read_dir(current) {
         Ok(entries) => entries,
@@ -137,9 +166,9 @@ fn scan_target_dirs(
                 .and_then(|parent| parent.strip_prefix(project_root).ok())
                 .map(|relative| relative.to_string_lossy().replace('\\', "/"))
                 .unwrap_or_default();
-            scan_target_dir(project_root, &path, &module_path, artifacts)?;
+            scan_target_dir(project_root, &path, &module_path, artifacts, since)?;
         } else if !is_ignored_dir(&path) {
-            scan_target_dirs(project_root, &path, artifacts)?;
+            scan_target_dirs(project_root, &path, artifacts, since)?;
         }
     }
 
@@ -151,6 +180,7 @@ fn scan_target_dir(
     target_dir: &Path,
     module_path: &str,
     artifacts: &mut Vec<BuildArtifact>,
+    since: Option<std::time::SystemTime>,
 ) -> AppResult<()> {
     if !target_dir.exists() {
         return Ok(());
@@ -174,6 +204,13 @@ fn scan_target_dir(
         let metadata = entry
             .metadata()
             .map_err(|error| format!("无法读取构建产物信息：{}", error))?;
+        // 只要本次构建写过的文件：过滤掉历史遗留产物
+        if let Some(since) = since {
+            match metadata.modified() {
+                Ok(modified) if modified >= since => {}
+                _ => continue,
+            }
+        }
         let modified_at = metadata
             .modified()
             .ok()
@@ -212,10 +249,23 @@ fn scan_target_dir(
     Ok(())
 }
 
+/// 识别构建产物文件类型。除 jar/war 外，补充常见的 zip/ear 与 tar.gz 分发包，
+/// 避免前端静态资源包、分发压缩包被漏掉。
 fn is_package_file(path: &Path) -> bool {
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if file_name.ends_with(".tar.gz") || file_name.ends_with(".tar.bz2") {
+        return true;
+    }
     matches!(
-        path.extension().and_then(|value| value.to_str()),
-        Some("jar") | Some("war")
+        path.extension()
+            .and_then(|value| value.to_str())
+            .map(|value| value.to_ascii_lowercase())
+            .as_deref(),
+        Some("jar") | Some("war") | Some("zip") | Some("ear")
     )
 }
 
@@ -262,26 +312,36 @@ pub fn delete_build_artifact(
         return Err(to_user_error(format!("路径不是文件：{}", path)));
     }
 
-    // 若提供项目根目录，仅允许删除其下的文件（含 target 产物路径）
-    if let Some(root) = project_root.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
-        let root_path = PathBuf::from(root);
-        let target_ok = match (fs::canonicalize(&target), fs::canonicalize(&root_path)) {
-            (Ok(canonical_target), Ok(canonical_root)) => {
-                canonical_target.starts_with(&canonical_root)
-            }
-            _ => false,
-        };
-        if !target_ok {
+    // 删除必须有项目根目录约束：缺失时直接拒绝，避免退化为无约束的任意文件删除
+    let root = match project_root.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        Some(root) => root,
+        None => {
             app_logger::log_error(
                 &app,
                 "filesystem.artifact.delete.rejected",
-                format!("path={}, root={}, error=路径不在项目目录内", path, root),
+                format!("path={}, error=缺少项目根目录约束", path),
             );
             return Err(to_user_error(format!(
-                "拒绝删除项目目录之外的文件：{}",
+                "缺少项目根目录信息，已拒绝删除：{}",
                 path
             )));
         }
+    };
+    let root_path = PathBuf::from(root);
+    let target_ok = match (fs::canonicalize(&target), fs::canonicalize(&root_path)) {
+        (Ok(canonical_target), Ok(canonical_root)) => canonical_target.starts_with(&canonical_root),
+        _ => false,
+    };
+    if !target_ok {
+        app_logger::log_error(
+            &app,
+            "filesystem.artifact.delete.rejected",
+            format!("path={}, root={}, error=路径不在项目目录内", path, root),
+        );
+        return Err(to_user_error(format!(
+            "拒绝删除项目目录之外的文件：{}",
+            path
+        )));
     }
 
     fs::remove_file(&target).map_err(|error| {

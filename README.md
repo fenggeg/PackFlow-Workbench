@@ -2,6 +2,7 @@
 
 面向 Windows 的 Maven 多模块项目打包工作台。基于 Tauri 2，React 19 前端负责交互编排，Rust 后端负责 POM 解析、环境检测、进程执行与 SQLite 持久化。
 
+当前版本：`3.3.7`（`package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 三处版本号保持一致）。
 
 ## 功能概览
 
@@ -36,7 +37,15 @@
 - 检查器抽屉：日志 / 构建诊断 / 构建详情三个页签，支持全屏放大
 - 导航栏设置：页面可见性、排序与启动默认页面可自定义，配置持久化
 - 深浅色主题切换（浅色 / 深色 / 跟随系统）
+- 命令面板：`Ctrl + K` 唤起，可跳转页面、开始/停止构建、刷新环境、扫描 JDK、切换主题与项目
 - 应用内自动更新：基于官方 Updater 插件，自建更新源优先、GitHub 兜底
+
+### 数据与排查
+
+- 数据备份与恢复：把本地数据库导出到指定位置或从备份恢复（校验文件头，拒绝非 SQLite 文件）
+- 诊断包导出：一键导出版本、项目、环境、构建参数、诊断结果与最近日志
+- 数据导出：历史记录导出 CSV，构建模板与依赖冲突结果导出 JSON
+- 打开应用数据目录：直达数据库与日志文件所在位置
 
 ## 技术栈
 
@@ -77,7 +86,7 @@ cd src-tauri && cargo check # Rust 类型/编译检查
 
 前端改动建议按 `npm run lint` → `npm run build` → `npm run test` 的顺序验证；Rust 改动在 `src-tauri/` 下执行 `cargo check`。
 
-单元测试覆盖 `useAppStore` 选择逻辑、构建进度解析（含 Reactor 清单统计）、`boundedBuffer`、`buildOptions` 归一化与日志文本处理，共 7 个 `*.test.ts` 文件。
+单元测试覆盖 `useAppStore` 选择逻辑与命令锁定、构建进度解析（含 Reactor 清单统计）、失败诊断规则打分、`boundedBuffer`、`buildOptions` 归一化与日志文本处理，共 9 个 `*.test.ts` 文件。
 
 ## 构建安装包
 
@@ -121,6 +130,8 @@ src/
     NavigationSettings/     导航栏设置
     Dashboard/              系统时间、网络状态、节假日倒计时卡片
     UpdateChecker/          应用更新检查
+    DataTools/              数据备份/恢复、诊断包导出、打开数据目录
+    CommandPalette/         Ctrl+K 命令面板
     common/                 LogConsole、ExternalLinks
     ui/                     button / card / dialog / select / tabs 等基础组件
   services/                 前端业务逻辑
@@ -133,12 +144,13 @@ src/
                             useEnvironmentStore、useDependencyStore、
                             useNavigationConfigStore、useThemeStore、
                             useFeedbackStore、useWorkflowStore、navigationStore
-  hooks/ lib/ utils/        事件订阅、动效、格式化与容量裁剪工具
+  hooks/ lib/ utils/        事件订阅、动效、格式化、下载导出与容量裁剪工具
   types/domain.ts           前端领域类型
 
 src-tauri/src/
-  commands/                 Tauri command 入口（10 个模块，39 个命令）
+  commands/                 Tauri command 入口（11 个模块，44 个命令）
     project                 项目解析、模块依赖图
+    data                    数据备份/恢复、诊断包导出、打开数据目录
     environment             环境检测、环境设置、项目绑定、JDK 注册表
     build                   命令预览、启停构建、并发上限
     dependency              依赖冲突检测与排除代码生成

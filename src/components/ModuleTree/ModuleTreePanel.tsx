@@ -95,13 +95,20 @@ export function ModuleTreePanel() {
 
   const checkedSet = useMemo(() => new Set(selectedModuleIds), [selectedModuleIds])
 
+  /** 模块标签：可点击跳转到对应模块，便于沿着依赖链逐层查看 */
   const renderModuleTags = (moduleIds: string[], tone: 'info' | 'warning' | 'success' | 'neutral') =>
     moduleIds.length > 0 ? (
       <div className="flex flex-wrap gap-1.5">
         {moduleIds.map((moduleId) => (
-          <StatusPill key={moduleId} tone={tone}>
-            {idToModule[moduleId]?.artifactId ?? moduleId}
-          </StatusPill>
+          <button
+            key={moduleId}
+            type="button"
+            className="rounded-[var(--radius)] p-0 transition-opacity hover:opacity-80"
+            title={idToModule[moduleId]?.relativePath || moduleId}
+            onClick={() => setFocusedModuleId(moduleId)}
+          >
+            <StatusPill tone={tone}>{idToModule[moduleId]?.artifactId ?? moduleId}</StatusPill>
+          </button>
         ))}
       </div>
     ) : (
@@ -244,6 +251,22 @@ export function ModuleTreePanel() {
               {selectedSummary?.hasCycle ? <StatusPill tone="error">检测到循环依赖</StatusPill> : null}
             </div>
 
+            {(selectedSummary?.cyclePaths.length ?? 0) > 0 ? (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[13px] font-medium">循环依赖路径</span>
+                <ul className="m-0 list-none space-y-1 p-0">
+                  {selectedSummary?.cyclePaths.map((path, index) => (
+                    <li
+                      key={`cycle-${index}`}
+                      className="break-all rounded-[var(--radius)] border border-[var(--error)]/30 bg-[var(--error)]/5 px-2 py-1 font-[family-name:var(--font-mono)] text-[11px] text-[var(--error)]"
+                    >
+                      {path.map((id) => idToModule[id]?.artifactId ?? id).join(' → ')}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
             <div className="flex flex-col gap-1.5">
               <span className="text-[13px] font-medium">依赖模块</span>
               {renderModuleTags(selectedSummary?.dependencies ?? [], 'info')}
@@ -281,7 +304,7 @@ export function ModuleTreePanel() {
                   ])
                 }
               >
-                一键选中发布候选模块
+                替换为发布候选模块（会清空其它选择）
               </Button>
             ) : null}
 

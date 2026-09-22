@@ -37,6 +37,10 @@ const emptyEnvironmentSettings = (): EnvironmentSettings => ({
   profiles: [],
 })
 
+/** 与后端 normalize_project_key 保持一致：统一分隔符方向、去掉结尾分隔符 */
+const normalizeProjectKey = (path: string) =>
+  path.trim().replace(/\//g, '\\').replace(/\\+$/, '')
+
 const normalizeProjectPaths = (paths: string[]) =>
   paths.reduce<string[]>((result, path) => {
     const trimmed = path.trim()
@@ -104,7 +108,8 @@ export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
 
   refreshEnvironment: async (projectRoot?: string) => {
     try {
-      const environment = await api.detectEnvironment(projectRoot ?? '')
+      // 用户主动刷新：强制丢弃后端探测缓存，确保拿到最新环境
+      const environment = await api.detectEnvironment(projectRoot ?? '', true)
       const environmentSettings = await api.loadEnvironmentSettings()
       set({environment, environmentSettings})
     } catch (error) {
@@ -234,7 +239,12 @@ export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
 
   getBoundProfileId: (projectPath: string) => {
     const bindings = get().environmentSettings?.projectProfileBindings ?? {}
-    return bindings[projectPath.trim()]
+    // 后端保存的 key 已规范化，这里用同样的规则匹配，避免尾斜杠/斜杠方向/大小写差异查不到
+    const key = normalizeProjectKey(projectPath)
+    const matched = Object.keys(bindings).find(
+      (item) => normalizeProjectKey(item).toLowerCase() === key.toLowerCase(),
+    )
+    return matched ? bindings[matched] : undefined
   },
 
   syncActiveProfileId: async (profileId: string | undefined) => {

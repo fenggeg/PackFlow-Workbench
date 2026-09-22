@@ -1,4 +1,4 @@
-import {Code, Copy, Square, Zap} from 'lucide-react'
+import {Code, Copy, Download, Square, Zap} from 'lucide-react'
 import {useState} from 'react'
 import {Button} from '@/components/ui/button'
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
@@ -15,6 +15,7 @@ import {useAppStore} from '@/store/useAppStore'
 import {useDependencyStore} from '@/store/useDependencyStore'
 import {describeError, notifyError, notifyInfo, notifySuccess} from '@/store/useFeedbackStore'
 import type {DependencyConflict, ModuleConflictResult} from '@/types/domain'
+import {downloadTextFile, timestampSuffix} from '@/utils/download'
 
 function ConflictRow({
   conflict,
@@ -150,6 +151,17 @@ export function DependencyConflictPanel() {
     }
   }
 
+  /** 导出扫描结果为 JSON，便于贴到 issue 或交给同事复现 */
+  const exportResult = () => {
+    if (!result) return
+    downloadTextFile(
+      `packflow-conflicts-${timestampSuffix()}.json`,
+      JSON.stringify(result, null, 2),
+      'application/json;charset=utf-8',
+    )
+    notifySuccess('已导出依赖冲突结果')
+  }
+
   const progressPercent =
     progress && progress.totalModules > 0
       ? Math.round((progress.scannedModules / progress.totalModules) * 100)
@@ -175,15 +187,21 @@ export function DependencyConflictPanel() {
             <Zap />
             {scanning ? '正在扫描...' : '扫描依赖冲突'}
           </Button>
+          {result && !scanning ? (
+            <Button variant="secondary" className="gap-1.5" onClick={exportResult}>
+              <Download />
+              导出
+            </Button>
+          ) : null}
           {scanning ? (
             <Button
               variant="destructive"
               className="gap-1.5"
-              title="后端扫描无法中断，仅放弃等待本次结果"
+              title="终止 dependency:tree 进程并放弃本次结果"
               onClick={cancelScan}
             >
               <Square />
-              放弃等待
+              取消扫描
             </Button>
           ) : null}
         </div>
@@ -231,9 +249,15 @@ export function DependencyConflictPanel() {
           </div>
         ) : null}
 
+        {result?.warning ? (
+          <div className="rounded-[var(--radius)] border border-[var(--warning)] bg-[var(--warning)]/10 px-3 py-2 text-[12px] text-[var(--foreground)]">
+            {result.warning}
+          </div>
+        ) : null}
+
         {result && !result.hasConflicts ? (
           <div className="flex min-h-16 items-center justify-center text-[13px] text-[var(--muted-foreground)]">
-            未发现依赖冲突，所有依赖版本一致
+            {result.warning ? '本次扫描未发现冲突，但结果可能不完整' : '未发现依赖冲突，所有依赖版本一致'}
           </div>
         ) : null}
 

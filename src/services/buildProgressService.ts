@@ -54,7 +54,19 @@ export interface BuildProgressSnapshot {
   startedAt?: number
   /** 是否已识别到 Reactor 构建顺序（决定模块进度是否精确） */
   reactorDetected: boolean
+  /**
+   * 进度无法确定：日志中长时间没有可识别的阶段/模块信号
+   * （典型场景：手工改写的命令、-q 安静模式、非 Maven 输出）。
+   * 此时百分比只是时间插值编造的数字，界面应降级展示而不是给出误导性数值。
+   */
+  indeterminate: boolean
 }
+
+/**
+ * 超过这个时长仍未收到任何可识别信号就判定为「进度无法确定」。
+ * Maven 启动 + 打印 Reactor 清单通常远快于 15 秒。
+ */
+const INDETERMINATE_AFTER_MS = 15_000
 
 interface PhaseRule {
   key: string
@@ -645,10 +657,23 @@ export const buildSnapshot = (
     percent = clampPercent(prepareFraction * PREPARE_SPAN + moduleFraction * MODULES_SPAN)
   }
 
+  // 日志里什么信号都没有时，百分比只是时间插值的产物 —— 明确标记为无法确定
+  const hasProgressSignal =
+    tracker.reactorOrder.length > 0
+    || tracker.completedModules > 0
+    || Boolean(tracker.currentPhaseKey)
+    || tracker.prepareDone
+    || tracker.reactorIndexTotal > 0
+  const indeterminate =
+    status === 'running'
+    && !hasProgressSignal
+    && now - tracker.startedAt > INDETERMINATE_AFTER_MS
+
   return {
     status,
     percent,
     estimated: true,
+    indeterminate,
     stages,
     subSteps,
     totalModules: tracker.totalModules,
@@ -677,4 +702,5 @@ export const IDLE_SNAPSHOT: BuildProgressSnapshot = {
   totalModules: 0,
   completedModules: 0,
   reactorDetected: false,
+  indeterminate: false,
 }

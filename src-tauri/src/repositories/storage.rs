@@ -25,8 +25,12 @@ impl DatabasePool {
         let path = database_path(app)?;
         let conn = Connection::open(&path)
             .map_err(|error| to_user_error(format!("无法打开本地数据库：{}", error)))?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys = ON;")
-            .map_err(|error| to_user_error(format!("无法设置数据库模式：{}", error)))?;
+        // busy_timeout 必须设置：默认 0 会在并发写入（构建结束保存历史 + 切换项目写设置）
+        // 时立刻返回 SQLITE_BUSY，导致历史/设置静默丢失。
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;",
+        )
+        .map_err(|error| to_user_error(format!("无法设置数据库模式：{}", error)))?;
 
         if !self.initialized.load(Ordering::Relaxed) {
             let _guard = self.schema_lock.lock().unwrap_or_else(|e| e.into_inner());
@@ -76,6 +80,26 @@ fn initialize_database(connection: &Connection) -> AppResult<()> {
             "#,
         )
         .map_err(|error| to_user_error(format!("无法初始化本地数据库：{}", error)))
+}
+
+/// 数据库文件被外部替换（恢复备份）后调用：让连接池重新检查并初始化 schema
+pub fn reset_schema_state(app: &AppHandle) {
+    if let Some(pool) = app.try_state::<DatabasePool>() {
+        pool.initialized.store(false, Ordering::Relaxed);
+        // 触发一次连接，确保新文件被打开并完成 schema 初始化
+        let _ = open_database(app);
+    }
+}
+
+/// 应用数据目录：损坏数据转存、诊断包导出等场景复用
+pub fn app_data_dir(app: &AppHandle) -> AppResult<PathBuf> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| to_user_error(format!("无法获取应用数据目录：{}", error)))?;
+    fs::create_dir_all(&dir)
+        .map_err(|error| to_user_error(format!("无法创建应用数据目录：{}", error)))?;
+    Ok(dir)
 }
 
 fn database_path(app: &AppHandle) -> AppResult<PathBuf> {

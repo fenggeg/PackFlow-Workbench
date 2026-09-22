@@ -113,11 +113,15 @@ export function BuildProgressPanel() {
           <StatusPill tone={active ? 'processing' : status === 'success' ? 'success' : status === 'failed' ? 'error' : 'warning'}>
             {progressLabel(status)}
           </StatusPill>
-          {snapshot.estimated && active ? <StatusPill>按日志估算</StatusPill> : null}
+          {snapshot.indeterminate ? (
+            <StatusPill tone="warning">进度无法确定</StatusPill>
+          ) : snapshot.estimated && active ? (
+            <StatusPill>按日志估算</StatusPill>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           <span className={cn('font-[family-name:var(--font-mono)] text-[18px] font-semibold', progressTextClass(status))}>
-            {snapshot.percent}%
+            {snapshot.indeterminate ? '—' : `${snapshot.percent}%`}
           </span>
           <Button variant="ghost" size="iconSm" aria-label="收起进度" onClick={dismiss}>
             <X />
@@ -128,7 +132,7 @@ export function BuildProgressPanel() {
         <div
           className="h-2 w-full overflow-hidden rounded-full bg-[var(--muted)]"
           role="progressbar"
-          aria-valuenow={snapshot.percent}
+          aria-valuenow={snapshot.indeterminate ? undefined : snapshot.percent}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-label="打包进度"
@@ -137,11 +141,17 @@ export function BuildProgressPanel() {
             className={cn(
               'h-full rounded-full transition-[width] duration-300 ease-out',
               progressBarClass(status),
-              active && 'progress-stripes',
+              (active || snapshot.indeterminate) && 'progress-stripes',
             )}
-            style={{width: `${snapshot.percent}%`}}
+            style={{width: snapshot.indeterminate ? '100%' : `${snapshot.percent}%`}}
           />
         </div>
+
+        {snapshot.indeterminate ? (
+          <p className="m-0 text-[12px] text-[var(--muted-foreground)]">
+            日志中缺少可识别的阶段信息（常见于手工改写的命令或 -q 安静模式），无法估算百分比；构建仍在继续，请以下方日志为准。
+          </p>
+        ) : null}
 
         <div className="flex flex-wrap items-center gap-1.5">
           {snapshot.stages.map((stage, index) => (

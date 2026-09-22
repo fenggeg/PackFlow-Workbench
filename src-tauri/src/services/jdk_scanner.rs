@@ -50,6 +50,10 @@ fn add_if_valid_jdk(
     if java_exe.is_none() {
         return;
     }
+    // 只有带 javac 的目录才算 JDK；JRE 会被剔除，避免“环境正常”但构建必然失败
+    if find_javac_exe(&java_home).is_none() {
+        return;
+    }
     // 规范化路径用于去重
     let canonical = normalize_path(&java_home);
     if seen_paths.iter().any(|p| normalize_path(p) == canonical) {
@@ -85,6 +89,21 @@ fn find_java_exe(java_home: &Path) -> Option<PathBuf> {
         java_home.join("java.exe"),
     ];
     candidates.into_iter().find(|p| p.exists())
+}
+
+/// 查找 javac.exe：JRE 目录下没有 javac，用它构建会直接失败
+/// （Maven 报 "No compiler is provided in this environment"）
+fn find_javac_exe(java_home: &Path) -> Option<PathBuf> {
+    let candidates = [
+        java_home.join("bin").join("javac.exe"),
+        java_home.join("javac.exe"),
+    ];
+    candidates.into_iter().find(|p| p.exists())
+}
+
+/// 供命令层复用：判断给定目录是否具备编译器（即是否真的是 JDK）
+pub fn has_javac(java_home: &Path) -> bool {
+    find_javac_exe(java_home).is_some()
 }
 
 /// 常见 JDK 安装目录（Windows）

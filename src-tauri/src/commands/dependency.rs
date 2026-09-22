@@ -64,6 +64,17 @@ pub async fn detect_dependency_conflicts(
     result
 }
 
+#[tauri::command]
+pub fn cancel_dependency_scan(app: AppHandle) -> AppResult<bool> {
+    let cancelled = dependency_conflict_service::cancel_dependency_scan();
+    app_logger::log_info(
+        &app,
+        "dependency.conflicts.cancel",
+        format!("killed={}", cancelled),
+    );
+    Ok(cancelled)
+}
+
 fn count_modules(project: &crate::models::project::MavenProject) -> usize {
     fn walk(modules: &[crate::models::module::MavenModule]) -> usize {
         modules.iter().map(|m| 1 + walk(&m.children)).sum()

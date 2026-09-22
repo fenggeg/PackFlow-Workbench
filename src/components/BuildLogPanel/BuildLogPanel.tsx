@@ -1,4 +1,4 @@
-import {ArrowDownToLine, Copy, Download, Square, Trash2, WrapText} from 'lucide-react'
+import {ArrowDownToLine, Copy, Download, Regex, Square, Trash2, WrapText} from 'lucide-react'
 import {useEffect, useMemo, useRef, useState} from 'react'
 import {Button} from '@/components/ui/button'
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
@@ -46,6 +46,7 @@ export function BuildLogPanel({fill = false}: {fill?: boolean}) {
 
   const panelRef = useRef<HTMLDivElement>(null)
   const [keyword, setKeyword] = useState('')
+  const [regexMode, setRegexMode] = useState(false)
   const [logFilter, setLogFilter] = useState<LogFilter>('all')
   const [autoScroll, setAutoScroll] = useState(true)
   const [wrapLines, setWrapLines] = useState(true)
@@ -60,15 +61,36 @@ export function BuildLogPanel({fill = false}: {fill?: boolean}) {
     if (autoScroll) scrollToBottom()
   }, [autoScroll, currentLogCount])
 
-  const keywordValue = keyword.trim().toLowerCase()
+  const keywordValue = keyword.trim()
+  /**
+   * 正则匹配器：null 表示未启用正则，undefined 表示正则非法。
+   * 非法正则不参与过滤，界面会给出提示，而不是让整个日志区变空。
+   */
+  const regexMatcher = useMemo(() => {
+    if (!regexMode || !keywordValue) return null
+    try {
+      return new RegExp(keywordValue, 'i')
+    } catch {
+      return undefined
+    }
+  }, [keywordValue, regexMode])
+  const regexInvalid = regexMatcher === undefined
+
   const visibleBuildLogs = useMemo(
     () =>
       logs.filter((event) => {
         if (logFilter !== 'all' && classifyBuildLogEvent(event) !== logFilter) return false
-        if (keywordValue && !event.line.toLowerCase().includes(keywordValue)) return false
+        if (keywordValue) {
+          if (regexInvalid) return false
+          if (regexMatcher) {
+            if (!regexMatcher.test(event.line)) return false
+          } else if (!event.line.toLowerCase().includes(keywordValue.toLowerCase())) {
+            return false
+          }
+        }
         return true
       }),
-    [keywordValue, logFilter, logs],
+    [keywordValue, logFilter, logs, regexInvalid, regexMatcher],
   )
 
   const visibleBuildLogLines = useMemo(
@@ -265,12 +287,31 @@ export function BuildLogPanel({fill = false}: {fill?: boolean}) {
               </SelectContent>
             </Select>
             <Input
-              placeholder="搜索日志关键词"
+              placeholder={regexMode ? '搜索日志（正则）' : '搜索日志关键词'}
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
               className="min-w-0 flex-1"
             />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={regexMode ? 'primary' : 'ghost'}
+                  size="iconSm"
+                  aria-label="正则搜索"
+                  aria-pressed={regexMode}
+                  onClick={() => setRegexMode((value) => !value)}
+                >
+                  <Regex />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>按正则搜索</TooltipContent>
+            </Tooltip>
           </div>
+          {regexInvalid ? (
+            <p className="m-0 text-[11px] text-[var(--error)]">
+              正则表达式无效，已暂停过滤；修正后可继续搜索。
+            </p>
+          ) : null}
           <p className="m-0 text-[11px] text-[var(--muted-foreground)]">
             可用鼠标拖动选择日志，随后按 Ctrl+C、右键复制，或点击日志区右上角「复制选中」。
           </p>
@@ -283,6 +324,8 @@ export function BuildLogPanel({fill = false}: {fill?: boolean}) {
               emptyDescription="请选择模块并点击开始打包。"
               keyPrefix="build-log"
               wrap={wrapLines}
+              highlight={keyword}
+              highlightRegex={regexMode}
               onUserScroll={(atBottom) => {
                 // 用户向上翻阅时自动暂停跟随，避免抢滚动条
                 if (!atBottom) setAutoScroll(false)

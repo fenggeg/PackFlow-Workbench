@@ -64,4 +64,8 @@ pub struct DependencyConflictResult {
     pub root_path: String,
     pub modules: Vec<ModuleConflictResult>,
     pub has_conflicts: bool,
+    /// 扫描未正常完成时的说明（例如 mvn 非零退出、结果可能不完整）。
+    /// 为空表示这次扫描结果可信。
+    #[serde(default)]
+    pub warning: Option<String>,
 }

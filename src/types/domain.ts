@@ -74,6 +74,8 @@ export interface DependencyConflictResult {
   rootPath: string
   modules: ModuleConflictResult[]
   hasConflicts: boolean
+  /** 扫描未正常完成时的说明；有值时结果可能不完整，不能当作「没有冲突」 */
+  warning?: string
 }
 
 export interface ConflictScanProgress {
@@ -160,6 +162,11 @@ export type BuildDiagnosisCategory =
   | 'profile_invalid'
   | 'module_invalid'
   | 'test_failed'
+  | 'compilation_error'
+  | 'out_of_memory'
+  | 'plugin_resolution'
+  | 'jre_no_compiler'
+  | 'encoding_error'
   | 'unknown'
 
 export interface BuildDiagnosis {
@@ -190,6 +197,12 @@ export interface BuildOptions {
   /** 用户手写的附加参数 */
   extraArgs?: string[]
   editableCommand: string
+  /**
+   * 命令锁定标记：用户在「完整命令预览」中手工保存命令后为 true。
+   * 为 true 时自动生成的结果不再回写 editableCommand，避免覆盖用户输入；
+   * 用户点击「恢复自动生成」后解除。
+   */
+  commandLocked?: boolean
 }
 
 export interface BuildArtifact {

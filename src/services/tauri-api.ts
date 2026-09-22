@@ -119,8 +119,8 @@ export const api = {
   analyzeProjectDependencies: (rootPath: string) =>
     invoke<ModuleDependencyGraph>('analyze_project_dependencies', { rootPath }),
 
-  detectEnvironment: (rootPath: string) =>
-    invoke<BuildEnvironment>('detect_environment', { rootPath }),
+  detectEnvironment: (rootPath: string, forceRefresh?: boolean) =>
+    invoke<BuildEnvironment>('detect_environment', { rootPath, forceRefresh }),
 
   loadEnvironmentSettings: () =>
     invoke<EnvironmentSettings>('load_environment_settings'),
@@ -167,8 +167,9 @@ export const api = {
   openPathInExplorer: (path: string) =>
     invoke<void>('open_path_in_explorer', { path }),
 
-  scanBuildArtifacts: (projectRoot: string, modulePath: string) =>
-    invoke<BuildArtifact[]>('scan_build_artifacts', { projectRoot, modulePath }),
+  /** sinceMillis 传入构建开始时间时，只返回本次构建写过的产物 */
+  scanBuildArtifacts: (projectRoot: string, modulePath: string, sinceMillis?: number) =>
+    invoke<BuildArtifact[]>('scan_build_artifacts', { projectRoot, modulePath, sinceMillis }),
 
   deleteBuildArtifact: (path: string, recordOnly?: boolean, projectRoot?: string) =>
     invoke<void>('delete_build_artifact', {
@@ -215,6 +216,8 @@ export const api = {
   detectDependencyConflicts: (rootPath: string) =>
     invoke<DependencyConflictResult>('detect_dependency_conflicts', { rootPath }),
 
+  cancelDependencyScan: () => invoke<boolean>('cancel_dependency_scan'),
+
   generateExclusionCode: (groupId: string, artifactId: string) =>
     invoke<string>('generate_exclusion_code', { groupId, artifactId }),
 
@@ -230,6 +233,18 @@ export const api = {
   },
 
   getNetworkInfo: () => invoke<NetworkInfo>('get_network_info'),
+
+  // 数据与诊断
+  backupAppData: (targetPath: string) =>
+    invoke<string>('backup_app_data', { targetPath }),
+
+  restoreAppData: (sourcePath: string) =>
+    invoke<void>('restore_app_data', { sourcePath }),
+
+  exportDiagnostics: (targetPath: string, content: string) =>
+    invoke<string>('export_diagnostics', { targetPath, content }),
+
+  openAppDataDir: () => invoke<void>('open_app_data_dir'),
 }
 
 export async function registerBuildEvents(

@@ -3,11 +3,31 @@ use crate::models::environment::{
     JdkRequirement,
 };
 use crate::services::process_utils::CREATE_NO_WINDOW;
+use once_cell::sync::Lazy;
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+/// 外部命令（where / -version）单次探测的超时上限。
+/// 之前没有超时，网络盘上的 java.exe 或卡死的 mvn.cmd 会永久占用一个 blocking 线程。
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// 探测结果缓存：环境检测会在切换项目、保存设置、刷新时被反复调用，
+/// 每次都跑 6 次子进程明显拖慢响应。命中缓存可跳过子进程开销。
+static COMMAND_CACHE: Lazy<Mutex<HashMap<String, Option<String>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// 清空探测缓存，用于「刷新环境」这类必须拿到最新结果的场景
+pub fn clear_command_cache() {
+    if let Ok(mut cache) = COMMAND_CACHE.lock() {
+        cache.clear();
+    }
+}
 
 pub fn detect_environment(
     root_path: &str,
@@ -128,10 +148,17 @@ fn resolve_active_profile<'a>(
     settings: &'a EnvironmentSettings,
 ) -> Option<&'a crate::models::environment::EnvironmentProfile> {
     let trimmed = root_path.trim();
-    // 项目专属绑定优先
+    // 项目专属绑定优先。key 先规范化再比较：
+    // 否则「D:\repo\」与「D:/repo」、「d:\repo」会视为不同项目，绑定静默失效。
     if !trimmed.is_empty() {
-        if let Some(profile_id) = settings.project_profile_bindings.get(trimmed) {
-            if let Some(profile) = settings.profiles.iter().find(|p| p.id == *profile_id) {
+        let key = normalize_project_key(trimmed);
+        let profile_id = settings
+            .project_profile_bindings
+            .iter()
+            .find(|(path, _)| normalize_project_key(path).eq_ignore_ascii_case(&key))
+            .map(|(_, id)| id.clone());
+        if let Some(profile_id) = profile_id {
+            if let Some(profile) = settings.profiles.iter().find(|p| p.id == profile_id) {
                 return Some(profile);
             }
         }
@@ -141,6 +168,12 @@ fn resolve_active_profile<'a>(
         .active_profile_id
         .as_deref()
         .and_then(|profile_id| settings.profiles.iter().find(|p| p.id == profile_id))
+}
+
+/// 项目路径 key 规范化：统一分隔符方向、去掉结尾分隔符，便于大小写不敏感比较
+pub fn normalize_project_key(path: &str) -> String {
+    let normalized = path.trim().replace('/', "\\");
+    normalized.trim_end_matches('\\').to_string()
 }
 
 fn resolve_java(saved: Option<&str>) -> (Option<String>, Option<String>, EnvironmentSource) {
@@ -534,22 +567,104 @@ fn environment_status(errors: &[String]) -> EnvironmentStatus {
 }
 
 fn first_where(program: &str) -> Option<String> {
-    let mut command = Command::new("cmd");
-    command
-        .args(["/C", "where", program])
-        .creation_flags(CREATE_NO_WINDOW);
-    let output = command.output().ok()?;
-    if !output.status.success() {
-        return None;
+    let cache_key = format!("where:{}", program);
+    if let Ok(cache) = COMMAND_CACHE.lock() {
+        if let Some(cached) = cache.get(&cache_key) {
+            return cached.clone();
+        }
     }
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(ToOwned::to_owned)
+
+    let result = run_command_capture("cmd", &["/C", "where", program]).and_then(|(success, output)| {
+        if success {
+            output
+                .lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
+                .map(ToOwned::to_owned)
+        } else {
+            None
+        }
+    });
+
+    if let Ok(mut cache) = COMMAND_CACHE.lock() {
+        cache.insert(cache_key, result.clone());
+    }
+    result
 }
 
 fn run_version(program: &str, args: &[&str]) -> Option<String> {
+    let cache_key = format!("version:{} {}", program, args.join(" "));
+    if let Ok(cache) = COMMAND_CACHE.lock() {
+        if let Some(cached) = cache.get(&cache_key) {
+            return cached.clone();
+        }
+    }
+
+    let result = run_command_capture(program, args).and_then(|(_, output)| {
+        output
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .map(ToOwned::to_owned)
+    });
+
+    if let Ok(mut cache) = COMMAND_CACHE.lock() {
+        cache.insert(cache_key, result.clone());
+    }
+    result
+}
+
+/// 带超时地执行外部命令并读取合并输出（stdout + stderr）。
+/// 管道在独立线程读取，避免输出较多时子进程写满管道而卡死。
+fn run_command_capture(program: &str, args: &[&str]) -> Option<(bool, String)> {
+    let mut command = build_command(program, args);
+    command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .creation_flags(CREATE_NO_WINDOW);
+
+    let mut child = command.spawn().ok()?;
+    let mut stdout = child.stdout.take()?;
+    let mut stderr = child.stderr.take()?;
+
+    let stdout_handle = std::thread::spawn(move || {
+        let mut buffer = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut stdout, &mut buffer);
+        buffer
+    });
+    let stderr_handle = std::thread::spawn(move || {
+        let mut buffer = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut stderr, &mut buffer);
+        buffer
+    });
+
+    let deadline = Instant::now() + COMMAND_TIMEOUT;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break None;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(_) => break None,
+        }
+    }?;
+
+    let stdout_bytes = stdout_handle.join().unwrap_or_default();
+    let stderr_bytes = stderr_handle.join().unwrap_or_default();
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&stdout_bytes),
+        String::from_utf8_lossy(&stderr_bytes)
+    );
+    Some((status.success(), combined))
+}
+
+fn build_command(program: &str, args: &[&str]) -> Command {
     let mut command = if is_windows_script(program) {
         let mut command = Command::new("cmd");
         command.arg("/C").arg(program);
@@ -557,18 +672,8 @@ fn run_version(program: &str, args: &[&str]) -> Option<String> {
     } else {
         Command::new(program)
     };
-    command.args(args).creation_flags(CREATE_NO_WINDOW);
-    let output = command.output().ok()?;
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    combined
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(ToOwned::to_owned)
+    command.args(args);
+    command
 }
 
 fn is_windows_script(program: &str) -> bool {

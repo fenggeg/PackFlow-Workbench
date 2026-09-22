@@ -6,6 +6,7 @@ import {normalizeBuildOptions} from '../utils/buildOptions'
 import {getErrorMessage} from '../utils/errors'
 import {notifyError, notifySuccess} from './useFeedbackStore'
 import {useBuildProgressStore} from './useBuildProgressStore'
+import {useDependencyStore} from './useDependencyStore'
 import {useEnvironmentStore} from './useEnvironmentStore'
 import type {
     BuildArtifact,
@@ -75,7 +76,10 @@ interface AppState {
     key: K,
     value: BuildOptions[K],
   ) => void
+  /** 用户手工写入命令（会锁定命令，自动生成结果不再覆盖） */
   setEditableCommand: (command: string) => void
+  /** 解除命令锁定并按当前参数重新生成 */
+  resetEditableCommand: () => Promise<void>
   /** 高频改动（逐字输入）走防抖，避免每次按键都发一次 IPC */
   scheduleCommandPreview: () => void
   /** 立即冲刷待执行的预览请求，开始构建前必须调用 */
@@ -351,25 +355,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     clearPreviewTimer()
     useBuildProgressStore.getState().reset()
+    // 冲突结果属于上一个项目，必须清空，否则会展示错误项目的扫描结果
+    useDependencyStore.getState().clear()
     try {
       const [project] = await Promise.all([
         api.parseMavenProject(rootPath),
         envStore().detectForProject(rootPath),
       ])
-      // 加载项目后，根据项目绑定解析 activeProfileId
-      const settings = envStore().environmentSettings
-      const boundProfileId = settings?.projectProfileBindings?.[project.rootPath]
-      const resolvedActiveProfileId = boundProfileId ?? settings?.activeProfileId
-      if (resolvedActiveProfileId !== settings?.activeProfileId) {
-        const updatedSettings: EnvironmentSettings = {
-          profiles: [],
-          ...settings,
-          activeProfileId: resolvedActiveProfileId,
-        }
-        set({ environmentSettings: updatedSettings })
-        // 同步到 envStore 以便后续操作使用
-        await envStore().syncActiveProfileId(resolvedActiveProfileId)
-      }
+      // 注意：不要把「项目绑定的方案」回写为全局 activeProfileId。
+      // 后端 detect_environment 已经按「项目绑定优先、其次全局」解析，
+      // 若在这里把绑定结果提升为全局值，下一个未绑定的项目会错误地继承上一个项目的方案。
       const buildOptions = normalizeBuildOptions(createDefaultBuildOptions(project.rootPath, ''))
       set({
         project,
@@ -635,8 +630,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       buildOptions: {
         ...state.buildOptions,
         editableCommand: command,
+        // 用户显式写入即锁定，后续自动生成不再覆盖
+        commandLocked: true,
       },
     }))
+  },
+
+  resetEditableCommand: async () => {
+    set((state) => ({
+      buildOptions: {
+        ...state.buildOptions,
+        commandLocked: false,
+      },
+    }))
+    await get().refreshCommandPreview()
   },
 
   scheduleCommandPreview: () => {
@@ -671,11 +678,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (requestId !== previewRequestId) {
         return
       }
+      // 用户已手工锁定命令时不再回写，否则「完整命令预览」里的改动会被自动生成覆盖
       set((state) => ({
-        buildOptions: {
-          ...state.buildOptions,
-          editableCommand,
-        },
+        buildOptions: state.buildOptions.commandLocked
+          ? state.buildOptions
+          : {
+              ...state.buildOptions,
+              editableCommand,
+            },
       }))
     } catch (error) {
       if (requestId !== previewRequestId) {
@@ -819,7 +829,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   startBuild: async () => {
-    const { buildOptions, environment, selectedModules } = get()
+    const { buildOptions, environment, selectedModules, buildStatus } = get()
+    // 与 parseProjectPath 一致：构建中不再允许再次启动，避免产生无人跟踪的孤儿进程
+    if (buildStatus === 'RUNNING') {
+      fail('已有构建正在运行，请先停止后再开始。')
+      return
+    }
     if (!environment || !buildOptions.projectRoot || !buildOptions.editableCommand.trim()) {
       fail('请先选择项目并确认构建命令。')
       return
@@ -943,27 +958,25 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   finishBuild: (event: BuildFinishedEvent) => {
-    const {
-      buildOptions,
-      environment,
-      selectedModules,
-      currentBuildId,
-      logs,
-      buildStatus,
-      buildRunToken,
-    } = get()
+    const { currentBuildId, buildStatus, buildRunToken } = get()
     // 允许两种情况：id 已知且匹配；或 RUNNING 且 id 尚未写入（启动竞态）
     const acceptById = currentBuildId !== undefined && event.buildId === currentBuildId
     const acceptPending = buildStatus === 'RUNNING' && currentBuildId === undefined
     if (!acceptById && !acceptPending) {
       return
     }
-    // 立即冲刷缓冲日志，保证诊断拿到完整输出
+    // 先冲刷缓冲日志，再读取最新 logs，确保诊断拿到完整输出
     flushPendingLogs()
+    const {
+      buildOptions,
+      environment,
+      selectedModules,
+      logs,
+      startedAt,
+    } = get()
     const diagnosis = event.status === 'FAILED'
       ? diagnoseBuildFailure(event.buildId, logs, environment)
       : undefined
-    const startedAt = get().startedAt
     const record: BuildHistoryRecord = {
       id: event.buildId,
       createdAt: new Date(startedAt ?? Date.now()).toISOString(),
@@ -991,7 +1004,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     void (async () => {
       try {
         const artifacts = event.status === 'SUCCESS'
-          ? await api.scanBuildArtifacts(record.projectRoot, record.modulePath).catch(() => [])
+          ? await api
+              .scanBuildArtifacts(record.projectRoot, record.modulePath, startedAt)
+              .catch(() => [])
           : []
         // 仅在仍是同一次构建时回填，避免覆盖新一轮构建状态
         const stillSameRun = get().buildRunToken === buildRunToken
@@ -1054,10 +1069,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       : []
     const buildOptions = normalizeBuildOptions(
       record.buildOptions
-        ? { ...record.buildOptions, editableCommand: record.command }
+        ? { ...record.buildOptions, editableCommand: record.command, commandLocked: true }
         : {
             ...createDefaultBuildOptions(record.projectRoot, record.modulePath),
             editableCommand: record.command,
+            // 重跑必须执行历史上那条命令，锁定后避免被重新生成覆盖
+            commandLocked: true,
           },
     )
     set({
@@ -1124,6 +1141,15 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   applyTemplate: (template: BuildTemplate) => {
     const project = get().project
+    // 模板带有自己的项目根目录，直接应用会把构建目标切到别的项目，
+    // 且模块选择为空 —— 这里显式拒绝，要求先切换项目。
+    if (project && template.projectRoot && template.projectRoot !== project.rootPath) {
+      notifyError(
+        '模板与当前项目不匹配',
+        `该模板属于「${template.projectRoot}」，请先切换到该项目后再应用。`,
+      )
+      return
+    }
     const selectedModules = project
       ? findModulesByPaths(project.modules, template.modulePath)
       : []
@@ -1144,6 +1170,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         commonArgs: template.commonArgs,
         threadCount: template.threadCount,
         extraArgs: template.extraArgs,
+        // 应用模板代表回到「按参数生成命令」，解除手工锁定
+        commandLocked: false,
       }),
       artifacts: [],
     }))
@@ -1162,8 +1190,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   removeArtifact: async (path: string, recordOnly?: boolean) => {
+    const projectRoot = get().project?.rootPath
+    // 物理删除必须有项目根目录做路径约束，缺失时后端会拒绝，这里提前给出明确提示
+    if (!recordOnly && !projectRoot) {
+      fail('缺少项目根目录，已拒绝删除文件。')
+      return
+    }
     try {
-      const projectRoot = get().project?.rootPath
       await api.deleteBuildArtifact(path, recordOnly, projectRoot)
     } catch (error) {
       fail(getErrorMessage(error))

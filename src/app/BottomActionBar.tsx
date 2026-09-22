@@ -1,4 +1,4 @@
-import {Copy, Play, RefreshCw, Save, Square} from 'lucide-react'
+import {Copy, Lock, Play, RefreshCw, Save, Square} from 'lucide-react'
 import {useState} from 'react'
 import {Button} from '@/components/ui/button'
 import {
@@ -41,6 +41,7 @@ export function BottomActionBar() {
   const selectedModules = useAppStore((state) => state.selectedModules)
   const project = useAppStore((state) => state.project)
   const setEditableCommand = useAppStore((state) => state.setEditableCommand)
+  const resetEditableCommand = useAppStore((state) => state.resetEditableCommand)
   const refreshCommandPreview = useAppStore((state) => state.refreshCommandPreview)
   const startBuild = useAppStore((state) => state.startBuild)
   const cancelBuild = useAppStore((state) => state.cancelBuild)
@@ -52,6 +53,7 @@ export function BottomActionBar() {
   const progressVisible = useBuildProgressStore((state) => state.visible)
 
   const running = buildStatus === 'RUNNING'
+  const commandLocked = Boolean(buildOptions.commandLocked)
   const progressActive = progressVisible && progress.status !== 'idle'
   const commandReady = Boolean(buildOptions.projectRoot && buildOptions.editableCommand.trim())
   const targetLabel = selectedModules.length > 0
@@ -89,6 +91,12 @@ export function BottomActionBar() {
   const regenerate = async () => {
     setPreviewing(true)
     try {
+      if (commandLocked) {
+        // 锁定时直接刷新不会写回，必须先解除锁定
+        await resetEditableCommand()
+        notifySuccess('已解除命令锁定并按当前参数重新生成')
+        return
+      }
       await refreshCommandPreview()
       notifySuccess('已按当前参数重新生成命令')
     } catch (error) {
@@ -116,7 +124,10 @@ export function BottomActionBar() {
             className="shrink-0"
             title={progress.currentPhase ? `当前阶段：${progress.currentPhase}` : undefined}
           >
-            {progress.percent}%{progress.status === 'success' ? ' · 已完成' : progress.currentPhase ? ` · ${progress.currentPhase}` : ''}
+            {progress.indeterminate
+              ? '进度未知'
+              : `${progress.percent}%`}
+            {progress.status === 'success' ? ' · 已完成' : progress.currentPhase ? ` · ${progress.currentPhase}` : ''}
           </StatusPill>
         ) : (
           <StatusPill tone={tone} className="shrink-0">{statusLabel}</StatusPill>
@@ -129,11 +140,16 @@ export function BottomActionBar() {
         type="button"
         disabled={!buildOptions.editableCommand.trim()}
         onClick={openCommandEditor}
-        title={buildOptions.editableCommand}
+        title={commandLocked
+          ? `命令已锁定（手工编辑），参数改动不会自动覆盖：\n${buildOptions.editableCommand}`
+          : buildOptions.editableCommand}
         data-allow-context-menu
         className="min-w-0 flex-1 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--background)] px-3 py-1 text-left font-[family-name:var(--font-mono)] text-[12px] leading-4 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-50"
       >
         <span className="line-clamp-2 break-all">
+          {commandLocked ? (
+            <Lock className="mr-1 inline size-3 shrink-0 align-[-1px] text-[var(--warning)]" aria-label="命令已锁定" />
+          ) : null}
           {buildOptions.editableCommand || '选择项目后生成 Maven 命令'}
         </span>
       </button>
@@ -212,7 +228,7 @@ export function BottomActionBar() {
               onChange={(event) => setDraftCommand(event.target.value)}
             />
             <p className="m-0 mt-2 text-[12px] text-[var(--muted-foreground)]">
-              手动修改后点击「保存修改」生效；点击「恢复自动生成」会丢弃改动并按当前参数重新生成。
+              手动修改后点击「保存修改」生效并锁定命令，此后改动参数不会覆盖这里的内容；点击「恢复自动生成」解除锁定并按当前参数重新生成。
             </p>
           </div>
           <DialogFooter>

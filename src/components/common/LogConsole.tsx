@@ -17,8 +17,37 @@ interface LogConsoleProps {
   keyPrefix?: string
   /** 自动换行；关闭后保留原始列对齐，由容器横向滚动 */
   wrap?: boolean
+  /** 高亮的检索词（来自上层搜索框），命中片段会以底色标出 */
+  highlight?: string
+  /** highlight 是否按正则表达式解析 */
+  highlightRegex?: boolean
   /** 用户滚动时回调，用于自动关闭「自动滚动」 */
   onUserScroll?: (atBottom: boolean) => void
+}
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** 把命中片段包成 <mark>；正则非法时降级为不高亮 */
+const renderHighlighted = (line: string, term: string, useRegex: boolean) => {
+  const keyword = term.trim()
+  if (!keyword) return line
+  let pattern: RegExp
+  try {
+    pattern = new RegExp(`(${useRegex ? keyword : escapeRegExp(keyword)})`, 'gi')
+  } catch {
+    return line
+  }
+  const parts = line.split(pattern)
+  if (parts.length === 1) return line
+  return parts.map((part, index) =>
+    index % 2 === 1 ? (
+      <mark key={index} className="rounded-[2px] bg-[var(--warning)]/40 text-inherit">
+        {part}
+      </mark>
+    ) : (
+      part
+    ),
+  )
 }
 
 const toneClassName = (tone: LogLineTone) => (tone === 'warning' ? 'warn' : tone)
@@ -38,6 +67,8 @@ export const LogConsole = forwardRef<HTMLDivElement, LogConsoleProps>(function L
   renderLimit = 300,
   keyPrefix = 'log',
   wrap = true,
+  highlight,
+  highlightRegex = false,
   onUserScroll,
 }, ref) {
   const innerRef = useRef<HTMLDivElement | null>(null)
@@ -162,7 +193,7 @@ export const LogConsole = forwardRef<HTMLDivElement, LogConsoleProps>(function L
                 toneTextClass[item.tone],
               )}
             >
-              {item.line}
+              {highlight ? renderHighlighted(item.line, highlight, highlightRegex) : item.line}
             </pre>
           ))}
         </>
