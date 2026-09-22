@@ -21,6 +21,9 @@ import type {
   GitPullResult,
   GitRepositoryStatus,
   GitSwitchBranchResult,
+  JarEntryContent,
+  JarEntryUpdateResult,
+  JarInspection,
   JdkEntry,
   MavenProject,
   ModuleDependencyGraph,
@@ -186,6 +189,17 @@ export const api = {
 
   checkFilesExist: (paths: string[]) =>
     invoke<string[]>('check_files_exist', { paths }),
+
+  /** 查看 jar / war / ear / zip 归档的条目与 MANIFEST */
+  inspectJar: (path: string) => invoke<JarInspection>('inspect_jar', { path }),
+
+  /** 读取归档中单个条目的内容（文本类可直接预览） */
+  readJarEntry: (path: string, entryName: string) =>
+    invoke<JarEntryContent>('read_jar_entry', { path, entryName }),
+
+  /** 修改归档中单个条目的内容（自动备份原文件，并移除失效的签名） */
+  updateJarEntry: (path: string, entryName: string, content: string) =>
+    invoke<JarEntryUpdateResult>('update_jar_entry', { path, entryName, content }),
 
   copyFileToClipboard: (path: string) =>
     invoke<void>('copy_file_to_clipboard', { path }),

@@ -1,5 +1,6 @@
-import {Copy, File, FileArchive, FolderOpen, Trash2} from 'lucide-react'
+import {Copy, File, FileArchive, FileSearch, FolderOpen, Trash2} from 'lucide-react'
 import {useMemo, useState} from 'react'
+import {JarInspectorDialog} from '@/components/JarTools/JarInspectorDialog'
 import {Button} from '@/components/ui/button'
 import {Card} from '@/components/ui/card'
 import {Checkbox} from '@/components/ui/checkbox'
@@ -113,6 +114,7 @@ export function ArtifactPage() {
   const history = useAppStore((state) => state.history)
   const removeArtifact = useAppStore((state) => state.removeArtifact)
   const [deleteTarget, setDeleteTarget] = useState<BuildArtifact | null>(null)
+  const [inspectTarget, setInspectTarget] = useState<BuildArtifact | null>(null)
   const [keyword, setKeyword] = useState('')
   const [page, setPage] = useState(0)
   const pageSize = 20
@@ -279,6 +281,21 @@ export function ArtifactPage() {
                             </TooltipTrigger>
                             <TooltipContent>打开目录</TooltipContent>
                           </Tooltip>
+                          {archiveExtensions.has(artifact.extension.toLowerCase()) ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="iconSm"
+                                  aria-label="查看归档内容"
+                                  onClick={() => setInspectTarget(artifact)}
+                                >
+                                  <FileSearch />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>查看内容</TooltipContent>
+                            </Tooltip>
+                          ) : null}
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button
@@ -309,6 +326,14 @@ export function ArtifactPage() {
           />
         </Card>
       )}
+      <JarInspectorDialog
+        key={inspectTarget?.path ?? 'none'}
+        artifact={inspectTarget}
+        open={Boolean(inspectTarget)}
+        onOpenChange={(open) => {
+          if (!open) setInspectTarget(null)
+        }}
+      />
       <DeleteArtifactDialog
         artifact={deleteTarget}
         open={Boolean(deleteTarget)}

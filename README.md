@@ -2,7 +2,7 @@
 
 面向 Windows 的 Maven 多模块项目打包工作台。基于 Tauri 2，React 19 前端负责交互编排，Rust 后端负责 POM 解析、环境检测、进程执行与 SQLite 持久化。
 
-当前版本：`3.3.8`（`package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 三处版本号保持一致）。
+当前版本：`3.3.11`（`package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 三处版本号保持一致）。
 
 ## 功能概览
 
@@ -31,6 +31,8 @@
 
 - 产物管理：聚合当前产物与历史产物并按路径去重，表格展示文件名 / 类型 / 大小 / 模块 / 修改时间，支持关键词搜索、分页、复制路径、打开目录、删除（可选仅删记录）
 - 产物差异：与上一次同项目同范围的构建对比，展示新增、体积变化与本次未产出的产物
+- JAR 内容查看：以目录树浏览 jar / war / ear / zip 的归档结构，可搜索、可展开折叠，文本类条目可直接查看内容并复制，另含 MANIFEST 视图
+- JAR 条目修改：文本类条目（如 `application.yml`）可直接编辑并写回归档，保存前自动备份原文件，归档带签名时同步移除签名文件
 - 历史管理：统计成功率 / 平均耗时 / 近 7 天次数 / 最慢模块，支持按模块或命令搜索、按结果筛选、重跑、删除、复制命令、打开目录、导出 CSV，并可回看当次构建的完整日志
 - 常用组合（模板）：保存当前构建参数，支持应用、重命名、置顶、删除，以及导出 / 导入 JSON
 
@@ -90,7 +92,7 @@ cd src-tauri && cargo check # Rust 类型/编译检查
 
 前端改动建议按 `npm run lint` → `npm run build` → `npm run test` 的顺序验证；Rust 改动在 `src-tauri/` 下执行 `cargo check`。
 
-单元测试覆盖 `useAppStore` 选择逻辑与命令锁定、构建进度解析（含 Reactor 清单统计）、失败诊断规则打分、构建统计（耗时基线与产物差异）、`boundedBuffer`、`buildOptions` 归一化与日志文本处理，共 10 个 `*.test.ts` 文件。
+单元测试覆盖 `useAppStore` 选择逻辑与命令锁定、构建进度解析（含 Reactor 清单统计）、失败诊断规则打分、构建统计（耗时基线与产物差异）、归档目录树构建、`boundedBuffer`、`buildOptions` 归一化与日志文本处理，共 11 个 `*.test.ts` 文件。
 
 ## 构建安装包
 
@@ -132,6 +134,7 @@ src/
     ModuleTree/             模块树、依赖结构树
     ProjectSelector/        项目选择器
     NavigationSettings/     导航栏设置
+    JarTools/               归档内容查看（目录树 / 条目内容 / MANIFEST）
     BuildQueue/             构建队列（批量排队与自动续跑）
     Preflight/              构建前检查结果
     Dashboard/              系统时间、网络状态、节假日倒计时卡片
@@ -155,8 +158,9 @@ src/
   types/domain.ts           前端领域类型
 
 src-tauri/src/
-  commands/                 Tauri command 入口（11 个模块，46 个命令）
+  commands/                 Tauri command 入口（12 个模块，49 个命令）
     project                 项目解析、模块依赖图
+    jar                     归档条目查看、条目内容读取与写回
     data                    数据备份/恢复、诊断包导出、打开数据目录、读取文本文件
     environment             环境检测、环境设置、项目绑定、JDK 注册表
     build                   命令预览、构建前检查、启停构建、并发上限

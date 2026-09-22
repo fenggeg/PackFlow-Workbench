@@ -214,6 +214,45 @@ export interface BuildArtifact {
   modulePath: string
 }
 
+export interface JarEntryInfo {
+  name: string
+  sizeBytes: number
+  compressedBytes: number
+  isDirectory: boolean
+  /** 可文本预览的条目（配置、脚本、静态资源等） */
+  isText: boolean
+}
+
+export interface JarInspection {
+  path: string
+  fileName: string
+  fileSizeBytes: number
+  entryCount: number
+  fileCount: number
+  entries: JarEntryInfo[]
+  manifest?: string
+  /** 条目数超过上限，仅返回了部分内容 */
+  truncated: boolean
+}
+
+export interface JarEntryContent {
+  name: string
+  sizeBytes: number
+  isText: boolean
+  /** 超过单次读取上限，内容只包含前一段 */
+  truncated: boolean
+  content: string
+}
+
+export interface JarEntryUpdateResult {
+  name: string
+  /** 修改前的自动备份路径 */
+  backupPath: string
+  /** 因内容变更而移除的签名文件 */
+  removedSignatures: string[]
+  sizeBytes: number
+}
+
 export interface BuildCommandPayload {
   options: BuildOptions
   environment: BuildEnvironment
