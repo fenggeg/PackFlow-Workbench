@@ -1,14 +1,14 @@
+import {useMemo} from 'react'
 import {Card, CardContent} from '@/components/ui/card'
 import {PageHeader} from '@/components/ui/page-header'
 import {StatusPill} from '@/components/ui/status-pill'
 import {HistoryTable} from '@/components/HistoryTable/HistoryTable'
 import {useAppStore} from '@/store/useAppStore'
+import {formatDuration, summarizeHistory} from '@/utils/buildStats'
 
 export function HistoryPage() {
   const history = useAppStore((state) => state.history)
-  const buildSuccess = history.filter((h) => h.status === 'SUCCESS').length
-  const buildFailed = history.filter((h) => h.status === 'FAILED').length
-  const buildCancelled = history.filter((h) => h.status === 'CANCELLED').length
+  const summary = useMemo(() => summarizeHistory(history), [history])
   const lastBuild = history[0]
 
   return (
@@ -19,10 +19,25 @@ export function HistoryPage() {
           <div className="flex items-center gap-2">
             <span className="text-[12px] text-[var(--muted-foreground)]">构建记录</span>
             <div className="flex flex-wrap gap-1.5">
-              <StatusPill tone="info">总计 {history.length}</StatusPill>
-              <StatusPill tone="success">成功 {buildSuccess}</StatusPill>
-              <StatusPill tone="error">失败 {buildFailed}</StatusPill>
-              <StatusPill tone="warning">已停止 {buildCancelled}</StatusPill>
+              <StatusPill tone="info">总计 {summary.total}</StatusPill>
+              <StatusPill tone="success">成功 {summary.success}</StatusPill>
+              <StatusPill tone="error">失败 {summary.failed}</StatusPill>
+              <StatusPill tone="warning">已停止 {summary.cancelled}</StatusPill>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[12px] text-[var(--muted-foreground)]">趋势</span>
+            <div className="flex flex-wrap gap-1.5">
+              <StatusPill>成功率 {summary.successRate}%</StatusPill>
+              {summary.averageDurationMs ? (
+                <StatusPill>平均耗时 {formatDuration(summary.averageDurationMs)}</StatusPill>
+              ) : null}
+              <StatusPill>近 7 天 {summary.recentSevenDays} 次</StatusPill>
+              {summary.slowestModule ? (
+                <StatusPill>
+                  最慢 {summary.slowestModule.artifactId}（{formatDuration(summary.slowestModule.averageMs)}）
+                </StatusPill>
+              ) : null}
             </div>
           </div>
           {lastBuild ? (

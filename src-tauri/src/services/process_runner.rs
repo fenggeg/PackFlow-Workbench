@@ -404,12 +404,15 @@ pub fn start_build(
         if let Ok(mut log_paths) = wait_log_paths.lock() {
             log_paths.remove(&wait_build_id);
         }
+        // 日志文件路径随结束事件回传，前端写进历史记录以便日后回看
+        let finished_log_path = wait_log_path.to_string_lossy().to_string();
         let _ = window_for_wait.emit(
             "build-finished",
             BuildFinishedEvent {
                 build_id: wait_build_id,
                 status: status.to_string(),
                 duration_ms,
+                log_path: Some(finished_log_path),
             },
         );
     });

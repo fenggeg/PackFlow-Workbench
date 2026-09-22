@@ -43,6 +43,7 @@ export function BuildLogPanel({fill = false}: {fill?: boolean}) {
   const buildCancelling = useAppStore((state) => state.buildCancelling)
   const cancelBuild = useAppStore((state) => state.cancelBuild)
   const clearBuildLogs = useAppStore((state) => state.clearBuildLogs)
+  const logFocusRequest = useAppStore((state) => state.logFocusRequest)
 
   const panelRef = useRef<HTMLDivElement>(null)
   const [keyword, setKeyword] = useState('')
@@ -60,6 +61,25 @@ export function BuildLogPanel({fill = false}: {fill?: boolean}) {
   useEffect(() => {
     if (autoScroll) scrollToBottom()
   }, [autoScroll, currentLogCount])
+
+  // 诊断结果「定位错误」：滚动到首个匹配的日志行并短暂高亮。
+  // 定位时必须关闭自动跟随，否则会被后续日志立刻拉回底部。
+  useEffect(() => {
+    if (!logFocusRequest) return
+    const container = panelRef.current
+    if (!container) return
+    const nodes = Array.from(container.querySelectorAll<HTMLElement>('[data-log-index]'))
+    const target = nodes.find((node) => (node.textContent ?? '').includes(logFocusRequest.line))
+    if (!target) return
+    setAutoScroll(false)
+    target.scrollIntoView({block: 'center'})
+    target.classList.add('log-line-focus')
+    const timer = setTimeout(() => target.classList.remove('log-line-focus'), 2400)
+    return () => {
+      clearTimeout(timer)
+      target.classList.remove('log-line-focus')
+    }
+  }, [logFocusRequest])
 
   const keywordValue = keyword.trim()
   /**

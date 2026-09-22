@@ -4,6 +4,8 @@ import {AdvancedOptionsPanel} from '@/components/AdvancedOptions/AdvancedOptions
 import {BuildNextActionsPanel} from '@/components/BuildCenter/BuildNextActionsPanel'
 import {BuildOptionsPanel} from '@/components/BuildOptions/BuildOptionsPanel'
 import {BuildProgressPanel} from '@/components/BuildProgress/BuildProgressPanel'
+import {BuildQueuePanel} from '@/components/BuildQueue/BuildQueuePanel'
+import {PreflightPanel} from '@/components/Preflight/PreflightPanel'
 import {EnvPanel} from '@/components/EnvPanel/EnvPanel'
 
 export function BuildPage() {
@@ -30,6 +32,8 @@ export function BuildPage() {
             },
           ]}
         />
+        <BuildQueuePanel />
+        <PreflightPanel />
         <BuildNextActionsPanel />
       </div>
     </section>

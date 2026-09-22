@@ -20,4 +20,7 @@ pub struct BuildHistoryRecord {
     pub build_options: Option<BuildOptions>,
     #[serde(default)]
     pub artifacts: Vec<BuildArtifact>,
+    /// 构建日志文件路径，用于回看历史构建的完整输出
+    #[serde(default)]
+    pub log_path: Option<String>,
 }

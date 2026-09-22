@@ -2,7 +2,7 @@
 
 面向 Windows 的 Maven 多模块项目打包工作台。基于 Tauri 2，React 19 前端负责交互编排，Rust 后端负责 POM 解析、环境检测、进程执行与 SQLite 持久化。
 
-当前版本：`3.3.7`（`package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 三处版本号保持一致）。
+当前版本：`3.3.8`（`package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 三处版本号保持一致）。
 
 ## 功能概览
 
@@ -13,8 +13,11 @@
 - 高级参数：本地仓库覆盖、`revision`、并行构建线程数（`-T`，1–16）、最大并发构建数（1–8）
 - 底栏常驻命令区：完整命令预览、手工改写、复制、重新生成、保存为模板、一键构建 / 停止
 - 实时构建进度：百分比、当前阶段（准备 / 构建模块 / 扫描产物 / 完成）与子步骤（清理 / 编译 / 测试 / 打包 / 安装），底栏细进度条同步显示
-- 构建失败自动诊断：规则引擎给出错误类型、摘要、可能原因、建议动作与关键日志行，支持一键复制
+- 构建失败自动诊断：规则引擎给出错误类型、摘要、可能原因、建议动作与关键日志行，支持一键复制，并可一键定位到日志中的首个错误行
+- 构建前检查：自动校验项目目录、模块路径、JDK（含 javac）、Maven / Wrapper、settings.xml 与本地仓库，未通过项直接拦住
+- 构建队列：可把当前配置加入队列或批量排队多个已保存项目，当前构建结束后自动继续
 - 依赖冲突检测：基于 `mvn dependency:tree -Dverbose`，展示冲突版本与依赖路径，可生成单条或按模块批量 `<exclusions>` 排除代码
+- 依赖结构树：按层级展开当前模块的传递依赖，循环依赖单独标记并可点击跳转
 
 ### 环境与工具
 
@@ -27,8 +30,9 @@
 ### 产物与历史
 
 - 产物管理：聚合当前产物与历史产物并按路径去重，表格展示文件名 / 类型 / 大小 / 模块 / 修改时间，支持关键词搜索、分页、复制路径、打开目录、删除（可选仅删记录）
-- 历史管理：顶部统计（总计 / 成功 / 失败 / 已停止），支持按模块或命令搜索、按结果筛选、重跑、删除、复制命令、打开目录
-- 常用组合（模板）：保存当前构建参数，支持应用、重命名、置顶、删除
+- 产物差异：与上一次同项目同范围的构建对比，展示新增、体积变化与本次未产出的产物
+- 历史管理：统计成功率 / 平均耗时 / 近 7 天次数 / 最慢模块，支持按模块或命令搜索、按结果筛选、重跑、删除、复制命令、打开目录、导出 CSV，并可回看当次构建的完整日志
+- 常用组合（模板）：保存当前构建参数，支持应用、重命名、置顶、删除，以及导出 / 导入 JSON
 
 ### 首页与工作台
 
@@ -37,7 +41,7 @@
 - 检查器抽屉：日志 / 构建诊断 / 构建详情三个页签，支持全屏放大
 - 导航栏设置：页面可见性、排序与启动默认页面可自定义，配置持久化
 - 深浅色主题切换（浅色 / 深色 / 跟随系统）
-- 命令面板：`Ctrl + K` 唤起，可跳转页面、开始/停止构建、刷新环境、扫描 JDK、切换主题与项目
+- 命令面板：`Ctrl + K` 唤起，可跳转页面、开始/停止构建、刷新环境、扫描 JDK、切换主题与项目；顶栏有常驻入口并直接标注快捷键
 - 应用内自动更新：基于官方 Updater 插件，自建更新源优先、GitHub 兜底
 
 ### 数据与排查
@@ -86,7 +90,7 @@ cd src-tauri && cargo check # Rust 类型/编译检查
 
 前端改动建议按 `npm run lint` → `npm run build` → `npm run test` 的顺序验证；Rust 改动在 `src-tauri/` 下执行 `cargo check`。
 
-单元测试覆盖 `useAppStore` 选择逻辑与命令锁定、构建进度解析（含 Reactor 清单统计）、失败诊断规则打分、`boundedBuffer`、`buildOptions` 归一化与日志文本处理，共 9 个 `*.test.ts` 文件。
+单元测试覆盖 `useAppStore` 选择逻辑与命令锁定、构建进度解析（含 Reactor 清单统计）、失败诊断规则打分、构建统计（耗时基线与产物差异）、`boundedBuffer`、`buildOptions` 归一化与日志文本处理，共 10 个 `*.test.ts` 文件。
 
 ## 构建安装包
 
@@ -125,9 +129,11 @@ src/
     FavoriteGroups/         常用组合
     GitStatus/              Git 状态卡片
     HistoryTable/           历史表格
-    ModuleTree/             模块树
+    ModuleTree/             模块树、依赖结构树
     ProjectSelector/        项目选择器
     NavigationSettings/     导航栏设置
+    BuildQueue/             构建队列（批量排队与自动续跑）
+    Preflight/              构建前检查结果
     Dashboard/              系统时间、网络状态、节假日倒计时卡片
     UpdateChecker/          应用更新检查
     DataTools/              数据备份/恢复、诊断包导出、打开数据目录
@@ -141,18 +147,19 @@ src/
     logParserService        日志解析
     environmentCenterService、holidayService
   store/                    Zustand：useAppStore、useBuildProgressStore、
-                            useEnvironmentStore、useDependencyStore、
+                            useBuildQueueStore、useEnvironmentStore、useDependencyStore、
                             useNavigationConfigStore、useThemeStore、
                             useFeedbackStore、useWorkflowStore、navigationStore
-  hooks/ lib/ utils/        事件订阅、动效、格式化、下载导出与容量裁剪工具
+  hooks/ lib/ utils/        事件订阅、动效、快捷键、格式化、下载导出、
+                            buildStats（耗时基线与产物差异）与容量裁剪工具
   types/domain.ts           前端领域类型
 
 src-tauri/src/
-  commands/                 Tauri command 入口（11 个模块，44 个命令）
+  commands/                 Tauri command 入口（11 个模块，46 个命令）
     project                 项目解析、模块依赖图
-    data                    数据备份/恢复、诊断包导出、打开数据目录
+    data                    数据备份/恢复、诊断包导出、打开数据目录、读取文本文件
     environment             环境检测、环境设置、项目绑定、JDK 注册表
-    build                   命令预览、启停构建、并发上限
+    build                   命令预览、构建前检查、启停构建、并发上限
     dependency              依赖冲突检测与排除代码生成
     filesystem              产物扫描、删除、资源管理器打开
     clipboard               文件复制到剪贴板（同时写入文件引用与路径文本）

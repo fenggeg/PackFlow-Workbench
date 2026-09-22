@@ -1,4 +1,4 @@
-import {Copy, Download, FolderOpen, Maximize2, RotateCcw, Trash2} from 'lucide-react'
+import {Copy, Download, FolderOpen, Maximize2, RotateCcw, ScrollText, Trash2} from 'lucide-react'
 import {useMemo, useState} from 'react'
 import {Button} from '@/components/ui/button'
 import {
@@ -23,8 +23,10 @@ import {motion, slideInUp} from '@/lib/motion'
 import {api} from '@/services/tauri-api'
 import {useAppStore} from '@/store/useAppStore'
 import {describeError, notifyError, notifySuccess} from '@/store/useFeedbackStore'
+import {LogConsole} from '@/components/common/LogConsole'
 import type {BuildHistoryRecord} from '@/types/domain'
 import {downloadTextFile, timestampSuffix, toCsv, withBom} from '@/utils/download'
+import {classifyLogLine} from '@/utils/format'
 
 const statusTone: Record<BuildHistoryRecord['status'], 'success' | 'error' | 'warning'> = {
   SUCCESS: 'success',
@@ -70,6 +72,11 @@ export function HistoryTable() {
   const [deleteTarget, setDeleteTarget] = useState<BuildHistoryRecord | null>(null)
   const [rerunTarget, setRerunTarget] = useState<BuildHistoryRecord | null>(null)
   const [rerunning, setRerunning] = useState(false)
+  const [logView, setLogView] = useState<{
+    record: BuildHistoryRecord
+    content?: string
+    error?: string
+  } | null>(null)
   const pageSize = expanded ? 20 : 12
 
   const toggleExpanded = (next: boolean) => {
@@ -90,6 +97,18 @@ export function HistoryTable() {
       )
     })
   }, [history, keyword, statusFilter])
+
+  /** 打开历史构建日志：日志文件在构建时已落盘，这里按需读取 */
+  const openLog = async (record: BuildHistoryRecord) => {
+    if (!record.logPath) return
+    setLogView({record})
+    try {
+      const content = await api.readTextFile(record.logPath)
+      setLogView({record, content})
+    } catch (error) {
+      setLogView({record, error: describeError(error)})
+    }
+  }
 
   /** 导出当前筛选结果为 CSV（带 BOM，Excel 直接打开不乱码） */
   const exportCsv = () => {
@@ -262,6 +281,21 @@ export function HistoryTable() {
                         </TooltipTrigger>
                         <TooltipContent>复制命令</TooltipContent>
                       </Tooltip>
+                      {record.logPath ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="iconSm"
+                              aria-label="查看构建日志"
+                              onClick={() => void openLog(record)}
+                            >
+                              <ScrollText />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>查看构建日志</TooltipContent>
+                        </Tooltip>
+                      ) : null}
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
@@ -460,6 +494,27 @@ export function HistoryTable() {
               {rerunning ? '启动中…' : '确认重跑'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(logView)} onOpenChange={(open) => !open && setLogView(null)}>
+        <DialogContent className="flex h-[80vh] max-w-[88vw] flex-col p-0">
+          <DialogHeader className="border-b border-[var(--border)] px-5 py-3">
+            <DialogTitle>
+              构建日志
+              {logView ? ` · ${new Date(logView.record.createdAt).toLocaleString()}` : ''}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 p-3">
+            <LogConsole
+              lines={(logView?.content ?? '').split('\n').filter((line) => line.length > 0)}
+              classifyLine={classifyLogLine}
+              emptyTitle={logView?.error ? '无法读取构建日志' : '正在读取构建日志…'}
+              emptyDescription={logView?.error}
+              keyPrefix="history-log"
+              renderLimit={3000}
+            />
+          </div>
         </DialogContent>
       </Dialog>
 

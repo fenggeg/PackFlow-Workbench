@@ -1,5 +1,5 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import {Check, Download, MoreHorizontal, Pencil, Pin, PinOff, Save, Trash2} from 'lucide-react'
+import {Check, Download, MoreHorizontal, Pencil, Pin, PinOff, Save, Trash2, Upload} from 'lucide-react'
 import {useState} from 'react'
 import {Button} from '@/components/ui/button'
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
@@ -17,6 +17,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import {SaveTemplateDialog} from '@/components/BuildTemplate/SaveTemplateDialog'
+import {api, selectLocalFile} from '@/services/tauri-api'
 import {useAppStore} from '@/store/useAppStore'
 import {describeError, notifyError, notifySuccess} from '@/store/useFeedbackStore'
 import type {BuildTemplate} from '@/types/domain'
@@ -28,6 +29,7 @@ export function FavoriteGroupsCard() {
   const applyTemplate = useAppStore((state) => state.applyTemplate)
   const updateTemplate = useAppStore((state) => state.updateTemplate)
   const deleteTemplate = useAppStore((state) => state.deleteTemplate)
+  const loadHistoryAndTemplates = useAppStore((state) => state.loadHistoryAndTemplates)
   const [saving, setSaving] = useState(false)
   const [editing, setEditing] = useState<BuildTemplate | undefined>(undefined)
   const [editingName, setEditingName] = useState('')
@@ -72,11 +74,61 @@ export function FavoriteGroupsCard() {
     notifySuccess(`已导出 ${templates.length} 个构建模板`)
   }
 
+  /**
+   * 从 JSON 导入模板。重新生成 id 并加「（导入）」后缀：
+   * 沿用原 id 会直接覆盖同名模板，导入这种批量操作应该只新增。
+   */
+  const importTemplates = async () => {
+    const file = await selectLocalFile('选择模板 JSON 文件')
+    if (!file) return
+    try {
+      const text = await api.readTextFile(file)
+      const parsed: unknown = JSON.parse(text)
+      const list = Array.isArray(parsed) ? parsed : [parsed]
+      const valid = list.filter((item): item is BuildTemplate => {
+        if (!item || typeof item !== 'object') return false
+        const candidate = item as Partial<BuildTemplate>
+        return typeof candidate.projectRoot === 'string' && Array.isArray(candidate.goals)
+      })
+      if (valid.length === 0) {
+        notifyError('导入失败', '文件中没有找到可用的构建模板。')
+        return
+      }
+      for (const template of valid) {
+        await api.saveTemplate({
+          ...template,
+          id: crypto.randomUUID(),
+          name: `${template.name || '未命名模板'}（导入）`,
+          pinned: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        })
+      }
+      await loadHistoryAndTemplates()
+      notifySuccess(`已导入 ${valid.length} 个构建模板`)
+    } catch (error) {
+      notifyError('导入失败', describeError(error))
+    }
+  }
+
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between space-y-0">
         <CardTitle>构建模板</CardTitle>
         <div className="flex items-center gap-0.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="iconSm"
+                aria-label="导入构建模板"
+                onClick={() => void importTemplates()}
+              >
+                <Upload />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>导入构建模板（JSON）</TooltipContent>
+          </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button

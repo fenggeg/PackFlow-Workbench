@@ -4,7 +4,7 @@ import {
   Filter,
   X,
 } from 'lucide-react'
-import {useMemo, useState} from 'react'
+import {useCallback, useMemo, useState} from 'react'
 import {Button} from '@/components/ui/button'
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
 import {Input} from '@/components/ui/input'
@@ -12,6 +12,7 @@ import {StatusPill} from '@/components/ui/status-pill'
 import {Tree, type TreeNodeData} from '@/components/ui/tree'
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip'
 import {WorkspaceCollapse} from '@/components/ui/workspace-collapse'
+import {DependencyTree} from './DependencyTree'
 import {useAppStore} from '@/store/useAppStore'
 import {useWorkflowStore} from '@/store/useWorkflowStore'
 import type {MavenModule} from '@/types/domain'
@@ -59,6 +60,7 @@ export function ModuleTreePanel() {
   const loading = useAppStore((state) => state.loading)
   const selectedModules = useAppStore((state) => state.selectedModules)
   const selectedModuleIds = useAppStore((state) => state.selectedModuleIds)
+  const alsoMake = useAppStore((state) => state.buildOptions.alsoMake)
   const setSelectedModules = useAppStore((state) => state.setSelectedModules)
   const selectAllProject = useAppStore((state) => state.selectAllProject)
   const dependencyGraph = useWorkflowStore((state) => state.dependencyGraph)
@@ -93,7 +95,26 @@ export function ModuleTreePanel() {
   }, [focusedModuleId, idToModule])
   const selectedSummary = dependencyGraph?.summaries.find((item) => item.moduleId === focusedModule?.id)
 
+  // 勾选 -am 时上游依赖会被一并构建，这里提前算清实际参与的模块数量，
+  // 避免用户以为只构建所选模块而误判构建耗时
+  const buildScope = useMemo(() => {
+    if (!alsoMake || selectedModuleIds.length === 0 || !dependencyGraph) return undefined
+    const summaries = new Map(dependencyGraph.summaries.map((item) => [item.moduleId, item]))
+    const ids = new Set(selectedModuleIds)
+    for (const id of selectedModuleIds) {
+      summaries.get(id)?.requiredBuildModuleIds.forEach((dependencyId) => ids.add(dependencyId))
+    }
+    return ids.size
+  }, [alsoMake, dependencyGraph, selectedModuleIds])
+
   const checkedSet = useMemo(() => new Set(selectedModuleIds), [selectedModuleIds])
+
+  // 依赖树与标签跳转共用同一套模块名解析，稳定引用避免树反复重算
+  const labelOfModule = useCallback(
+    (moduleId: string) => idToModule[moduleId]?.artifactId ?? moduleId,
+    [idToModule],
+  )
+  const focusModule = useCallback((moduleId: string) => setFocusedModuleId(moduleId), [])
 
   /** 模块标签：可点击跳转到对应模块，便于沿着依赖链逐层查看 */
   const renderModuleTags = (moduleIds: string[], tone: 'info' | 'warning' | 'success' | 'neutral') =>
@@ -232,6 +253,12 @@ export function ModuleTreePanel() {
           </span>
         ) : null}
 
+        {buildScope ? (
+          <span className="text-[12px] text-[var(--muted-foreground)]">
+            已启用 -am，连同上游依赖预计共 {buildScope} 个模块参与构建。
+          </span>
+        ) : null}
+
         {focusedModule ? (
           <WorkspaceCollapse
             defaultOpenKeys={['insight']}
@@ -340,6 +367,20 @@ export function ModuleTreePanel() {
               </Button>
             ) : null}
           </div>
+                ),
+              },
+              {
+                key: 'tree',
+                label: '依赖结构树',
+                children: dependencyGraph ? (
+                  <DependencyTree
+                    rootModuleId={focusedModule.id}
+                    graph={dependencyGraph}
+                    labelOf={labelOfModule}
+                    onSelect={focusModule}
+                  />
+                ) : (
+                  <span className="text-[12px] text-[var(--muted-foreground)]">依赖分析尚未就绪。</span>
                 ),
               },
             ]}

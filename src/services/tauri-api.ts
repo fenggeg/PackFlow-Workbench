@@ -25,6 +25,8 @@ import type {
   MavenProject,
   ModuleDependencyGraph,
   NetworkInfo,
+  PreflightPayload,
+  PreflightResult,
   StartBuildPayload,
 } from '../types/domain'
 
@@ -143,6 +145,10 @@ export const api = {
   buildCommandPreview: (payload: BuildCommandPayload) =>
     invoke<string>('build_command_preview', { payload }),
 
+  /** 构建前预检：只读文件系统，用于拦截明显会失败的配置 */
+  preflightBuild: (payload: PreflightPayload) =>
+    invoke<PreflightResult>('preflight_build', { payload }),
+
   startBuild: (payload: StartBuildPayload) =>
     invoke<string>('start_build', { payload }),
 
@@ -245,6 +251,9 @@ export const api = {
     invoke<string>('export_diagnostics', { targetPath, content }),
 
   openAppDataDir: () => invoke<void>('open_app_data_dir'),
+
+  readTextFile: (path: string, maxBytes?: number) =>
+    invoke<string>('read_text_file', { path, maxBytes }),
 }
 
 export async function registerBuildEvents(

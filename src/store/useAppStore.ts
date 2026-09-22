@@ -25,6 +25,7 @@ import type {
     MavenModule,
     MavenProject,
     PersistedBuildStatus,
+    PreflightResult,
 } from '../types/domain'
 
 const flattenModules = (modules: MavenModule[]): MavenModule[] =>
@@ -42,6 +43,8 @@ interface AppState {
   buildStatus: BuildStatus
   currentBuildId?: string
   buildRunToken?: string
+  /** 日志定位请求：token 保证同一行可重复触发 */
+  logFocusRequest?: {line: string; token: number}
   buildCancelling: boolean
   startedAt?: number
   durationMs: number
@@ -80,6 +83,8 @@ interface AppState {
   setEditableCommand: (command: string) => void
   /** 解除命令锁定并按当前参数重新生成 */
   resetEditableCommand: () => Promise<void>
+  /** 让日志区滚动定位到包含该文本的日志行（诊断结果「定位错误」用） */
+  focusLogLine: (line: string) => void
   /** 高频改动（逐字输入）走防抖，避免每次按键都发一次 IPC */
   scheduleCommandPreview: () => void
   /** 立即冲刷待执行的预览请求，开始构建前必须调用 */
@@ -104,6 +109,9 @@ interface AppState {
   addJdkToRegistry: (path: string, name?: string) => Promise<void>
   removeJdkFromRegistry: (jdkId: string) => Promise<void>
   setDefaultJdk: (jdkId: string) => Promise<void>
+  /** 构建前检查结果（最近一次） */
+  preflight?: PreflightResult
+  runPreflight: () => Promise<PreflightResult | undefined>
   startBuild: () => Promise<void>
   cancelBuild: () => Promise<void>
   appendBuildLog: (event: BuildLogEvent) => void
@@ -636,6 +644,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     }))
   },
 
+  focusLogLine: (line) => {
+    const trimmed = line.trim()
+    if (!trimmed) return
+    set({logFocusRequest: {line: trimmed, token: Date.now()}})
+  },
+
   resetEditableCommand: async () => {
     set((state) => ({
       buildOptions: {
@@ -828,6 +842,31 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  runPreflight: async () => {
+    const { buildOptions, environment } = get()
+    if (!buildOptions.projectRoot) {
+      fail('请先选择项目。')
+      return undefined
+    }
+    try {
+      const preflight = await api.preflightBuild({
+        projectRoot: buildOptions.projectRoot,
+        modulePath: buildOptions.selectedModulePath,
+        javaHome: environment?.javaHome,
+        mavenHome: environment?.mavenHome,
+        mavenPath: environment?.mavenPath,
+        useMavenWrapper: environment?.useMavenWrapper ?? false,
+        settingsXmlPath: environment?.settingsXmlPath,
+        localRepoPath: environment?.localRepoPath,
+      })
+      set({preflight})
+      return preflight
+    } catch (error) {
+      fail(getErrorMessage(error))
+      return undefined
+    }
+  },
+
   startBuild: async () => {
     const { buildOptions, environment, selectedModules, buildStatus } = get()
     // 与 parseProjectPath 一致：构建中不再允许再次启动，避免产生无人跟踪的孤儿进程
@@ -845,6 +884,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     const command = get().buildOptions.editableCommand.trim()
     if (!command) {
       fail('请先选择项目并确认构建命令。')
+      return
+    }
+
+    // 构建前预检：明显会失败的配置直接拦住，避免白等一轮 Maven 启动
+    const preflight = await get().runPreflight()
+    if (preflight && !preflight.ok) {
+      const failed = preflight.checks.filter((check) => check.status === 'fail')
+      fail(`构建前检查未通过：${failed.map((check) => check.message).join(' ')}`)
       return
     }
 
@@ -991,6 +1038,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       useMavenWrapper: environment?.useMavenWrapper ?? false,
       buildOptions: { ...buildOptions },
       artifacts: [],
+      // 记录日志文件位置，之后可在历史里回看完整日志
+      logPath: event.logPath,
     }
     // 同步进度状态：失败/取消立即标记，成功则进入产物扫描阶段
     if (event.status === 'FAILED') {

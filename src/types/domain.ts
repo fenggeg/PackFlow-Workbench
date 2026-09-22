@@ -219,6 +219,31 @@ export interface BuildCommandPayload {
   environment: BuildEnvironment
 }
 
+export type PreflightStatus = 'pass' | 'warn' | 'fail'
+
+export interface PreflightCheck {
+  key: string
+  label: string
+  status: PreflightStatus
+  message: string
+}
+
+export interface PreflightResult {
+  ok: boolean
+  checks: PreflightCheck[]
+}
+
+export interface PreflightPayload {
+  projectRoot: string
+  modulePath: string
+  javaHome?: string
+  mavenHome?: string
+  mavenPath?: string
+  useMavenWrapper: boolean
+  settingsXmlPath?: string
+  localRepoPath?: string
+}
+
 export interface StartBuildPayload {
   projectRoot: string
   command: string
@@ -239,6 +264,8 @@ export interface BuildFinishedEvent {
   buildId: string
   status: PersistedBuildStatus
   durationMs: number
+  /** 本次构建的日志文件路径，用于历史回看 */
+  logPath?: string
 }
 
 export interface BuildHistoryRecord {
@@ -255,6 +282,8 @@ export interface BuildHistoryRecord {
   useMavenWrapper: boolean
   buildOptions?: BuildOptions
   artifacts?: BuildArtifact[]
+  /** 构建日志文件路径，历史记录可回看完整日志 */
+  logPath?: string
 }
 
 export interface BuildTemplate {

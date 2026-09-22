@@ -1,4 +1,4 @@
-import {Copy, Maximize2, PanelRightOpen} from 'lucide-react'
+import {Copy, Crosshair, Maximize2, PanelRightOpen} from 'lucide-react'
 import {useEffect, useMemo, useState} from 'react'
 import {AnimatePresence} from 'motion/react'
 import {Button} from '@/components/ui/button'
@@ -28,6 +28,7 @@ export function InspectorDrawer() {
   const logs = useAppStore((state) => state.logs)
   const artifacts = useAppStore((state) => state.artifacts)
   const selectedModules = useAppStore((state) => state.selectedModules)
+  const focusLogLine = useAppStore((state) => state.focusLogLine)
   const [expanded, setExpanded] = useState(false)
 
   // 只有构建页或已有构建上下文时才出现，避免在首页/产物页展示无关面板
@@ -84,16 +85,34 @@ export function InspectorDrawer() {
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0">
           <CardTitle>构建诊断</CardTitle>
-          <Button
-            variant="secondary"
-            size="sm"
-            className="h-7 gap-1.5"
-            disabled={!diagnosis}
-            onClick={() => void navigator.clipboard?.writeText(diagnosisText)}
-          >
-            <Copy className="size-3.5" />
-            复制
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-7 gap-1.5"
+              disabled={!diagnosis}
+              onClick={() => void navigator.clipboard?.writeText(diagnosisText)}
+            >
+              <Copy className="size-3.5" />
+              复制
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-7 gap-1.5"
+              disabled={!diagnosis?.keywordLines.length}
+              title="切换到日志页签并定位到首个关键错误行"
+              onClick={() => {
+                const firstLine = diagnosis?.keywordLines[0]
+                if (!firstLine) return
+                setInspectorTab('logs')
+                focusLogLine(firstLine)
+              }}
+            >
+              <Crosshair className="size-3.5" />
+              定位错误
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {diagnosis ? (
@@ -110,6 +129,29 @@ export function InspectorDrawer() {
                   </li>
                 ))}
               </ul>
+
+              {diagnosis.keywordLines.length > 0 ? (
+                <>
+                  <div className="text-[13px] font-medium">关键日志</div>
+                  <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
+                    {diagnosis.keywordLines.slice(0, 8).map((line, index) => (
+                      <li key={`${index}-${line.slice(0, 24)}`}>
+                        <button
+                          type="button"
+                          className="w-full break-all rounded-[var(--radius)] px-1.5 py-1 text-left font-[family-name:var(--font-mono)] text-[11px] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+                          title="点击定位到该日志行"
+                          onClick={() => {
+                            setInspectorTab('logs')
+                            focusLogLine(line)
+                          }}
+                        >
+                          {line}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
             </div>
           ) : (
             <div className="flex min-h-24 items-center justify-center text-[13px] text-[var(--muted-foreground)]">
@@ -119,7 +161,7 @@ export function InspectorDrawer() {
         </CardContent>
       </Card>
     )
-  }, [diagnosis, diagnosisText])
+  }, [diagnosis, diagnosisText, focusLogLine, setInspectorTab])
 
   const detailsContent = useMemo(() => {
     return (

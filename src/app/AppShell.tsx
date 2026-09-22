@@ -1,4 +1,4 @@
-import {Folder, GitBranch, PanelRight} from 'lucide-react'
+import {Folder, GitBranch, PanelRight, Search} from 'lucide-react'
 import {useEffect, useState} from 'react'
 import {Button} from '@/components/ui/button'
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@/components/ui/dialog'
@@ -6,6 +6,7 @@ import {StatusPill} from '@/components/ui/status-pill'
 import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from '@/components/ui/tooltip'
 import {Toaster} from '@/components/ui/toaster'
 import {CommandPalette} from '@/components/CommandPalette/CommandPalette'
+import {commandPaletteShortcutLabel} from '@/lib/shortcuts'
 import {DataToolsMenu} from '@/components/DataTools/DataToolsMenu'
 import {ProjectSelector} from '@/components/ProjectSelector/ProjectSelector'
 import {UpdateChecker} from '@/components/UpdateChecker/UpdateChecker'
@@ -13,6 +14,7 @@ import {ExternalLinks} from '@/components/common/ExternalLinks'
 import {useAppStore} from '@/store/useAppStore'
 import {useNavigationStore} from '@/store/navigationStore'
 import {useNavigationConfigStore} from '@/store/useNavigationConfigStore'
+import {notifyInfo} from '@/store/useFeedbackStore'
 import {ActivityBar} from './ActivityBar'
 import {BottomActionBar} from './BottomActionBar'
 import {InspectorDrawer} from './InspectorDrawer'
@@ -21,6 +23,10 @@ import {SidebarPanel} from './SidebarPanel'
 import {ThemeToggle} from './ThemeToggle'
 import {TitleBarControls} from './TitleBarControls'
 import {useInspectorAvailable} from './inspectorAvailability'
+
+/** 快捷键提示最多出现 2 次，之后不再打扰 */
+const PALETTE_HINT_KEY = 'packflow.command-palette-hint'
+const PALETTE_HINT_MAX = 2
 
 const branchTone = (hasLocalChanges?: boolean, hasRemoteUpdates?: boolean) => {
   if (hasRemoteUpdates) return 'warning' as const
@@ -38,7 +44,32 @@ export function AppShell() {
   const projectSwitcherOpen = useNavigationStore((state) => state.projectSwitcherOpen)
   const setProjectSwitcherOpen = useNavigationStore((state) => state.setProjectSwitcherOpen)
   const inspectorAvailable = useInspectorAvailable()
+  const initialized = useAppStore((state) => state.initialized)
   const [paletteOpen, setPaletteOpen] = useState(false)
+
+  /**
+   * 快捷键本身不可见，只在启动后轻提示几次。
+   * 用 localStorage 计数，提示过就不再打扰 —— 避免每次启动都弹。
+   */
+  useEffect(() => {
+    if (!initialized) return
+    let seenCount = 0
+    try {
+      seenCount = Number(window.localStorage.getItem(PALETTE_HINT_KEY) ?? '0')
+    } catch {
+      return
+    }
+    if (seenCount >= PALETTE_HINT_MAX) return
+    try {
+      window.localStorage.setItem(PALETTE_HINT_KEY, String(seenCount + 1))
+    } catch {
+      // 存储不可用时忽略，不影响功能
+    }
+    const timer = setTimeout(() => {
+      notifyInfo('快捷键提示', `按 ${commandPaletteShortcutLabel} 可随时打开命令面板。`)
+    }, 2000)
+    return () => clearTimeout(timer)
+  }, [initialized])
 
   // Ctrl/Cmd + K 打开命令面板：桌面工具里最常用的全局快捷入口
   useEffect(() => {
@@ -109,6 +140,25 @@ export function AppShell() {
                 <TooltipContent>{inspectorOpen ? '收起检查器' : '展开检查器'}</TooltipContent>
               </Tooltip>
             ) : null}
+            {/* 命令面板必须有常驻入口，只靠快捷键用户不会知道它存在 */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1.5 rounded-full border border-[var(--border)] px-2.5 text-[12px] font-medium text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+                  aria-label={`打开命令面板（${commandPaletteShortcutLabel}）`}
+                  onClick={() => setPaletteOpen(true)}
+                >
+                  <Search className="size-3.5" />
+                  <span className="hidden xl:inline">命令</span>
+                  <kbd className="hidden rounded-[4px] border border-[var(--border)] bg-[var(--muted)] px-1 py-px font-[family-name:var(--font-mono)] text-[10px] leading-4 text-[var(--muted-foreground)] xl:inline">
+                    {commandPaletteShortcutLabel}
+                  </kbd>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>打开命令面板（{commandPaletteShortcutLabel}）</TooltipContent>
+            </Tooltip>
             <DataToolsMenu />
             <ExternalLinks />
             <ThemeToggle />

@@ -207,6 +207,13 @@
   -webkit-user-select: text;
 }
 
+/* 诊断「定位错误」时临时高亮目标行，随后由 JS 移除 */
+.log-line-focus {
+  background-color: rgba(251, 191, 36, 0.26);
+  box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.55);
+  border-radius: 2px;
+}
+
 /* 启动动画的进度条与产品内进度条保持一致：细条 + 主色 + 缓动 */
 .splash-bar {
   animation: splash-indeterminate 1.1s ease-in-out infinite;

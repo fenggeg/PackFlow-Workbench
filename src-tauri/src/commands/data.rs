@@ -122,6 +122,51 @@ pub async fn export_diagnostics(
     result
 }
 
+/// 读取本地文本文件内容（导入模板 JSON、回看历史构建日志等场景）。
+/// 限制单次读取大小，避免误选超大文件把内存打满；按 UTF-8 容错解码，
+/// 兼容 Maven 在中文 Windows 下产生的 GBK 输出。
+#[tauri::command]
+pub async fn read_text_file(
+    app: AppHandle,
+    path: String,
+    max_bytes: Option<u64>,
+) -> AppResult<String> {
+    let limit = max_bytes.unwrap_or(8 * 1024 * 1024).min(32 * 1024 * 1024);
+    app_logger::log_info(
+        &app,
+        "data.read_text.start",
+        format!("path={}, limit={}", path, limit),
+    );
+    let read_path = path.clone();
+    let result = blocking::run(move || {
+        let target = PathBuf::from(&read_path);
+        if !target.is_file() {
+            return Err(to_user_error(format!("文件不存在：{}", read_path)));
+        }
+        let metadata = fs::metadata(&target)
+            .map_err(|error| to_user_error(format!("无法读取文件信息：{}", error)))?;
+        if metadata.len() > limit {
+            return Err(to_user_error(format!(
+                "文件过大（约 {} MB），已取消读取。",
+                metadata.len() / 1024 / 1024
+            )));
+        }
+        let bytes = fs::read(&target)
+            .map_err(|error| to_user_error(format!("无法读取文件：{}", error)))?;
+        Ok(String::from_utf8_lossy(&bytes).to_string())
+    })
+    .await;
+    match &result {
+        Ok(content) => app_logger::log_info(
+            &app,
+            "data.read_text.done",
+            format!("path={}, size={}", path, content.len()),
+        ),
+        Err(error) => app_logger::log_error(&app, "data.read_text.failed", format!("error={}", error)),
+    }
+    result
+}
+
 /// 打开应用数据目录（数据库与日志都在里面）
 #[tauri::command]
 pub async fn open_app_data_dir(app: AppHandle) -> AppResult<()> {

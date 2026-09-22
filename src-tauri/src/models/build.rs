@@ -61,4 +61,7 @@ pub struct BuildFinishedEvent {
     pub build_id: String,
     pub status: String,
     pub duration_ms: u128,
+    /// 本次构建的日志文件路径，供历史记录回看日志
+    #[serde(default)]
+    pub log_path: Option<String>,
 }

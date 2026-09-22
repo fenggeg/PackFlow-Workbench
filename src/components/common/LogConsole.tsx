@@ -186,6 +186,7 @@ export const LogConsole = forwardRef<HTMLDivElement, LogConsoleProps>(function L
           {renderedLines.map((item, index) => (
             <pre
               key={`${keyPrefix}-${offset + index}`}
+              data-log-index={offset + index}
               className={cn(
                 // log-line 提供悬挂缩进 + 显式允许鼠标选中
                 'log-line m-0 cursor-text py-px text-[12px] leading-5 text-[var(--console-text)]',

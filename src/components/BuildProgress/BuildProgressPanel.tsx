@@ -1,5 +1,5 @@
 import {AlertTriangle, Check, Circle, Loader2, X} from 'lucide-react'
-import {useEffect, useState} from 'react'
+import {useEffect, useMemo, useState} from 'react'
 import {AnimatePresence} from 'motion/react'
 import {cn} from '@/lib/utils'
 import {Button} from '@/components/ui/button'
@@ -10,6 +10,7 @@ import {useAppStore} from '@/store/useAppStore'
 import {useBuildProgressStore} from '@/store/useBuildProgressStore'
 import {useNavigationStore} from '@/store/navigationStore'
 import type {BuildProgressStatus, StepStatus} from '@/services/buildProgressService'
+import {buildDurationBaseline} from '@/utils/buildStats'
 import {isActiveStatus, progressBarClass, progressLabel, progressTextClass} from './progressTone'
 
 const stepIcon = (status: StepStatus, active: boolean) => {
@@ -78,8 +79,18 @@ export function BuildProgressPanel() {
   const durationMs = useAppStore((state) => state.durationMs)
   const diagnosis = useAppStore((state) => state.diagnosis)
   const openInspector = useNavigationStore((state) => state.openInspector)
+  const history = useAppStore((state) => state.history)
+  const projectRoot = useAppStore((state) => state.buildOptions.projectRoot)
+  const modulePath = useAppStore((state) => state.buildOptions.selectedModulePath)
   const [elapsed, setElapsed] = useState(0)
   const [elapsedRun, setElapsedRun] = useState(snapshot.startedAt)
+
+  // 耗时基线：同项目 + 相同模块范围的历史成功构建才有可比性
+  const baseline = useMemo(
+    () => buildDurationBaseline(history, projectRoot, modulePath),
+    [history, projectRoot, modulePath],
+  )
+  const remainingMs = baseline ? baseline.averageMs - elapsed : undefined
 
   const status: BuildProgressStatus = snapshot.status
   const active = isActiveStatus(status)
@@ -237,6 +248,15 @@ export function BuildProgressPanel() {
         {active ? (
           <span className="text-[12px] text-[var(--muted-foreground)]">
             已用时 {formatDuration(elapsed)}
+            {baseline ? (
+              <>
+                {' · '}
+                历史平均 {formatDuration(baseline.averageMs)}（{baseline.sampleCount} 次成功构建）
+                {remainingMs !== undefined && remainingMs > 0
+                  ? ` · 预计还需约 ${formatDuration(remainingMs)}`
+                  : ''}
+              </>
+            ) : null}
           </span>
         ) : null}
       </CardContent>

@@ -2,6 +2,7 @@ import {CornerDownLeft, Search} from 'lucide-react'
 import {useMemo, useRef, useState} from 'react'
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@/components/ui/dialog'
 import {Input} from '@/components/ui/input'
+import {commandPaletteShortcutLabel} from '@/lib/shortcuts'
 import {useAppStore} from '@/store/useAppStore'
 import {useNavigationStore} from '@/store/navigationStore'
 import {useThemeStore} from '@/store/useThemeStore'
@@ -171,6 +172,10 @@ export function CommandPalette({
               </button>
             ))
           )}
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] px-4 py-2 text-[11px] text-[var(--muted-foreground)]">
+          <span>↑↓ 选择 · Enter 执行 · Esc 关闭</span>
+          <span>随时按 {commandPaletteShortcutLabel} 再次唤起</span>
         </div>
       </DialogContent>
     </Dialog>

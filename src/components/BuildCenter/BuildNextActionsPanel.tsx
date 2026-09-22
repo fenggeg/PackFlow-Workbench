@@ -1,4 +1,5 @@
 import {Copy, FolderOpen, RefreshCw} from 'lucide-react'
+import {useMemo} from 'react'
 import {Button} from '@/components/ui/button'
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
 import {StatusPill} from '@/components/ui/status-pill'
@@ -7,14 +8,38 @@ import {useAppStore} from '@/store/useAppStore'
 import {useNavigationStore} from '@/store/navigationStore'
 import {api} from '@/services/tauri-api'
 import {describeError, notifyError, notifySuccess} from '@/store/useFeedbackStore'
+import {diffArtifacts, formatBytes} from '@/utils/buildStats'
 
 export function BuildNextActionsPanel() {
   const buildStatus = useAppStore((state) => state.buildStatus)
   const buildCancelling = useAppStore((state) => state.buildCancelling)
   const artifacts = useAppStore((state) => state.artifacts)
   const diagnosis = useAppStore((state) => state.diagnosis)
+  const history = useAppStore((state) => state.history)
+  const projectRoot = useAppStore((state) => state.buildOptions.projectRoot)
+  const modulePath = useAppStore((state) => state.buildOptions.selectedModulePath)
   const startBuild = useAppStore((state) => state.startBuild)
   const setActivePage = useNavigationStore((state) => state.setActivePage)
+
+  // 上一次同项目同范围的成功产物（history[0] 是本次构建，取其后第一条）
+  const previousArtifacts = useMemo(() => {
+    const candidates = history.filter(
+      (record) =>
+        record.status === 'SUCCESS'
+        && record.projectRoot === projectRoot
+        && record.modulePath === modulePath
+        && (record.artifacts?.length ?? 0) > 0,
+    )
+    return candidates[1]?.artifacts ?? []
+  }, [history, modulePath, projectRoot])
+
+  const artifactDiff = useMemo(
+    () =>
+      artifacts.length > 0 && previousArtifacts.length > 0
+        ? diffArtifacts(artifacts, previousArtifacts)
+        : undefined,
+    [artifacts, previousArtifacts],
+  )
 
   if (buildStatus === 'RUNNING' || buildCancelling) {
     return null
@@ -54,6 +79,31 @@ export function BuildNextActionsPanel() {
         <CardTitle>下一步操作</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
+        {artifactDiff ? (
+          <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--muted)] px-3 py-2 text-[12px] text-[var(--muted-foreground)]">
+            <span className="font-medium text-[var(--foreground)]">与上次构建对比</span>
+            {artifactDiff.added.length > 0 ? ` · 新增 ${artifactDiff.added.length}` : ''}
+            {artifactDiff.changed.length > 0 ? ` · 体积变化 ${artifactDiff.changed.length}` : ''}
+            {artifactDiff.removed.length > 0 ? ` · 减少 ${artifactDiff.removed.length}` : ''}
+            {artifactDiff.added.length === 0
+            && artifactDiff.changed.length === 0
+            && artifactDiff.removed.length === 0
+              ? ' · 产物完全一致'
+              : ''}
+            <ul className="m-0 mt-1 flex list-none flex-col gap-0.5 p-0">
+              {artifactDiff.changed.slice(0, 5).map((item) => (
+                <li key={item.path} className="truncate font-[family-name:var(--font-mono)]">
+                  {item.fileName} {formatBytes(item.previousBytes)} → {formatBytes(item.currentBytes)}
+                </li>
+              ))}
+              {artifactDiff.removed.slice(0, 5).map((item) => (
+                <li key={item.path} className="truncate font-[family-name:var(--font-mono)]">
+                  {item.fileName} 本次未产出
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {artifacts.length === 0 ? (
           <div className="rounded-[var(--radius)] border border-[var(--warning)]/30 bg-[var(--warning)]/5 px-3 py-2 text-[13px] text-[var(--warning)]">
             构建成功，但未发现 jar/war 产物
