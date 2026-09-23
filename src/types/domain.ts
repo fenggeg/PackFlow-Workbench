@@ -244,12 +244,27 @@ export interface JarEntryContent {
   content: string
 }
 
-export interface JarEntryUpdateResult {
-  name: string
+export interface JarUpdateResult {
+  /** 本次写入的条目名（按归档内出现顺序） */
+  updatedNames: string[]
   /** 修改前的自动备份路径 */
   backupPath: string
   /** 因内容变更而移除的签名文件 */
   removedSignatures: string[]
+  sizeBytes: number
+}
+
+export interface JarBackupInfo {
+  path: string
+  fileName: string
+  sizeBytes: number
+  /** 备份文件的修改时间，格式 yyyy-MM-dd HH:mm:ss */
+  modifiedAt: string
+}
+
+export interface JarRestoreResult {
+  /** 恢复前对当前归档新做的备份路径 */
+  backupPath: string
   sizeBytes: number
 }
 

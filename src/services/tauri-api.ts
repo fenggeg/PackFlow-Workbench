@@ -21,9 +21,11 @@ import type {
   GitPullResult,
   GitRepositoryStatus,
   GitSwitchBranchResult,
+  JarBackupInfo,
   JarEntryContent,
-  JarEntryUpdateResult,
   JarInspection,
+  JarRestoreResult,
+  JarUpdateResult,
   JdkEntry,
   MavenProject,
   ModuleDependencyGraph,
@@ -197,9 +199,20 @@ export const api = {
   readJarEntry: (path: string, entryName: string) =>
     invoke<JarEntryContent>('read_jar_entry', { path, entryName }),
 
-  /** 修改归档中单个条目的内容（自动备份原文件，并移除失效的签名） */
-  updateJarEntry: (path: string, entryName: string, content: string) =>
-    invoke<JarEntryUpdateResult>('update_jar_entry', { path, entryName, content }),
+  /** 修改归档中若干条目的内容：一次重建完成全部写入（自动备份原文件，并移除失效的签名） */
+  updateJarEntries: (path: string, updates: { name: string; content: string }[]) =>
+    invoke<JarUpdateResult>('update_jar_entries', { path, updates }),
+
+  /** 列出归档同目录下的自动备份文件（<归档名>.bak-时间戳），按时间倒序 */
+  listJarBackups: (path: string) => invoke<JarBackupInfo[]>('list_jar_backups', { path }),
+
+  /** 删除选中的备份文件，返回删除数量 */
+  deleteJarBackups: (path: string, backupPaths: string[]) =>
+    invoke<number>('delete_jar_backups', { path, backupPaths }),
+
+  /** 用备份恢复归档（恢复前会自动备份当前文件） */
+  restoreJarBackup: (path: string, backupPath: string) =>
+    invoke<JarRestoreResult>('restore_jar_backup', { path, backupPath }),
 
   copyFileToClipboard: (path: string) =>
     invoke<void>('copy_file_to_clipboard', { path }),

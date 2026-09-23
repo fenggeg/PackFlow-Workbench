@@ -1,6 +1,7 @@
 use crate::error::{to_user_error, AppResult};
 use crate::services::{app_logger, blocking};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -57,14 +58,39 @@ pub struct JarEntryContent {
     pub content: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JarEntryUpdate {
+    pub name: String,
+    pub content: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct JarEntryUpdateResult {
-    pub name: String,
+pub struct JarUpdateResult {
+    /// 本次写入的条目名（按归档内出现顺序）
+    pub updated_names: Vec<String>,
     /// 修改前的自动备份路径
     pub backup_path: String,
     /// 因内容变更而移除的签名文件（保留会导致 Java 拒绝加载）
     pub removed_signatures: Vec<String>,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JarBackupInfo {
+    pub path: String,
+    pub file_name: String,
+    pub size_bytes: u64,
+    pub modified_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JarRestoreResult {
+    /// 恢复前对当前归档新做的备份路径
+    pub backup_path: String,
     pub size_bytes: u64,
 }
 
@@ -287,21 +313,29 @@ pub async fn read_jar_entry(
     result
 }
 
-/// 重组归档并替换单个条目的内容。
+/// 重组归档并替换若干条目的内容。
 /// 流程：校验条目 → 扫描签名 → 备份原文件 → 写临时归档 → 原子替换。
 /// 签名文件（META-INF/*.SF 等）必须一并移除：内容已变，保留它们会让 Java 直接拒绝加载。
-fn rewrite_entry(path: &Path, entry_name: &str, content: &[u8]) -> AppResult<(String, Vec<String>, u64)> {
+/// 多个条目在同一次重建中完成，避免逐个保存时反复重建整个归档。
+fn rewrite_entries(
+    path: &Path,
+    updates: &[(String, Vec<u8>)],
+) -> AppResult<(Vec<String>, String, Vec<String>, u64)> {
+    if updates.is_empty() {
+        return Err(to_user_error("没有需要写入的条目。".to_string()));
+    }
+
     let source = File::open(path)
         .map_err(|error| to_user_error(format!("无法打开归档文件：{}", error)))?;
     let mut archive = ZipArchive::new(source)
         .map_err(|error| to_user_error(format!("无法解析归档文件：{}", error)))?;
 
-    {
+    for (name, _) in updates {
         let entry = archive
-            .by_name(entry_name)
-            .map_err(|_| to_user_error(format!("归档中不存在条目：{}", entry_name)))?;
+            .by_name(name)
+            .map_err(|_| to_user_error(format!("归档中不存在条目：{}", name)))?;
         if entry.is_dir() {
-            return Err(to_user_error("目录条目不支持修改。".to_string()));
+            return Err(to_user_error(format!("目录条目不支持修改：{}", name)));
         }
     }
 
@@ -328,12 +362,17 @@ fn rewrite_entry(path: &Path, entry_name: &str, content: &[u8]) -> AppResult<(St
     // 临时文件与目标同目录，保证可以原子替换
     let temp_path = path.with_file_name(format!(".{}.updating", file_name));
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    let updates: HashMap<&str, &[u8]> = updates
+        .iter()
+        .map(|(name, content)| (name.as_str(), content.as_slice()))
+        .collect();
 
-    let rewritten = (|| -> AppResult<u64> {
+    let rewritten = (|| -> AppResult<(Vec<String>, u64)> {
         let target = File::create(&temp_path)
             .map_err(|error| to_user_error(format!("无法创建临时归档：{}", error)))?;
         let mut writer = ZipWriter::new(target);
-        let mut replaced = false;
+        let mut written: Vec<String> = Vec::with_capacity(updates.len());
+        let mut pending: HashSet<&str> = updates.keys().copied().collect();
 
         for index in 0..archive.len() {
             // 以 raw 模式读取：未修改的条目直接搬运原始压缩数据，
@@ -348,8 +387,9 @@ fn rewrite_entry(path: &Path, entry_name: &str, content: &[u8]) -> AppResult<(St
                 continue;
             }
 
-            if name == entry_name {
-                replaced = true;
+            if let Some(content) = updates.get(name.as_str()) {
+                pending.remove(name.as_str());
+                written.push(name.clone());
                 writer
                     .start_file(name.clone(), options)
                     .map_err(|error| to_user_error(format!("无法写入条目 {}：{}", name, error)))?;
@@ -365,18 +405,19 @@ fn rewrite_entry(path: &Path, entry_name: &str, content: &[u8]) -> AppResult<(St
                 .map_err(|error| to_user_error(format!("无法复制条目 {}：{}", name, error)))?;
         }
 
-        if !replaced {
-            return Err(to_user_error(format!("归档中不存在条目：{}", entry_name)));
+        if let Some(missing) = pending.iter().next() {
+            return Err(to_user_error(format!("归档中不存在条目：{}", missing)));
         }
 
         writer
             .finish()
             .map_err(|error| to_user_error(format!("无法完成归档写入：{}", error)))?;
-        Ok(std::fs::metadata(&temp_path).map(|meta| meta.len()).unwrap_or(0))
+        let size_bytes = std::fs::metadata(&temp_path).map(|meta| meta.len()).unwrap_or(0);
+        Ok((written, size_bytes))
     })();
 
-    let size_bytes = match rewritten {
-        Ok(size) => size,
+    let (written, size_bytes) = match rewritten {
+        Ok(value) => value,
         Err(error) => {
             let _ = std::fs::remove_file(&temp_path);
             return Err(error);
@@ -391,6 +432,7 @@ fn rewrite_entry(path: &Path, entry_name: &str, content: &[u8]) -> AppResult<(St
     }
 
     Ok((
+        written,
         backup_path.to_string_lossy().to_string(),
         signatures,
         size_bytes,
@@ -398,26 +440,34 @@ fn rewrite_entry(path: &Path, entry_name: &str, content: &[u8]) -> AppResult<(St
 }
 
 #[tauri::command]
-pub async fn update_jar_entry(
+pub async fn update_jar_entries(
     app: AppHandle,
     path: String,
-    entry_name: String,
-    content: String,
-) -> AppResult<JarEntryUpdateResult> {
+    updates: Vec<JarEntryUpdate>,
+) -> AppResult<JarUpdateResult> {
+    let names = updates
+        .iter()
+        .map(|update| update.name.clone())
+        .collect::<Vec<_>>()
+        .join(",");
     app_logger::log_info(
         &app,
         "jar.update.start",
-        format!("path={}, entry={}", path, entry_name),
+        format!("path={}, entries={}", path, names),
     );
     let task_path = path.clone();
-    let task_entry = entry_name.clone();
     let result = blocking::run(move || {
         let target = ensure_archive_path(&task_path)?;
-        let bytes = content.into_bytes();
-        let (backup_path, removed_signatures, size_bytes) =
-            rewrite_entry(&target, &task_entry, &bytes)?;
-        Ok(JarEntryUpdateResult {
-            name: task_entry,
+        // 同名条目只保留最后一次内容，避免归档里出现二义性
+        let mut merged: HashMap<String, Vec<u8>> = HashMap::new();
+        for update in updates {
+            merged.insert(update.name, update.content.into_bytes());
+        }
+        let merged: Vec<(String, Vec<u8>)> = merged.into_iter().collect();
+        let (updated_names, backup_path, removed_signatures, size_bytes) =
+            rewrite_entries(&target, &merged)?;
+        Ok(JarUpdateResult {
+            updated_names,
             backup_path,
             removed_signatures,
             size_bytes,
@@ -430,14 +480,195 @@ pub async fn update_jar_entry(
             &app,
             "jar.update.done",
             format!(
-                "entry={}, backup={}, removed_signatures={}, size={}",
-                update.name,
+                "entries={}, backup={}, removed_signatures={}, size={}",
+                update.updated_names.join(","),
                 update.backup_path,
                 update.removed_signatures.len(),
                 update.size_bytes
             ),
         ),
         Err(error) => app_logger::log_error(&app, "jar.update.failed", format!("error={}", error)),
+    }
+    result
+}
+
+/// 校验备份路径：必须是目标归档的同目录兄弟文件，且文件名以 `<归档名>.bak-` 开头，
+/// 防止借备份管理之名操作任意文件。
+fn ensure_backup_path(archive_raw: &str, backup_raw: &str) -> AppResult<(PathBuf, PathBuf)> {
+    let archive = ensure_archive_path(archive_raw)?;
+    let file_name = archive
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    let prefix = format!("{}.bak-", file_name);
+
+    let backup = PathBuf::from(backup_raw.trim());
+    if !backup.is_file() {
+        return Err(to_user_error(format!("备份文件不存在：{}", backup_raw)));
+    }
+    if backup.parent() != archive.parent() {
+        return Err(to_user_error("备份文件必须与归档位于同一目录。".to_string()));
+    }
+    let backup_name = backup
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    if !backup_name.starts_with(&prefix) {
+        return Err(to_user_error(format!(
+            "该文件不是 {} 的备份：{}",
+            file_name, backup_raw
+        )));
+    }
+    Ok((archive, backup))
+}
+
+/// 列出归档同目录下的全部自动备份（`<归档名>.bak-*`），按时间倒序。
+#[tauri::command]
+pub async fn list_jar_backups(app: AppHandle, path: String) -> AppResult<Vec<JarBackupInfo>> {
+    let _ = &app;
+    let task_path = path.clone();
+    blocking::run(move || {
+        let target = ensure_archive_path(&task_path)?;
+        let file_name = target
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        let prefix = format!("{}.bak-", file_name);
+        let parent = target
+            .parent()
+            .ok_or_else(|| to_user_error("无法定位归档所在目录。".to_string()))?;
+
+        let mut backups: Vec<JarBackupInfo> = Vec::new();
+        let dir = std::fs::read_dir(parent)
+            .map_err(|error| to_user_error(format!("无法读取归档目录：{}", error)))?;
+        for item in dir.flatten() {
+            let name = item.file_name().to_string_lossy().to_string();
+            if !name.starts_with(&prefix) {
+                continue;
+            }
+            let meta = match item.metadata() {
+                Ok(meta) => meta,
+                Err(_) => continue,
+            };
+            let modified_at = meta
+                .modified()
+                .ok()
+                .map(|time| {
+                    chrono::DateTime::<chrono::Local>::from(time)
+                        .format("%Y-%m-%d %H:%M:%S")
+                        .to_string()
+                })
+                .unwrap_or_default();
+            backups.push(JarBackupInfo {
+                path: item.path().to_string_lossy().to_string(),
+                file_name: name,
+                size_bytes: meta.len(),
+                modified_at,
+            });
+        }
+        // 文件名带时间戳，但 mtime 更能反映真实写入时间；两者都缺失时按名称兜底
+        backups.sort_by(|a, b| {
+            b.modified_at
+                .partial_cmp(&a.modified_at)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| b.file_name.cmp(&a.file_name))
+        });
+        Ok(backups)
+    })
+    .await
+}
+
+/// 删除选中的备份文件（逐个校验与归档的同目录兄弟关系）。
+#[tauri::command]
+pub async fn delete_jar_backups(
+    app: AppHandle,
+    path: String,
+    backup_paths: Vec<String>,
+) -> AppResult<usize> {
+    app_logger::log_info(
+        &app,
+        "jar.backup.delete",
+        format!("path={}, count={}", path, backup_paths.len()),
+    );
+    let task_path = path.clone();
+    blocking::run(move || {
+        if backup_paths.is_empty() {
+            return Err(to_user_error("没有选择要删除的备份。".to_string()));
+        }
+        let mut deleted = 0usize;
+        for backup_raw in &backup_paths {
+            let (_archive, backup) = ensure_backup_path(&task_path, backup_raw)?;
+            std::fs::remove_file(&backup)
+                .map_err(|error| to_user_error(format!("无法删除备份文件：{}", error)))?;
+            deleted += 1;
+        }
+        Ok(deleted)
+    })
+    .await
+}
+
+/// 用备份恢复归档：先把当前文件另存为新备份，再原子替换，失败可再回退。
+#[tauri::command]
+pub async fn restore_jar_backup(
+    app: AppHandle,
+    path: String,
+    backup_path: String,
+) -> AppResult<JarRestoreResult> {
+    app_logger::log_info(
+        &app,
+        "jar.backup.restore",
+        format!("path={}, backup={}", path, backup_path),
+    );
+    let task_path = path.clone();
+    let task_backup = backup_path.clone();
+    let result = blocking::run(move || {
+        let (archive, backup) = ensure_backup_path(&task_path, &task_backup)?;
+
+        let file_name = archive
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("archive");
+        let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+        let safety_path = archive.with_file_name(format!("{}.bak-{}", file_name, timestamp));
+        std::fs::copy(&archive, &safety_path)
+            .map_err(|error| to_user_error(format!("无法备份当前归档：{}", error)))?;
+
+        let temp_path = archive.with_file_name(format!(".{}.restoring", file_name));
+        let outcome = (|| -> AppResult<u64> {
+            std::fs::copy(&backup, &temp_path)
+                .map_err(|error| to_user_error(format!("无法读取备份内容：{}", error)))?;
+            std::fs::rename(&temp_path, &archive)
+                .map_err(|error| to_user_error(format!("无法替换归档文件：{}", error)))?;
+            Ok(std::fs::metadata(&archive).map(|meta| meta.len()).unwrap_or(0))
+        })();
+
+        match outcome {
+            Ok(size_bytes) => Ok(JarRestoreResult {
+                backup_path: safety_path.to_string_lossy().to_string(),
+                size_bytes,
+            }),
+            Err(error) => {
+                let _ = std::fs::remove_file(&temp_path);
+                // 替换失败时回退到恢复前的状态
+                let _ = std::fs::copy(&safety_path, &archive);
+                Err(error)
+            }
+        }
+    })
+    .await;
+
+    match &result {
+        Ok(restored) => app_logger::log_info(
+            &app,
+            "jar.backup.restore.done",
+            format!(
+                "backup={}, safety={}, size={}",
+                backup_path, restored.backup_path, restored.size_bytes
+            ),
+        ),
+        Err(error) => {
+            app_logger::log_error(&app, "jar.backup.restore.failed", format!("error={}", error));
+        }
     }
     result
 }
