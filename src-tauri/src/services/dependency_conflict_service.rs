@@ -8,6 +8,7 @@ use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
@@ -15,16 +16,51 @@ use tauri::{AppHandle, Emitter};
 /// 大项目或依赖未缓存时可能跑很久，没有上限会永久占用一个 blocking 线程。
 const SCAN_TIMEOUT: Duration = Duration::from_secs(600);
 
-/// 当前扫描进程 pid（0 表示没有在扫描）
-static ACTIVE_SCAN_PID: AtomicU32 = AtomicU32::new(0);
-/// 取消/超时标记
-static SCAN_CANCELLED: AtomicBool = AtomicBool::new(false);
+/// 单次扫描的取消句柄：取消位 + 进程 pid。
+/// 之前是全局静态（取消位/pid 各一个），并发扫描会互相误伤；
+/// 现在每次扫描持有自己的句柄，取消命令只作用于当前注册的那一次。
+struct ScanHandle {
+    cancelled: AtomicBool,
+    pid: AtomicU32,
+}
+
+/// 当前活跃扫描（None 表示没有在扫描）。
+static ACTIVE_SCAN: Mutex<Option<std::sync::Arc<ScanHandle>>> = Mutex::new(None);
+
+/// 扫描退出时的清理守卫：
+/// - 让看门狗线程立即退出（通道断开），不再空睡 600 秒；
+/// - 把活跃扫描标记清掉，防止迟到的取消/超时杀死已被复用的 pid。
+struct ActiveScanGuard {
+    handle: std::sync::Arc<ScanHandle>,
+    _timeout_tx: std::sync::mpsc::Sender<()>,
+}
+
+impl Drop for ActiveScanGuard {
+    fn drop(&mut self) {
+        if let Ok(mut active) = ACTIVE_SCAN.lock() {
+            if active
+                .as_ref()
+                .is_some_and(|current| std::sync::Arc::ptr_eq(current, &self.handle))
+            {
+                *active = None;
+            }
+        }
+        // _timeout_tx 在此 drop → 看门狗 recv 断开 → 线程立即结束
+    }
+}
 
 /// 请求中断依赖冲突扫描：直接终止 mvn 进程树，而不是让前端干等。
 /// 返回是否真的发出了终止命令。
 pub fn cancel_dependency_scan() -> bool {
-    SCAN_CANCELLED.store(true, Ordering::SeqCst);
-    let pid = ACTIVE_SCAN_PID.load(Ordering::SeqCst);
+    let Some(handle) = ACTIVE_SCAN
+        .lock()
+        .ok()
+        .and_then(|active| active.clone())
+    else {
+        return false;
+    };
+    handle.cancelled.store(true, Ordering::SeqCst);
+    let pid = handle.pid.load(Ordering::SeqCst);
     if pid == 0 {
         return false;
     }
@@ -83,20 +119,48 @@ pub fn detect_dependency_conflicts(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    SCAN_CANCELLED.store(false, Ordering::SeqCst);
     let mut child = cmd.spawn().map_err(|e| to_user_error(format!("无法启动 dependency:tree: {}", e)))?;
     let scan_pid = child.id();
-    ACTIVE_SCAN_PID.store(scan_pid, Ordering::SeqCst);
-
-    // 看门狗：超过上限仍未结束就终止进程树。子进程被杀后 stdout 管道会 EOF，
-    // 阻塞在读循环的主线程因此能够退出，避免永久占用 blocking 线程。
-    std::thread::spawn(move || {
-        std::thread::sleep(SCAN_TIMEOUT);
-        if ACTIVE_SCAN_PID.load(Ordering::SeqCst) == scan_pid {
-            let _ = kill_pid(scan_pid);
-            SCAN_CANCELLED.store(true, Ordering::SeqCst);
-        }
+    let handle = std::sync::Arc::new(ScanHandle {
+        cancelled: AtomicBool::new(false),
+        pid: AtomicU32::new(scan_pid),
     });
+    // 注册为当前活跃扫描；理论上同一时刻只有一次扫描，若前一次还挂着则标记取消
+    if let Ok(mut active) = ACTIVE_SCAN.lock() {
+        if let Some(previous) = active.take() {
+            previous.cancelled.store(true, Ordering::SeqCst);
+        }
+        *active = Some(handle.clone());
+    }
+    let guard = ActiveScanGuard {
+        handle: handle.clone(),
+        _timeout_tx: {
+            let (timeout_tx, timeout_rx) = std::sync::mpsc::channel::<()>();
+            // 看门狗：超过上限仍未结束就终止进程树。子进程被杀后 stdout 管道会 EOF，
+            // 阻塞在读循环的主线程因此能够退出，避免永久占用 blocking 线程。
+            // 只在本次扫描仍是当前活跃扫描时才动手，避免误杀后续扫描。
+            let watchdog_handle = handle.clone();
+            std::thread::spawn(move || {
+                match timeout_rx.recv_timeout(SCAN_TIMEOUT) {
+                    Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                }
+                let current = ACTIVE_SCAN.lock().ok().and_then(|active| active.clone());
+                if let Some(current) = current {
+                    if std::sync::Arc::ptr_eq(&current, &watchdog_handle)
+                        && !current.cancelled.load(Ordering::SeqCst)
+                    {
+                        current.cancelled.store(true, Ordering::SeqCst);
+                        let pid = current.pid.load(Ordering::SeqCst);
+                        if pid != 0 {
+                            let _ = kill_pid(pid);
+                        }
+                    }
+                }
+            });
+            timeout_tx
+        },
+    };
 
     let stdout = child.stdout.take().ok_or_else(|| to_user_error("无法获取 dependency:tree 的标准输出"))?;
     let stderr = child.stderr.take().ok_or_else(|| to_user_error("无法获取 dependency:tree 的标准错误"))?;
@@ -121,7 +185,7 @@ pub fn detect_dependency_conflicts(
 
     for line_result in reader.lines() {
         // 用户取消或超时后停止解析剩余输出
-        if SCAN_CANCELLED.load(Ordering::SeqCst) {
+        if handle.cancelled.load(Ordering::SeqCst) {
             break;
         }
         let line = match line_result {
@@ -157,10 +221,10 @@ pub fn detect_dependency_conflicts(
 
     let exit_status = child.wait().map_err(|e| to_user_error(format!("等待 dependency:tree 结束失败: {}", e)))?;
     let stderr_lines = stderr_handle.join().unwrap_or_default();
-    ACTIVE_SCAN_PID.store(0, Ordering::SeqCst);
+    drop(guard);
 
     // 取消/超时优先于其他判定：此时结果不完整，必须明确报错而不是当成「无冲突」
-    if SCAN_CANCELLED.load(Ordering::SeqCst) {
+    if handle.cancelled.load(Ordering::SeqCst) {
         return Err(to_user_error("已取消依赖冲突扫描，结果未生成。"));
     }
 

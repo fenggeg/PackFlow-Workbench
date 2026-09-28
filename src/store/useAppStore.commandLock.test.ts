@@ -1,5 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest'
 import {useAppStore} from './useAppStore'
+import {useBuildSessionStore} from './useBuildSessionStore'
+import {useEnvironmentStore} from './useEnvironmentStore'
 import {createDefaultBuildOptions} from '@/services/tauri-api'
 import type {BuildEnvironment} from '@/types/domain'
 
@@ -36,8 +38,9 @@ describe('useAppStore 命令锁定', () => {
   beforeEach(() => {
     previewMock.mockReset()
     previewMock.mockResolvedValue(GENERATED)
+    useBuildSessionStore.getState().reset()
+    useEnvironmentStore.setState({environment})
     useAppStore.setState({
-      environment,
       buildOptions: createDefaultBuildOptions('D:/repo/scs', ''),
     })
   })

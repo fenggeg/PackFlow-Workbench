@@ -6,11 +6,12 @@ import {Button} from '@/components/ui/button'
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
 import {StatusPill} from '@/components/ui/status-pill'
 import {motion, slideInUp} from '@/lib/motion'
+import {useBuildSessionStore} from '@/store/useBuildSessionStore'
 import {useAppStore} from '@/store/useAppStore'
 import {useBuildProgressStore} from '@/store/useBuildProgressStore'
-import {useNavigationStore} from '@/store/navigationStore'
 import type {BuildProgressStatus, StepStatus} from '@/services/buildProgressService'
 import {buildDurationBaseline} from '@/utils/buildStats'
+import {BuildNextActionsContent} from '@/components/BuildCenter/BuildNextActionsPanel'
 import {isActiveStatus, progressBarClass, progressLabel, progressTextClass} from './progressTone'
 
 const stepIcon = (status: StepStatus, active: boolean) => {
@@ -65,6 +66,10 @@ const formatDuration = (ms: number) => {
   return `${Math.floor(seconds / 60)}m${seconds % 60}s`
 }
 
+/** 构建已结束（无论结果）：进度面板此时内嵌「下一步操作」 */
+const isFinishedStatus = (status: BuildProgressStatus) =>
+  status === 'success' || status === 'failed' || status === 'cancelled'
+
 /**
  * 打包进度面板（详细视图）
  * - 阶段：准备 / 构建模块 / 扫描产物 / 完成，区分已完成、进行中、未开始
@@ -76,9 +81,7 @@ export function BuildProgressPanel() {
   const visible = useBuildProgressStore((state) => state.visible)
   const dismiss = useBuildProgressStore((state) => state.dismiss)
   const artifacts = useAppStore((state) => state.artifacts)
-  const durationMs = useAppStore((state) => state.durationMs)
-  const diagnosis = useAppStore((state) => state.diagnosis)
-  const openInspector = useNavigationStore((state) => state.openInspector)
+  const durationMs = useBuildSessionStore((state) => state.durationMs)
   const history = useAppStore((state) => state.history)
   const projectRoot = useAppStore((state) => state.buildOptions.projectRoot)
   const modulePath = useAppStore((state) => state.buildOptions.selectedModulePath)
@@ -110,8 +113,6 @@ export function BuildProgressPanel() {
   }, [active, snapshot.startedAt])
 
   if (!visible || status === 'idle') return null
-
-  const failureMessage = snapshot.message ?? diagnosis?.summary
 
   return (
     <AnimatePresence>
@@ -212,25 +213,6 @@ export function BuildProgressPanel() {
           </div>
         ) : null}
 
-        {status === 'failed' ? (
-          <div className="flex flex-col gap-2 rounded-[var(--radius)] border border-[var(--error)]/40 bg-[var(--error)]/5 px-3 py-2">
-            <span className="text-[13px] font-medium text-[var(--error)]">
-              构建失败，已完成 {snapshot.percent}%
-            </span>
-            {failureMessage ? (
-              <span className="break-words text-[12px] text-[var(--muted-foreground)]">{failureMessage}</span>
-            ) : null}
-            <Button
-              variant="secondary"
-              size="sm"
-              className="self-start"
-              onClick={() => openInspector('diagnosis')}
-            >
-              查看诊断与日志
-            </Button>
-          </div>
-        ) : null}
-
         {status === 'success' ? (
           <div className="flex flex-wrap items-center gap-2 text-[13px] text-[var(--success)]">
             <Check className="size-4" />
@@ -241,8 +223,14 @@ export function BuildProgressPanel() {
           </div>
         ) : null}
 
-        {status === 'cancelled' ? (
-          <span className="text-[13px] text-[var(--warning)]">构建已停止，进度保留供参考。</span>
+        {/*
+          构建结束后内嵌「下一步操作」：失败/停止给重新构建与诊断入口，
+          成功给产物对比与复制/定位操作 —— 紧跟进度展示，用户不必滚到页面底部找卡片。
+        */}
+        {isFinishedStatus(status) ? (
+          <div className="flex flex-col gap-3 border-t border-[var(--border)] pt-3">
+            <BuildNextActionsContent />
+          </div>
         ) : null}
 
         {active ? (

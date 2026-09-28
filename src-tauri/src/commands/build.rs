@@ -1,11 +1,11 @@
 use crate::error::AppResult;
 use crate::models::build::{BuildCommandPayload, StartBuildPayload};
-use crate::services::app_logger;
+use crate::services::{app_logger, blocking};
 use crate::services::command_builder;
 use crate::services::process_runner::{self, BuildProcessState};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tauri::{AppHandle, State, Window};
+use tauri::{AppHandle, Manager, State, Window};
 
 /// 构建前预检入参：只包含判断「这次构建有没有明显拦路问题」所需的信息
 #[derive(Debug, Clone, Deserialize)]
@@ -234,24 +234,31 @@ fn run_preflight(payload: &PreflightPayload) -> PreflightResult {
 }
 
 #[tauri::command]
-pub fn preflight_build(app: AppHandle, payload: PreflightPayload) -> AppResult<PreflightResult> {
-    let result = run_preflight(&payload);
-    let failed = result
-        .checks
-        .iter()
-        .filter(|check| check.status == "fail")
-        .map(|check| check.label.as_str())
-        .collect::<Vec<_>>()
-        .join("、");
-    app_logger::log_info(
-        &app,
-        "build.preflight",
-        format!(
-            "project_root={}, ok={}, failed=[{}]",
-            payload.project_root, result.ok, failed
-        ),
-    );
-    Ok(result)
+pub async fn preflight_build(
+    app: AppHandle,
+    payload: PreflightPayload,
+) -> AppResult<PreflightResult> {
+    // 预检含文件系统 IO（pom/目录探测），放到 blocking 线程避免卡主线程
+    blocking::run(move || {
+        let result = run_preflight(&payload);
+        let failed = result
+            .checks
+            .iter()
+            .filter(|check| check.status == "fail")
+            .map(|check| check.label.as_str())
+            .collect::<Vec<_>>()
+            .join("、");
+        app_logger::log_info(
+            &app,
+            "build.preflight",
+            format!(
+                "project_root={}, ok={}, failed=[{}]",
+                payload.project_root, result.ok, failed
+            ),
+        );
+        Ok(result)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -279,21 +286,24 @@ pub fn build_command_preview(app: AppHandle, payload: BuildCommandPayload) -> Ap
 }
 
 #[tauri::command]
-pub fn start_build(
-    window: Window,
-    state: State<'_, BuildProcessState>,
-    payload: StartBuildPayload,
-) -> AppResult<String> {
-    process_runner::start_build(window, state, payload)
+pub async fn start_build(window: Window, payload: StartBuildPayload) -> AppResult<String> {
+    // start_build 涉及日志文件写入与子进程 spawn，必须在 blocking 线程执行
+    let app = window.app_handle().clone();
+    blocking::run(move || {
+        let state = app.state::<BuildProcessState>();
+        process_runner::start_build(window, state, payload)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn cancel_build(
-    window: Window,
-    state: State<'_, BuildProcessState>,
-    build_id: String,
-) -> AppResult<()> {
-    process_runner::cancel_build(window, state, &build_id)
+pub async fn cancel_build(window: Window, build_id: String) -> AppResult<()> {
+    let app = window.app_handle().clone();
+    blocking::run(move || {
+        let state = app.state::<BuildProcessState>();
+        process_runner::cancel_build(window, state, &build_id)
+    })
+    .await
 }
 
 #[tauri::command]

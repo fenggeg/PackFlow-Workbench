@@ -9,6 +9,7 @@ const pageComponents = {
   build: lazy(() => import('../pages/BuildPage').then((module) => ({default: module.BuildPage}))),
   artifacts: lazy(() => import('../pages/ArtifactPage').then((module) => ({default: module.ArtifactPage}))),
   history: lazy(() => import('../pages/HistoryPage').then((module) => ({default: module.HistoryPage}))),
+  settings: lazy(() => import('../pages/SettingsPage').then((module) => ({default: module.SettingsPage}))),
 } satisfies Record<AppPage, ReturnType<typeof lazy>>
 
 export function MainWorkspace() {

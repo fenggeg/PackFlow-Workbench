@@ -1,7 +1,8 @@
 use crate::error::{to_user_error, AppResult};
-use crate::services::app_logger;
+use crate::services::{app_logger, blocking};
 use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
+use std::time::Duration;
 use tauri::AppHandle;
 use windows_sys::Win32::Foundation::{GlobalFree, HWND};
 use windows_sys::Win32::System::DataExchange::{
@@ -58,13 +59,20 @@ unsafe fn set_format(h_mem: usize, format: u32) -> bool {
 }
 
 #[tauri::command]
-pub fn copy_file_to_clipboard(app: AppHandle, path: String) -> AppResult<()> {
+pub async fn copy_file_to_clipboard(app: AppHandle, path: String) -> AppResult<()> {
+    // OpenClipboard 是高竞争资源，被其他程序持有时可能阻塞，放到 blocking 线程
+    let task_app = app.clone();
+    blocking::run(move || copy_file_to_clipboard_sync(&task_app, &path))
+        .await
+}
+
+fn copy_file_to_clipboard_sync(app: &AppHandle, path: &str) -> AppResult<()> {
     app_logger::log_info(
-        &app,
+        app,
         "filesystem.clipboard.copy.start",
         format!("path={}", path),
     );
-    let target = PathBuf::from(&path);
+    let target = PathBuf::from(path);
     if !target.exists() || !target.is_file() {
         return Err(to_user_error(format!("文件不存在：{}", path)));
     }
@@ -109,8 +117,21 @@ pub fn copy_file_to_clipboard(app: AppHandle, path: String) -> AppResult<()> {
 
     unsafe {
         let owner: HWND = std::ptr::null_mut();
-        if OpenClipboard(owner) == 0 {
-            return Err(to_user_error("无法打开剪贴板"));
+        // 剪贴板是全局高竞争资源（杀毒/输入法/剪贴板工具都会短暂占用），
+        // OpenClipboard 失败时退避重试几次再放弃
+        let mut opened = false;
+        for attempt in 0..5u32 {
+            if OpenClipboard(owner) != 0 {
+                opened = true;
+                break;
+            }
+            if attempt == 4 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(30 * u64::from(attempt + 1)));
+        }
+        if !opened {
+            return Err(to_user_error("无法打开剪贴板，可能有其他程序正在占用，请稍后重试"));
         }
 
         EmptyClipboard();
@@ -144,7 +165,7 @@ pub fn copy_file_to_clipboard(app: AppHandle, path: String) -> AppResult<()> {
     }
 
     app_logger::log_info(
-        &app,
+        app,
         "filesystem.clipboard.copy.success",
         format!("path={}", path),
     );

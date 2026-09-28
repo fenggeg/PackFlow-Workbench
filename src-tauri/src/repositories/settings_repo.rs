@@ -3,7 +3,28 @@ use crate::models::environment::EnvironmentSettings;
 use crate::repositories::storage::{app_data_dir, open_database};
 use chrono::Utc;
 use rusqlite::{params, OptionalExtension};
+use std::sync::Mutex;
 use tauri::AppHandle;
+
+/// 设置整包读改写的全局互斥：保存是「读出 → 改内存 → 整包写回」，
+/// 并发执行时后写者会把先写者的修改整体覆盖掉（丢更新）。
+static SETTINGS_WRITE_LOCK: Mutex<()> = Mutex::new(());
+
+/// 在互斥锁内完成「读取 → 修改 → 保存」。
+/// 所有读改写场景（保存设置、记录项目、JDK 注册表增删）都必须走这里，
+/// 单独的 load+save 组合在并发下会互相覆盖。
+pub fn update<T>(
+    app: &AppHandle,
+    mutate: impl FnOnce(&mut EnvironmentSettings) -> AppResult<T>,
+) -> AppResult<T> {
+    let _guard = SETTINGS_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let mut current = load_or_quarantine(app)?;
+    let result = mutate(&mut current)?;
+    save(app, current)?;
+    Ok(result)
+}
 
 pub fn load(app: &AppHandle) -> AppResult<EnvironmentSettings> {
     let connection = open_database(app)?;

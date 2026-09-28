@@ -1,5 +1,7 @@
 import {beforeEach, describe, expect, it} from 'vitest'
 import {useAppStore} from './useAppStore'
+import {useBuildSessionStore} from './useBuildSessionStore'
+import {useEnvironmentStore} from './useEnvironmentStore'
 import {createDefaultBuildOptions} from '@/services/tauri-api'
 import type {MavenModule, MavenProject} from '@/types/domain'
 
@@ -26,9 +28,10 @@ const project: MavenProject = {
 
 describe('useAppStore 模块选择', () => {
   beforeEach(() => {
+    useBuildSessionStore.getState().reset()
+    useEnvironmentStore.setState({environment: undefined})
     useAppStore.setState({
       project,
-      environment: undefined,
       buildOptions: createDefaultBuildOptions(project.rootPath, ''),
       selectedModules: [],
       selectedModuleIds: [],

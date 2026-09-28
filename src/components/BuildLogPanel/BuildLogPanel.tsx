@@ -1,4 +1,4 @@
-import {ArrowDownToLine, Copy, Download, Regex, Square, Trash2, WrapText} from 'lucide-react'
+import {ArrowDownToLine, Copy, Download, Maximize2, Regex, Square, Trash2, WrapText} from 'lucide-react'
 import {useEffect, useMemo, useRef, useState} from 'react'
 import {Button} from '@/components/ui/button'
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
@@ -13,8 +13,12 @@ import {
 import {StatusPill} from '@/components/ui/status-pill'
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip'
 import {LogConsole} from '@/components/common/LogConsole'
+import {usePreferencesStore} from '@/store/usePreferencesStore'
+import {useBuildSessionStore} from '@/store/useBuildSessionStore'
 import {useAppStore} from '@/store/useAppStore'
-import {describeError, notifyError, notifySuccess} from '@/store/useFeedbackStore'
+import {describeError, notify, notifyError, notifyInfo, notifySuccess} from '@/store/useFeedbackStore'
+import {api, selectSavePath} from '@/services/tauri-api'
+import {timestampSuffix} from '@/utils/download'
 import type {BuildStatus} from '@/types/domain'
 import {classifyBuildLogEvent, classifyLogLine, diagnosisCategoryText} from '@/utils/format'
 
@@ -36,11 +40,11 @@ const statusTone: Record<BuildStatus, 'neutral' | 'processing' | 'success' | 'er
   CANCELLED: 'warning',
 }
 
-export function BuildLogPanel({fill = false}: {fill?: boolean}) {
+export function BuildLogPanel({fill = false, onExpand}: {fill?: boolean; onExpand?: () => void}) {
   const logs = useAppStore((state) => state.logs)
   const diagnosis = useAppStore((state) => state.diagnosis)
-  const buildStatus = useAppStore((state) => state.buildStatus)
-  const buildCancelling = useAppStore((state) => state.buildCancelling)
+  const buildStatus = useBuildSessionStore((state) => state.status)
+  const buildCancelling = useBuildSessionStore((state) => state.cancelling)
   const cancelBuild = useAppStore((state) => state.cancelBuild)
   const clearBuildLogs = useAppStore((state) => state.clearBuildLogs)
   const logFocusRequest = useAppStore((state) => state.logFocusRequest)
@@ -49,8 +53,11 @@ export function BuildLogPanel({fill = false}: {fill?: boolean}) {
   const [keyword, setKeyword] = useState('')
   const [regexMode, setRegexMode] = useState(false)
   const [logFilter, setLogFilter] = useState<LogFilter>('all')
-  const [autoScroll, setAutoScroll] = useState(true)
-  const [wrapLines, setWrapLines] = useState(true)
+  // 换行与自动滚动是持久化偏好：面板内开关与设置页读写同一份，跨会话记忆
+  const wrapLines = usePreferencesStore((state) => state.logWrap)
+  const setWrapLines = usePreferencesStore((state) => state.setLogWrap)
+  const autoScroll = usePreferencesStore((state) => state.logAutoScroll)
+  const setAutoScroll = usePreferencesStore((state) => state.setLogAutoScroll)
 
   const currentLogCount = logs.length
 
@@ -60,7 +67,7 @@ export function BuildLogPanel({fill = false}: {fill?: boolean}) {
 
   useEffect(() => {
     if (autoScroll) scrollToBottom()
-  }, [autoScroll, currentLogCount])
+  }, [autoScroll, currentLogCount, setAutoScroll])
 
   // 诊断结果「定位错误」：滚动到首个匹配的日志行并短暂高亮。
   // 定位时必须关闭自动跟随，否则会被后续日志立刻拉回底部。
@@ -70,7 +77,11 @@ export function BuildLogPanel({fill = false}: {fill?: boolean}) {
     if (!container) return
     const nodes = Array.from(container.querySelectorAll<HTMLElement>('[data-log-index]'))
     const target = nodes.find((node) => (node.textContent ?? '').includes(logFocusRequest.line))
-    if (!target) return
+    if (!target) {
+      // 错误行滚出渲染窗口（LogConsole 默认只渲染最近几百行）时不再静默失效
+      notifyInfo('未能定位到该行', '目标日志行不在当前渲染范围内，请清除过滤或关闭自动跟随后再试。')
+      return
+    }
     setAutoScroll(false)
     target.scrollIntoView({block: 'center'})
     target.classList.add('log-line-focus')
@@ -79,7 +90,7 @@ export function BuildLogPanel({fill = false}: {fill?: boolean}) {
       clearTimeout(timer)
       target.classList.remove('log-line-focus')
     }
-  }, [logFocusRequest])
+  }, [logFocusRequest, setAutoScroll])
 
   const keywordValue = keyword.trim()
   /**
@@ -143,19 +154,20 @@ export function BuildLogPanel({fill = false}: {fill?: boolean}) {
     )
   }
 
-  const downloadLogs = () => {
+  const downloadLogs = async () => {
     const text = logs.map((event) => event.line).join('\n')
     if (!text) return
-    const blob = new Blob([text], {type: 'text/plain;charset=utf-8'})
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'build-log.txt'
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    setTimeout(() => URL.revokeObjectURL(url), 100)
-    notifySuccess('已导出 build-log.txt')
+    // 原生保存对话框：用户自选位置，保存后在哪一目了然；
+    // 之前用浏览器式 blob 下载，桌面壳里落点不可控也找不到文件
+    const target = await selectSavePath('导出构建日志', `build-log-${timestampSuffix()}.txt`)
+    if (!target) return
+    try {
+      await api.exportDiagnostics(target, text)
+      // 长路径需要更长的阅读时间
+      notify({tone: 'success', title: '日志已导出', description: `保存位置：${target}`, duration: 8000})
+    } catch (error) {
+      notifyError('导出日志失败', describeError(error))
+    }
   }
 
   const copyDiagnosis = async () => {
@@ -247,7 +259,7 @@ export function BuildLogPanel({fill = false}: {fill?: boolean}) {
                   variant={wrapLines ? 'primary' : 'ghost'}
                   size="iconSm"
                   aria-label={wrapLines ? '关闭自动换行' : '开启自动换行'}
-                  onClick={() => setWrapLines((value) => !value)}
+                  onClick={() => setWrapLines(!wrapLines)}
                 >
                   <WrapText />
                 </Button>
@@ -261,7 +273,7 @@ export function BuildLogPanel({fill = false}: {fill?: boolean}) {
                   size="iconSm"
                   disabled={currentLogCount === 0}
                   aria-label="下载日志"
-                  onClick={downloadLogs}
+                  onClick={() => void downloadLogs()}
                 >
                   <Download />
                 </Button>
@@ -274,7 +286,7 @@ export function BuildLogPanel({fill = false}: {fill?: boolean}) {
                   variant={autoScroll ? 'primary' : 'ghost'}
                   size="iconSm"
                   aria-label={autoScroll ? '关闭自动滚动' : '开启自动滚动'}
-                  onClick={() => setAutoScroll((value) => !value)}
+                  onClick={() => setAutoScroll(!autoScroll)}
                 >
                   <ArrowDownToLine />
                 </Button>
@@ -289,6 +301,16 @@ export function BuildLogPanel({fill = false}: {fill?: boolean}) {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>回到底部</TooltipContent>
+              </Tooltip>
+            ) : null}
+            {onExpand ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="iconSm" aria-label="全屏查看" onClick={onExpand}>
+                    <Maximize2 />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>全屏查看日志</TooltipContent>
               </Tooltip>
             ) : null}
           </div>

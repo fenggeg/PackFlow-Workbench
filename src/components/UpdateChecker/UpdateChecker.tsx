@@ -1,5 +1,6 @@
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
+import {useEffect, useMemo, useRef} from 'react'
 import ReactMarkdown from 'react-markdown'
+import {RefreshCw} from 'lucide-react'
 import {Button} from '@/components/ui/button'
 import {
   Dialog,
@@ -8,25 +9,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  type DownloadEvent,
-  type Update,
-  checkForAppUpdate,
-  downloadAndInstallAppUpdate,
-  getCurrentAppVersion,
-  isTauriRuntime,
-  relaunchApp,
-} from '@/services/tauri-api'
-import {getErrorMessage} from '@/utils/errors'
-import {notifyError, notifyInfo, notifySuccess} from '@/store/useFeedbackStore'
-
-type DownloadProgress = {
-  downloaded: number
-  total?: number
-  startedAt?: number
-  speed?: number
-  finished: boolean
-}
+import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip'
+import {type Update, isTauriRuntime} from '@/services/tauri-api'
+import {useUpdateStore} from '@/store/useUpdateStore'
+import {usePreferencesStore} from '@/store/usePreferencesStore'
 
 // 周期性静默检查更新的间隔
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
@@ -50,145 +36,29 @@ const formatReleaseDate = (date: string) => {
   return parsed.toLocaleString()
 }
 
-const getFriendlyUpdateErrorMessage = (error: unknown, phase: 'check' | 'apply') => {
-  const rawMessage = getErrorMessage(error).toLowerCase()
-  const prefix = phase === 'check' ? '检查更新失败' : '安装更新失败'
-
-  if (rawMessage.includes('timeout') || rawMessage.includes('timed out')) {
-    return `${prefix}：连接更新服务超时，请稍后重试。`
-  }
-  if (
-    rawMessage.includes('decode') ||
-    rawMessage.includes('decoding') ||
-    rawMessage.includes('body') ||
-    rawMessage.includes('unexpected eof') ||
-    rawMessage.includes('incomplete') ||
-    rawMessage.includes('truncated')
-  ) {
-    return `${prefix}：更新包下载中断或内容不完整，请检查网络后重新下载。`
-  }
-  if (
-    rawMessage.includes('network') ||
-    rawMessage.includes('fetch') ||
-    rawMessage.includes('dns') ||
-    rawMessage.includes('resolve') ||
-    rawMessage.includes('connection') ||
-    rawMessage.includes('request') ||
-    rawMessage.includes('response')
-  ) {
-    return `${prefix}：暂时无法连接更新服务，请检查网络后重试。`
-  }
-  if (
-    rawMessage.includes('signature') ||
-    rawMessage.includes('pubkey') ||
-    rawMessage.includes('verify') ||
-    rawMessage.includes('verification')
-  ) {
-    return `${prefix}：更新包校验未通过，请等待重新发布后再试。`
-  }
-  if (rawMessage.includes('404') || rawMessage.includes('not found') || rawMessage.includes('asset')) {
-    return `${prefix}：未找到适合当前安装方式的更新包，请稍后重试。`
-  }
-  if (rawMessage.includes('json') || rawMessage.includes('parse') || rawMessage.includes('format')) {
-    return `${prefix}：更新信息格式异常，请等待重新发布后再试。`
-  }
-  if (
-    rawMessage.includes('permission') ||
-    rawMessage.includes('access denied') ||
-    rawMessage.includes('denied')
-  ) {
-    return `${prefix}：当前权限不足，请以管理员身份运行后重试。`
-  }
-  // 后端已给出面向用户的中文说明时直接透传，避免被泛化提示掩盖真实原因。
-  if (/[\u4e00-\u9fff]/.test(rawMessage)) {
-    return `${prefix}：${getErrorMessage(error)}`
-  }
-  return `${prefix}：更新服务暂时不可用，请稍后重试。`
-}
-
+/**
+ * 顶部更新入口（图标按钮）+ 更新对话框。
+ * 检查/安装逻辑都在 useUpdateStore：设置页的更新模块与这里共享状态，
+ * 任一处触发检查，发现新版本都会弹出同一个对话框。
+ */
 export function UpdateChecker() {
-  const [checking, setChecking] = useState(false)
-  const [installing, setInstalling] = useState(false)
-  const [currentVersion, setCurrentVersion] = useState(() => (isTauriRuntime() ? '' : '开发预览'))
-  const [update, setUpdate] = useState<Update | null>(null)
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [progress, setProgress] = useState<DownloadProgress>({downloaded: 0, finished: false})
+  const autoCheckUpdate = usePreferencesStore((state) => state.autoCheckUpdate)
+  const currentVersion = useUpdateStore((state) => state.currentVersion)
+  const update = useUpdateStore((state) => state.update)
+  const checking = useUpdateStore((state) => state.checking)
+  const installing = useUpdateStore((state) => state.installing)
+  const dialogOpen = useUpdateStore((state) => state.dialogOpen)
+  const progress = useUpdateStore((state) => state.progress)
+  const initialize = useUpdateStore((state) => state.initialize)
+  const checkUpdate = useUpdateStore((state) => state.checkUpdate)
+  const applyUpdate = useUpdateStore((state) => state.applyUpdate)
+  const closeModal = useUpdateStore((state) => state.closeModal)
   const silentCheckedRef = useRef(false)
 
-  // 统一走全局通知，避免长错误文案被顶栏空间截断
-  const flash = useCallback((type: 'info' | 'success' | 'error', text: string) => {
-    if (type === 'error') {
-      notifyError(text)
-      return
-    }
-    if (type === 'success') {
-      notifySuccess(text)
-      return
-    }
-    notifyInfo(text)
-  }, [])
-
-  const progressPercent = useMemo(() => {
-    if (!progress.total) return 0
-    return Math.min(100, Math.round((progress.downloaded / progress.total) * 100))
-  }, [progress.downloaded, progress.total])
-
-  const downloadSpeedText = useMemo(() => {
-    if (!progress.speed || progress.finished) return ''
-    return `${formatBytes(progress.speed)}/s`
-  }, [progress.finished, progress.speed])
-
-  const resetProgress = () => {
-    setProgress({downloaded: 0, finished: false})
-  }
-
-  const checkUpdate = useCallback(
-    async (silent = false) => {
-      if (!isTauriRuntime()) {
-        if (!silent) flash('info', '请在桌面应用中检查更新。')
-        return
-      }
-
-      setChecking(true)
-      try {
-        const nextUpdate = await checkForAppUpdate()
-        if (!nextUpdate) {
-          if (!silent) {
-            flash('success', currentVersion ? `当前已是最新版本：${currentVersion}` : '当前已是最新版本。')
-          }
-          return
-        }
-
-        resetProgress()
-        // 释放旧更新资源后换新，对话框重新打开；「稍后」关闭后保留 update 用于红点提示
-        if (update) void update.close().catch(() => {})
-        setUpdate(nextUpdate)
-        setDialogOpen(true)
-      } catch (error) {
-        if (!silent) flash('error', getFriendlyUpdateErrorMessage(error, 'check'))
-      } finally {
-        setChecking(false)
-      }
-    },
-    [currentVersion, flash, update],
-  )
-
+  // 当前版本号只取一次；浏览器预览下 store 已给出「开发预览」占位
   useEffect(() => {
-    if (!isTauriRuntime()) return
-
-    let disposed = false
-    void getCurrentAppVersion()
-      .then((version) => {
-        if (!disposed) setCurrentVersion(version)
-      })
-      .catch(() => {
-        if (!disposed) setCurrentVersion('')
-      })
-
-    return () => {
-      disposed = true
-    }
-  }, [])
+    void initialize()
+  }, [initialize])
 
   // 通过 ref 持有最新 checkUpdate，供启动检查在空依赖 effect 中调用，
   // 避免 checkUpdate 因 currentVersion 变化而重建时，cleanup 清掉启动定时器导致检查被跳过
@@ -201,6 +71,8 @@ export function UpdateChecker() {
     // 启动后的静默检查只跑一次：空依赖数组保证定时器不被依赖变化清理
     if (silentCheckedRef.current) return
     silentCheckedRef.current = true
+    // 设置页可关闭自动检查；手动「检查更新」不受影响
+    if (!usePreferencesStore.getState().autoCheckUpdate) return
     const timer = window.setTimeout(() => {
       void checkUpdateRef.current(true)
     }, 3500)
@@ -210,89 +82,47 @@ export function UpdateChecker() {
   useEffect(() => {
     // 周期性静默检查：更新弹窗已打开或正在下载安装时跳过，避免打断进行中的更新
     if (!isTauriRuntime()) return
+    if (!autoCheckUpdate) return
     if (dialogOpen || installing) return
     const interval = window.setInterval(() => {
       void checkUpdate(true)
     }, UPDATE_CHECK_INTERVAL_MS)
     return () => window.clearInterval(interval)
-  }, [checkUpdate, dialogOpen, installing])
+  }, [autoCheckUpdate, checkUpdate, dialogOpen, installing])
 
-  const handleDownloadEvent = (event: DownloadEvent) => {
-    if (event.event === 'Started') {
-      setProgress({
-        downloaded: 0,
-        total: event.data.contentLength,
-        startedAt: Date.now(),
-        finished: false,
-      })
-      return
-    }
+  const progressPercent = useMemo(() => {
+    if (!progress.total) return 0
+    return Math.min(100, Math.round((progress.downloaded / progress.total) * 100))
+  }, [progress.downloaded, progress.total])
 
-    if (event.event === 'Progress') {
-      setProgress((current) => {
-        const startedAt = current.startedAt ?? Date.now()
-        const downloaded = current.downloaded + event.data.chunkLength
-        const elapsedSeconds = Math.max((Date.now() - startedAt) / 1000, 1)
-        return {
-          ...current,
-          startedAt,
-          downloaded,
-          speed: downloaded / elapsedSeconds,
-        }
-      })
-      return
-    }
-
-    setProgress((current) => ({...current, finished: true}))
-  }
-
-  const applyUpdate = async () => {
-    if (!update || installing) return
-
-    setInstalling(true)
-    try {
-      // 官方更新插件一步完成下载、签名校验与安装：
-      // Windows 上安装前会退出当前进程，由 NSIS 安装器（passive 模式）接管并自动重启应用，
-      // 因此这里的 await 在 Windows 上不会返回，也就不会执行到 relaunchApp。
-      await downloadAndInstallAppUpdate(update, handleDownloadEvent)
-      flash('success', '更新完成，正在重启应用…')
-      await relaunchApp()
-    } catch (error) {
-      flash('error', getFriendlyUpdateErrorMessage(error, 'apply'))
-      setInstalling(false)
-      resetProgress()
-    }
-  }
-
-  const closeModal = () => {
-    if (installing) return
-    // 保留 update 状态用于「检查更新」按钮的小红点提示，仅关闭对话框
-    setDialogOpen(false)
-    resetProgress()
-  }
+  const downloadSpeedText = useMemo(() => {
+    if (!progress.speed || progress.finished) return ''
+    return `${formatBytes(progress.speed)}/s`
+  }, [progress.finished, progress.speed])
 
   return (
-    <div className="flex min-w-0 items-center gap-2">
-      {currentVersion ? (
-        <span className="hidden whitespace-nowrap text-[12px] text-[var(--muted-foreground)] lg:inline">
-          当前版本 {currentVersion}
-        </span>
-      ) : null}
-      <Button
-        variant="secondary"
-        size="sm"
-        disabled={checking}
-        className="relative"
-        onClick={() => void checkUpdate(false)}
-      >
-        {checking ? '检查中…' : '检查更新'}
-        {update && !dialogOpen ? (
-          <span
-            className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-[var(--background)] bg-[var(--error)]"
-            title="有可用的新版本"
-          />
-        ) : null}
-      </Button>
+    <>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="iconSm"
+            className="relative"
+            disabled={checking}
+            aria-label={checking ? '正在检查更新' : '检查更新'}
+            onClick={() => void checkUpdate(false)}
+          >
+            <RefreshCw className={checking ? 'animate-spin' : undefined} />
+            {update && !dialogOpen ? (
+              <span
+                className="absolute -right-0.5 -top-0.5 size-2 rounded-full border border-[var(--background)] bg-[var(--error)]"
+                title="有可用的新版本"
+              />
+            ) : null}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{checking ? '正在检查更新…' : '检查更新'}</TooltipContent>
+      </Tooltip>
 
       <Dialog open={dialogOpen} onOpenChange={(open) => !open && closeModal()}>
         <DialogContent className="max-w-xl">
@@ -351,6 +181,6 @@ export function UpdateChecker() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   )
 }

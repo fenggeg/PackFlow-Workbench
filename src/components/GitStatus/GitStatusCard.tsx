@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select'
 import {StatusPill} from '@/components/ui/status-pill'
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip'
+import {useGitStore} from '@/store/useGitStore'
 import {useAppStore} from '@/store/useAppStore'
 
 const formatCommitTime = (value: string) => {
@@ -26,18 +27,18 @@ const COMMIT_PAGE_SIZE = 8
 
 export function GitStatusCard() {
   const project = useAppStore((state) => state.project)
-  const gitStatus = useAppStore((state) => state.gitStatus)
-  const gitCommits = useAppStore((state) => state.gitCommits)
-  const gitChecking = useAppStore((state) => state.gitChecking)
-  const gitCommitsLoading = useAppStore((state) => state.gitCommitsLoading)
-  const gitPulling = useAppStore((state) => state.gitPulling)
-  const gitSwitching = useAppStore((state) => state.gitSwitching)
-  const gitError = useAppStore((state) => state.gitError)
-  const loadGitCommits = useAppStore((state) => state.loadGitCommits)
-  const fetchGitUpdates = useAppStore((state) => state.fetchGitUpdates)
-  const pullGitUpdates = useAppStore((state) => state.pullGitUpdates)
-  const switchGitBranch = useAppStore((state) => state.switchGitBranch)
-  const clearGitError = useAppStore((state) => state.clearGitError)
+  const gitStatus = useGitStore((state) => state.gitStatus)
+  const gitCommits = useGitStore((state) => state.gitCommits)
+  const gitChecking = useGitStore((state) => state.gitChecking)
+  const gitCommitsLoading = useGitStore((state) => state.gitCommitsLoading)
+  const gitPulling = useGitStore((state) => state.gitPulling)
+  const gitSwitching = useGitStore((state) => state.gitSwitching)
+  const gitError = useGitStore((state) => state.gitError)
+  const loadGitCommits = useGitStore((state) => state.loadGitCommits)
+  const fetchGitUpdates = useGitStore((state) => state.fetchGitUpdates)
+  const pullGitUpdates = useGitStore((state) => state.pullGitUpdates)
+  const switchGitBranch = useGitStore((state) => state.switchGitBranch)
+  const clearGitError = useGitStore((state) => state.clearGitError)
   const [commitQuery, setCommitQuery] = useState('')
   const [commitPage, setCommitPage] = useState(0)
 

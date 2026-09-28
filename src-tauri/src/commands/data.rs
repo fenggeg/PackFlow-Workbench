@@ -1,18 +1,26 @@
 use crate::error::{to_user_error, AppResult};
 use crate::repositories::storage;
 use crate::services::{app_logger, blocking};
+use rusqlite::backup::Backup;
+use rusqlite::Connection;
 use std::fs;
 use std::path::PathBuf;
+use std::time::Duration;
 use tauri::AppHandle;
 
 const SQLITE_HEADER: &[u8] = b"SQLite format 3";
+// 在线备份 API 每步拷贝的页数与步进间隔：库很小（几 MB）时一步完成，
+// 库较大时分批进行，避免长时间持有读锁阻塞其他命令。
+const BACKUP_STEP_PAGES: i32 = 64;
+const BACKUP_STEP_PACE: Duration = Duration::from_millis(5);
 
 fn db_file(app: &AppHandle) -> AppResult<PathBuf> {
     Ok(storage::app_data_dir(app)?.join("app.sqlite3"))
 }
 
 /// 备份本地数据库。
-/// 先执行 WAL checkpoint，确保主库文件里包含最新数据，避免备份到不完整的快照。
+/// 使用 SQLite 在线备份 API 生成一致快照：即使有其他命令正在写库，
+/// 拷贝的也是某一时刻的完整数据，不依赖 WAL checkpoint 是否成功。
 #[tauri::command]
 pub async fn backup_app_data(app: AppHandle, target_path: String) -> AppResult<String> {
     app_logger::log_info(
@@ -23,15 +31,20 @@ pub async fn backup_app_data(app: AppHandle, target_path: String) -> AppResult<S
     let task_app = app.clone();
     let result = blocking::run(move || {
         let connection = storage::open_database(&task_app)?;
-        let _ = connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
-        let source = db_file(&task_app)?;
         let target = PathBuf::from(&target_path);
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent)
                 .map_err(|error| to_user_error(format!("无法创建备份目录：{}", error)))?;
         }
-        fs::copy(&source, &target)
-            .map_err(|error| to_user_error(format!("无法写入备份文件：{}", error)))?;
+        {
+            let mut dest = Connection::open(&target)
+                .map_err(|error| to_user_error(format!("无法创建备份文件：{}", error)))?;
+            let backup = Backup::new(&connection, &mut dest)
+                .map_err(|error| to_user_error(format!("无法初始化数据库备份：{}", error)))?;
+            backup
+                .run_to_completion(BACKUP_STEP_PAGES, BACKUP_STEP_PACE, None)
+                .map_err(|error| to_user_error(format!("无法写入备份文件：{}", error)))?;
+        }
         Ok(target.to_string_lossy().to_string())
     })
     .await;
@@ -71,12 +84,50 @@ pub async fn restore_app_data(app: AppHandle, source_path: String) -> AppResult<
         }
 
         let target = db_file(&task_app)?;
-        // 先落地为临时文件再替换，避免中途失败留下半截数据库
+        // 旧库的 -wal/-shm 校验和只对旧库自洽：残留到替换后的新库上，
+        // 下次打开时 WAL recovery 会把旧页回放进新库，造成新旧数据混合甚至损坏。
+        // 删除失败说明还有连接占用着数据库（Windows 上打开的文件无法删除），
+        // 此时放弃恢复，原库保持原样。
+        let wal_path = target.with_extension("sqlite3-wal");
+        let shm_path = target.with_extension("sqlite3-shm");
+        for stale in [&wal_path, &shm_path] {
+            if stale.exists() {
+                fs::remove_file(stale).map_err(|error| {
+                    to_user_error(format!(
+                        "本地数据库正被占用（{}），请停止正在进行的任务后重试恢复。",
+                        error
+                    ))
+                })?;
+            }
+        }
+        // 先落地为临时文件再替换，避免中途失败留下半截数据库；
+        // 替换前强制落盘，防止掉电后留下 0 字节的目标文件。
         let temp = target.with_extension("sqlite3.restore");
         fs::copy(&source, &temp)
             .map_err(|error| to_user_error(format!("无法读取备份文件：{}", error)))?;
+        {
+            let handle = fs::OpenOptions::new()
+                .write(true)
+                .open(&temp)
+                .map_err(|error| to_user_error(format!("无法读取备份文件：{}", error)))?;
+            handle
+                .sync_all()
+                .map_err(|error| to_user_error(format!("无法写入备份文件：{}", error)))?;
+        }
         fs::rename(&temp, &target)
             .map_err(|error| to_user_error(format!("无法替换本地数据库：{}", error)))?;
+        // 兜底：极小概率下 WAL 在上面的删除与替换之间被并发连接重建，再清一次
+        for stale in [&wal_path, &shm_path] {
+            if stale.exists() {
+                let _ = fs::remove_file(stale);
+                if stale.exists() {
+                    return Err(to_user_error(
+                        "恢复完成，但数据库缓存文件仍被占用且无法删除，请立即重启应用，否则恢复的数据可能无法正确加载。"
+                            .to_string(),
+                    ));
+                }
+            }
+        }
         // 文件已替换，让连接池重新检查 schema
         storage::reset_schema_state(&task_app);
         Ok(())

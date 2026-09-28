@@ -8,13 +8,14 @@ import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card'
 import {PageHeader} from '@/components/ui/page-header'
 import {StatusPill} from '@/components/ui/status-pill'
 import {MonoText} from '@/components/ui/mono-text'
+import {useEnvironmentStore} from '@/store/useEnvironmentStore'
 import {useAppStore} from '@/store/useAppStore'
 import {useNavigationStore} from '@/store/navigationStore'
 
 export function DashboardPage() {
   const setActivePage = useNavigationStore((state) => state.setActivePage)
   const project = useAppStore((state) => state.project)
-  const environment = useAppStore((state) => state.environment)
+  const environment = useEnvironmentStore((state) => state.environment)
 
   return (
     <section className="mx-auto w-full max-w-[1180px] p-4 lg:p-6">

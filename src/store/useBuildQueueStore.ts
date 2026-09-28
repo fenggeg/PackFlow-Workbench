@@ -1,5 +1,6 @@
 import {create} from 'zustand'
 import {useAppStore} from './useAppStore'
+import {useBuildSessionStore} from './useBuildSessionStore'
 import {createDefaultBuildOptions} from '@/services/tauri-api'
 import {notifyError, notifyInfo} from './useFeedbackStore'
 import type {BuildOptions, BuildStatus} from '@/types/domain'
@@ -109,8 +110,8 @@ export const useBuildQueueStore = create<BuildQueueState>((set, get) => ({
 
   runNext: async () => {
     if (get().running) return
-    // 上一个构建仍在进行时不能启动新任务，等 build-finished 事件再次触发
-    if (useAppStore.getState().buildStatus === 'RUNNING') return
+    // 会话忙（starting/running/finalizing）时不能启动新任务，等 build-finished 事件再次触发
+    if (useBuildSessionStore.getState().isBusy()) return
     const next = get().items.find((item) => item.status === 'waiting')
     if (!next) return
 
@@ -131,7 +132,7 @@ export const useBuildQueueStore = create<BuildQueueState>((set, get) => ({
       useAppStore.getState().setSelectedModules(next.moduleIds)
       await useAppStore.getState().startBuild()
 
-      if (useAppStore.getState().buildStatus !== 'RUNNING') {
+      if (useBuildSessionStore.getState().phase !== 'running') {
         // 预检未通过或被拦截：标记失败并继续下一项，避免队列卡死
         set((current) => ({
           items: current.items.map((item) =>
@@ -148,11 +149,11 @@ export const useBuildQueueStore = create<BuildQueueState>((set, get) => ({
   },
 }))
 
-// 构建结束时自动调度下一个队列项
-useAppStore.subscribe((state, previous) => {
-  if (previous.buildStatus === 'RUNNING' && state.buildStatus !== 'RUNNING') {
+// 构建结束时自动调度下一个队列项（状态机 status 离开 RUNNING 即代表会话收尾）
+useBuildSessionStore.subscribe((state, previous) => {
+  if (previous.status === 'RUNNING' && state.status !== 'RUNNING') {
     const queue = useBuildQueueStore.getState()
-    queue.markRunningFinished(state.buildStatus, state.durationMs)
+    queue.markRunningFinished(state.status, state.durationMs)
     void queue.runNext()
   }
 })

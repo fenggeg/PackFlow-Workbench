@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog'
 import {StatusPill} from '@/components/ui/status-pill'
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip'
+import {useEnvironmentStore} from '@/store/useEnvironmentStore'
 import {useAppStore} from '@/store/useAppStore'
 import {type QueueItemStatus, useBuildQueueStore} from '@/store/useBuildQueueStore'
 import {formatDuration} from '@/utils/buildStats'
@@ -45,7 +46,7 @@ export function BuildQueuePanel() {
   const enqueueProjects = useBuildQueueStore((state) => state.enqueueProjects)
   const removeItem = useBuildQueueStore((state) => state.removeItem)
   const clearFinished = useBuildQueueStore((state) => state.clearFinished)
-  const savedProjectPaths = useAppStore((state) => state.savedProjectPaths)
+  const savedProjectPaths = useEnvironmentStore((state) => state.savedProjectPaths)
   const project = useAppStore((state) => state.project)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [picked, setPicked] = useState<string[]>([])

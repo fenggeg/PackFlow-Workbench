@@ -10,19 +10,20 @@ import {
 } from '@/components/ui/dialog'
 import {StatusPill} from '@/components/ui/status-pill'
 import {selectLocalDirectory} from '@/services/tauri-api'
-import {useAppStore} from '@/store/useAppStore'
+import {useEnvironmentStore} from '@/store/useEnvironmentStore'
+import {useJdkRegistryStore} from '@/store/useJdkRegistryStore'
 
 interface JdkRegistryPanelProps {
   onSelect?: (jdkPath: string) => void
 }
 
 export function JdkRegistryPanel({onSelect}: JdkRegistryPanelProps) {
-  const environment = useAppStore((state) => state.environment)
-  const jdkRegistry = useAppStore((state) => state.jdkRegistry)
-  const scanSystemJdks = useAppStore((state) => state.scanSystemJdks)
-  const addJdkToRegistry = useAppStore((state) => state.addJdkToRegistry)
-  const removeJdkFromRegistry = useAppStore((state) => state.removeJdkFromRegistry)
-  const setDefaultJdk = useAppStore((state) => state.setDefaultJdk)
+  const environment = useEnvironmentStore((state) => state.environment)
+  const jdkRegistry = useEnvironmentStore((state) => state.environmentSettings?.jdkRegistry ?? [])
+  const scanSystemJdks = useJdkRegistryStore((state) => state.scanSystemJdks)
+  const addJdkToRegistry = useJdkRegistryStore((state) => state.addJdkToRegistry)
+  const removeJdkFromRegistry = useJdkRegistryStore((state) => state.removeJdkFromRegistry)
+  const setDefaultJdk = useJdkRegistryStore((state) => state.setDefaultJdk)
   const [removeTarget, setRemoveTarget] = useState<{id: string; name: string} | null>(null)
 
   const currentJdkPath = environment?.javaHome

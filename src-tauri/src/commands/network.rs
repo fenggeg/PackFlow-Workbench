@@ -7,7 +7,6 @@ use std::time::Duration;
 use tauri::AppHandle;
 
 const NETWORK_INFO_URL: &str = "https://realip.cc";
-const NETWORK_USER_AGENT: &str = "PackFlow-Workbench/3.3.1";
 const NETWORK_TIMEOUT_SECS: u64 = 8;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -32,7 +31,7 @@ pub struct NetworkInfo {
     pub network: Option<String>,
 }
 
-fn fetch_network_info() -> AppResult<NetworkInfo> {
+fn fetch_network_info(user_agent: &str) -> AppResult<NetworkInfo> {
     let client = Client::builder()
         .connect_timeout(Duration::from_secs(NETWORK_TIMEOUT_SECS))
         .timeout(Duration::from_secs(NETWORK_TIMEOUT_SECS))
@@ -41,7 +40,7 @@ fn fetch_network_info() -> AppResult<NetworkInfo> {
 
     let response = client
         .get(NETWORK_INFO_URL)
-        .header(USER_AGENT, NETWORK_USER_AGENT)
+        .header(USER_AGENT, user_agent)
         .send()
         .map_err(|error| to_user_error(format!("网络请求失败：{}", error)))?;
 
@@ -66,7 +65,9 @@ fn fetch_network_info() -> AppResult<NetworkInfo> {
 #[tauri::command]
 pub async fn get_network_info(app: AppHandle) -> AppResult<NetworkInfo> {
     app_logger::log_info(&app, "network.info.start", "查询公网 IP 信息");
-    let result = blocking::run(fetch_network_info).await;
+    // UA 版本号跟随应用版本，避免发版后忘改常量
+    let user_agent = format!("PackFlow-Workbench/{}", app.package_info().version);
+    let result = blocking::run(move || fetch_network_info(&user_agent)).await;
     match &result {
         Ok(info) => {
             app_logger::log_info(

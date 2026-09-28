@@ -6,8 +6,14 @@ use crate::services::{app_logger, blocking};
 use crate::services::process_utils::CREATE_NO_WINDOW;
 use encoding_rs::GBK;
 use std::os::windows::process::CommandExt;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 use tauri::AppHandle;
+
+/// Git 命令超时上限：fetch/pull 走网络，慢速仓库几十秒也正常；
+/// 超过 60s 基本是网络挂起或凭据对话框无人应答。之前没有超时，
+/// 卡住的 git 会永久占住 blocking 线程且前端无法取消。
+const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[tauri::command]
 pub async fn check_git_status(app: AppHandle, root_path: String) -> AppResult<GitRepositoryStatus> {
@@ -409,7 +415,8 @@ impl GitCommandOutput {
 }
 
 fn run_git(root_path: &str, args: &[&str]) -> AppResult<GitCommandOutput> {
-    let output = Command::new("git")
+    let mut command = Command::new("git");
+    command
         .args([
             "-c",
             "credential.helper=",
@@ -419,14 +426,64 @@ fn run_git(root_path: &str, args: &[&str]) -> AppResult<GitCommandOutput> {
             root_path,
         ])
         .args(args)
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map_err(|error| to_user_error(format!("无法执行 Git 命令：{}", error)))?;
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .creation_flags(CREATE_NO_WINDOW);
 
+    let mut child = command
+        .spawn()
+        .map_err(|error| to_user_error(format!("无法执行 Git 命令：{}", error)))?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| to_user_error("无法读取 Git 命令输出。".to_string()))?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| to_user_error("无法读取 Git 命令输出。".to_string()))?;
+
+    // 管道在独立线程读取，避免输出较多时子进程写满管道而卡死
+    let stdout_handle = std::thread::spawn(move || {
+        let mut buffer = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut stdout, &mut buffer);
+        buffer
+    });
+    let stderr_handle = std::thread::spawn(move || {
+        let mut buffer = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut stderr, &mut buffer);
+        buffer
+    });
+
+    let deadline = Instant::now() + GIT_COMMAND_TIMEOUT;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break None;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(_) => break None,
+        }
+    };
+
+    let Some(status) = status else {
+        return Err(to_user_error(format!(
+            "Git 命令执行超时（{} 秒），请检查网络或凭据配置：git {}",
+            GIT_COMMAND_TIMEOUT.as_secs(),
+            args.join(" ")
+        )));
+    };
+
+    let stdout_bytes = stdout_handle.join().unwrap_or_default();
+    let stderr_bytes = stderr_handle.join().unwrap_or_default();
     Ok(GitCommandOutput {
-        success: output.status.success(),
-        stdout: decode_command_output(&output.stdout),
-        stderr: decode_command_output(&output.stderr),
+        success: status.success(),
+        stdout: decode_command_output(&stdout_bytes),
+        stderr: decode_command_output(&stderr_bytes),
     })
 }
 

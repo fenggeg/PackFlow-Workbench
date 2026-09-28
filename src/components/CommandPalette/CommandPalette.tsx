@@ -3,6 +3,9 @@ import {useMemo, useRef, useState} from 'react'
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@/components/ui/dialog'
 import {Input} from '@/components/ui/input'
 import {commandPaletteShortcutLabel} from '@/lib/shortcuts'
+import {useBuildSessionStore} from '@/store/useBuildSessionStore'
+import {useEnvironmentStore} from '@/store/useEnvironmentStore'
+import {useJdkRegistryStore} from '@/store/useJdkRegistryStore'
 import {useAppStore} from '@/store/useAppStore'
 import {useNavigationStore} from '@/store/navigationStore'
 import {useThemeStore} from '@/store/useThemeStore'
@@ -24,12 +27,12 @@ export function CommandPalette({
   onOpenChange: (open: boolean) => void
 }) {
   const setActivePage = useNavigationStore((state) => state.setActivePage)
-  const buildStatus = useAppStore((state) => state.buildStatus)
+  const buildStatus = useBuildSessionStore((state) => state.status)
   const startBuild = useAppStore((state) => state.startBuild)
   const cancelBuild = useAppStore((state) => state.cancelBuild)
-  const refreshEnvironment = useAppStore((state) => state.refreshEnvironment)
-  const scanSystemJdks = useAppStore((state) => state.scanSystemJdks)
-  const savedProjectPaths = useAppStore((state) => state.savedProjectPaths)
+  const refreshEnvironment = useEnvironmentStore((state) => state.refreshEnvironment)
+  const scanSystemJdks = useJdkRegistryStore((state) => state.scanSystemJdks)
+  const savedProjectPaths = useEnvironmentStore((state) => state.savedProjectPaths)
   const parseProjectPath = useAppStore((state) => state.parseProjectPath)
   const setMode = useThemeStore((state) => state.setMode)
 
@@ -44,6 +47,7 @@ export function CommandPalette({
       {id: 'goto-build', label: '前往构建中心', hint: '选模块并打包', run: () => setActivePage('build')},
       {id: 'goto-artifacts', label: '前往产物管理', run: () => setActivePage('artifacts')},
       {id: 'goto-history', label: '前往构建历史', run: () => setActivePage('history')},
+      {id: 'goto-settings', label: '打开设置', hint: '主题 / 日志 / 通知偏好', run: () => setActivePage('settings')},
       {
         id: 'build',
         label: running ? '停止当前构建' : '开始构建',

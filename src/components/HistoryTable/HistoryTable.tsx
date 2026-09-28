@@ -1,5 +1,5 @@
 import {Copy, Download, FolderOpen, Maximize2, RotateCcw, ScrollText, Trash2} from 'lucide-react'
-import {useMemo, useState} from 'react'
+import {useMemo, useRef, useState} from 'react'
 import {Button} from '@/components/ui/button'
 import {
   Dialog,
@@ -21,6 +21,7 @@ import {StatusPill} from '@/components/ui/status-pill'
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip'
 import {motion, slideInUp} from '@/lib/motion'
 import {api} from '@/services/tauri-api'
+import {useBuildSessionStore} from '@/store/useBuildSessionStore'
 import {useAppStore} from '@/store/useAppStore'
 import {describeError, notifyError, notifySuccess} from '@/store/useFeedbackStore'
 import {LogConsole} from '@/components/common/LogConsole'
@@ -60,7 +61,7 @@ type StatusFilter = 'all' | BuildHistoryRecord['status']
 
 export function HistoryTable() {
   const history = useAppStore((state) => state.history)
-  const buildStatus = useAppStore((state) => state.buildStatus)
+  const buildStatus = useBuildSessionStore((state) => state.status)
   const rerunHistory = useAppStore((state) => state.rerunHistory)
   const rerunHistoryNow = useAppStore((state) => state.rerunHistoryNow)
   const deleteHistory = useAppStore((state) => state.deleteHistory)
@@ -77,6 +78,9 @@ export function HistoryTable() {
     content?: string
     error?: string
   } | null>(null)
+  // 请求序号：日志读取是异步的，关闭对话框或打开另一条记录后，
+  // 迟到的读取结果不能把当前视图覆盖掉、或把已关闭的对话框重新弹开
+  const logViewRequestRef = useRef(0)
   const pageSize = expanded ? 20 : 12
 
   const toggleExpanded = (next: boolean) => {
@@ -101,13 +105,22 @@ export function HistoryTable() {
   /** 打开历史构建日志：日志文件在构建时已落盘，这里按需读取 */
   const openLog = async (record: BuildHistoryRecord) => {
     if (!record.logPath) return
+    const requestId = ++logViewRequestRef.current
     setLogView({record})
     try {
       const content = await api.readTextFile(record.logPath)
+      if (requestId !== logViewRequestRef.current) return
       setLogView({record, content})
     } catch (error) {
+      if (requestId !== logViewRequestRef.current) return
       setLogView({record, error: describeError(error)})
     }
+  }
+
+  const closeLog = () => {
+    // 使仍在途的读取请求失效，避免 resolve 后把已关闭的对话框重新弹开
+    ++logViewRequestRef.current
+    setLogView(null)
   }
 
   /** 导出当前筛选结果为 CSV（带 BOM，Excel 直接打开不乱码） */
@@ -497,7 +510,7 @@ export function HistoryTable() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={Boolean(logView)} onOpenChange={(open) => !open && setLogView(null)}>
+      <Dialog open={Boolean(logView)} onOpenChange={(open) => !open && closeLog()}>
         <DialogContent className="flex h-[80vh] max-w-[88vw] flex-col p-0">
           <DialogHeader className="border-b border-[var(--border)] px-5 py-3">
             <DialogTitle>

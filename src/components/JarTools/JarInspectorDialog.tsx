@@ -276,14 +276,10 @@ export function JarInspectorDialog({
   }
 
   const removeTab = (name: string) => {
-    setTabs((current) => {
-      const next = current.filter((tab) => tab.name !== name)
-      setActiveName((active) => {
-        if (active !== name) return active
-        return next[next.length - 1]?.name
-      })
-      return next
-    })
+    // updater 必须是纯函数：不能在 setTabs 内部再调 setActiveName（StrictMode 双调用会出错）
+    const next = tabs.filter((tab) => tab.name !== name)
+    setTabs(next)
+    setActiveName((active) => (active !== name ? active : next[next.length - 1]?.name))
   }
 
   const closeTab = (tab: EntryTab) => {

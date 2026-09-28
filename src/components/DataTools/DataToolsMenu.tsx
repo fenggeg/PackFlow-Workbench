@@ -9,6 +9,8 @@ import {
   selectLocalFile,
   selectSavePath,
 } from '@/services/tauri-api'
+import {useBuildSessionStore} from '@/store/useBuildSessionStore'
+import {useEnvironmentStore} from '@/store/useEnvironmentStore'
 import {useAppStore} from '@/store/useAppStore'
 import {describeError, notifyError, notifySuccess} from '@/store/useFeedbackStore'
 
@@ -17,8 +19,11 @@ const timestamp = () => new Date().toISOString().replace(/[:.]/g, '-')
 /** 组装诊断包内容：排障需要的信息一次给全，避免用户手工翻应用数据目录 */
 const buildDiagnosticContent = async () => {
   const state = useAppStore.getState()
+  const session = useBuildSessionStore.getState()
+  const environment = useEnvironmentStore.getState().environment
+  const buildStatus = session.status
   const version = await getCurrentAppVersion().catch(() => 'unknown')
-  const {project, environment, buildOptions, buildStatus, logs, diagnosis, error} = state
+  const {project, buildOptions, logs, diagnosis, error} = state
 
   const lines: string[] = []
   lines.push('=== PackFlow Workbench 诊断包 ===')
@@ -107,7 +112,7 @@ export function DataToolsMenu() {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <Button variant="ghost" size="icon" aria-label="数据与诊断" disabled={busy}>
+        <Button variant="ghost" size="iconSm" aria-label="数据与诊断" disabled={busy}>
           <Database />
         </Button>
       </DropdownMenu.Trigger>

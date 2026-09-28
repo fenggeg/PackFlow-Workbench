@@ -107,28 +107,29 @@ pub async fn save_environment_settings(
     );
     let task_app = app.clone();
     let result = blocking::run(move || {
-        let mut current = settings_repo::load_or_quarantine(&task_app)?;
-        current.active_profile_id = settings.active_profile_id;
-        current.profiles = settings.profiles;
-        if settings.last_project_path.is_some() {
-            current.last_project_path = settings.last_project_path.clone();
-        }
-        if !settings.project_paths.is_empty() {
-            current.project_paths = normalize_project_paths(settings.project_paths);
-        }
-        // 保留项目绑定映射
-        if !settings.project_profile_bindings.is_empty() {
-            current.project_profile_bindings = settings.project_profile_bindings;
-        }
-        // 保留 JDK 注册表
-        if !settings.jdk_registry.is_empty() {
-            current.jdk_registry = settings.jdk_registry;
-        }
-        if settings.max_concurrent_builds.is_some() {
-            current.max_concurrent_builds = settings.max_concurrent_builds;
-        }
-        let max_concurrent = current.max_concurrent_builds.map(|v| v as usize);
-        settings_repo::save(&task_app, current)?;
+        // 读改写在锁内完成，避免并发保存互相覆盖（丢更新）
+        let max_concurrent = settings_repo::update(&task_app, |current| {
+            current.active_profile_id = settings.active_profile_id;
+            current.profiles = settings.profiles;
+            if settings.last_project_path.is_some() {
+                current.last_project_path = settings.last_project_path.clone();
+            }
+            if !settings.project_paths.is_empty() {
+                current.project_paths = normalize_project_paths(settings.project_paths);
+            }
+            // 保留项目绑定映射
+            if !settings.project_profile_bindings.is_empty() {
+                current.project_profile_bindings = settings.project_profile_bindings;
+            }
+            // 保留 JDK 注册表
+            if !settings.jdk_registry.is_empty() {
+                current.jdk_registry = settings.jdk_registry;
+            }
+            if settings.max_concurrent_builds.is_some() {
+                current.max_concurrent_builds = settings.max_concurrent_builds;
+            }
+            Ok(current.max_concurrent_builds.map(|v| v as usize))
+        })?;
         if let Some(state) = task_app.try_state::<crate::services::process_runner::BuildProcessState>() {
             state.set_max_concurrent(max_concurrent);
         }
@@ -152,10 +153,11 @@ pub async fn save_last_project_path(app: AppHandle, root_path: String) -> AppRes
     );
     let task_app = app.clone();
     let result = blocking::run(move || {
-        let mut current = settings_repo::load_or_quarantine(&task_app)?;
-        current.last_project_path = Some(root_path.clone());
-        upsert_project_path(&mut current.project_paths, root_path);
-        settings_repo::save(&task_app, current)
+        settings_repo::update(&task_app, |current| {
+            current.last_project_path = Some(root_path.clone());
+            upsert_project_path(&mut current.project_paths, root_path);
+            Ok(())
+        })
     })
     .await;
     if let Err(error) = &result {
@@ -180,21 +182,21 @@ pub async fn remove_saved_project_path(
     );
     let task_app = app.clone();
     blocking::run(move || {
-        let mut current = settings_repo::load_or_quarantine(&task_app)?;
-        current.project_paths = current
-            .project_paths
-            .into_iter()
-            .filter(|path| !same_path(path, &root_path))
-            .collect();
-        if current
-            .last_project_path
-            .as_deref()
-            .is_some_and(|path| same_path(path, &root_path))
-        {
-            current.last_project_path = current.project_paths.first().cloned();
-        }
-        settings_repo::save(&task_app, current.clone())?;
-        Ok(current)
+        settings_repo::update(&task_app, |current| {
+            let remaining = std::mem::take(&mut current.project_paths)
+                .into_iter()
+                .filter(|path| !same_path(path, &root_path))
+                .collect();
+            current.project_paths = remaining;
+            if current
+                .last_project_path
+                .as_deref()
+                .is_some_and(|path| same_path(path, &root_path))
+            {
+                current.last_project_path = current.project_paths.first().cloned();
+            }
+            Ok(current.clone())
+        })
     })
     .await
 }
@@ -234,17 +236,18 @@ pub async fn bind_project_profile(
     );
     let task_app = app.clone();
     let result = blocking::run(move || {
-        let mut current = settings_repo::load_or_quarantine(&task_app)?;
-        // 校验方案是否存在
-        if !current.profiles.iter().any(|p| p.id == profile_id) {
-            return Err(format!("环境方案 {} 不存在", profile_id));
-        }
-        // key 规范化后再写入：与 resolve_active_profile 的查找规则保持一致
-        let key = env_detector::normalize_project_key(&project_path);
-        current
-            .project_profile_bindings
-            .insert(key, profile_id);
-        settings_repo::save(&task_app, current)
+        settings_repo::update(&task_app, |current| {
+            // 校验方案是否存在
+            if !current.profiles.iter().any(|p| p.id == profile_id) {
+                return Err(format!("环境方案 {} 不存在", profile_id));
+            }
+            // key 规范化后再写入：与 resolve_active_profile 的查找规则保持一致
+            let key = env_detector::normalize_project_key(&project_path);
+            current
+                .project_profile_bindings
+                .insert(key, profile_id);
+            Ok(())
+        })
     })
     .await;
     if let Err(error) = &result {
@@ -265,18 +268,19 @@ pub async fn unbind_project_profile(
     );
     let task_app = app.clone();
     let result = blocking::run(move || {
-        let mut current = settings_repo::load_or_quarantine(&task_app)?;
-        // 解绑同样按规范化 key 查找，避免大小写/尾斜杠差异导致解绑不掉
-        let key = env_detector::normalize_project_key(&project_path);
-        let stale_key = current
-            .project_profile_bindings
-            .keys()
-            .find(|existing| env_detector::normalize_project_key(existing).eq_ignore_ascii_case(&key))
-            .cloned();
-        if let Some(stale_key) = stale_key {
-            current.project_profile_bindings.remove(&stale_key);
-        }
-        settings_repo::save(&task_app, current)
+        settings_repo::update(&task_app, |current| {
+            // 解绑同样按规范化 key 查找，避免大小写/尾斜杠差异导致解绑不掉
+            let key = env_detector::normalize_project_key(&project_path);
+            let stale_key = current
+                .project_profile_bindings
+                .keys()
+                .find(|existing| env_detector::normalize_project_key(existing).eq_ignore_ascii_case(&key))
+                .cloned();
+            if let Some(stale_key) = stale_key {
+                current.project_profile_bindings.remove(&stale_key);
+            }
+            Ok(())
+        })
     })
     .await;
     if let Err(error) = &result {
@@ -290,36 +294,38 @@ pub async fn scan_system_jdks(app: AppHandle) -> AppResult<Vec<JdkEntry>> {
     app_logger::log_info(&app, "jdk.scan.start", "开始扫描系统 JDK");
     let task_app = app.clone();
     let entries = blocking::run(move || {
+        // 扫描耗时且只读系统状态，放在锁外；合并与保存的读改写在锁内完成
         let scanned = jdk_scanner::scan_system_jdks();
-        // 合并到现有注册表，保留手工添加的条目
-        let mut current = settings_repo::load_or_quarantine(&task_app)?;
-        let existing_manual: Vec<JdkEntry> = current
-            .jdk_registry
-            .iter()
-            .filter(|e| matches!(e.source, crate::models::environment::JdkSource::Manual))
-            .cloned()
-            .collect();
-        let mut merged = scanned;
-        for entry in existing_manual {
-            if !merged.iter().any(|e| e.path.eq_ignore_ascii_case(&entry.path)) {
-                merged.push(entry);
+        settings_repo::update(&task_app, |current| {
+            // 合并到现有注册表，保留手工添加的条目
+            let existing_manual: Vec<JdkEntry> = current
+                .jdk_registry
+                .iter()
+                .filter(|e| matches!(e.source, crate::models::environment::JdkSource::Manual))
+                .cloned()
+                .collect();
+            let mut merged = scanned;
+            for entry in existing_manual {
+                if !merged.iter().any(|e| e.path.eq_ignore_ascii_case(&entry.path)) {
+                    merged.push(entry);
+                }
             }
-        }
-        // 扫描会重建注册表（扫描项 is_default=false），这里恢复原有的默认 JDK，
-        // 否则每次扫描都会把用户设置的默认 JDK 抹掉。
-        let previous_default = current
-            .jdk_registry
-            .iter()
-            .find(|e| e.is_default)
-            .map(|e| e.path.clone());
-        if let Some(default_path) = previous_default {
-            for entry in merged.iter_mut() {
-                entry.is_default = entry.path.eq_ignore_ascii_case(&default_path);
+            // 扫描会重建注册表（扫描项 is_default=false），这里恢复原有的默认 JDK，
+            // 否则每次扫描都会把用户设置的默认 JDK 抹掉。
+            let previous_default = current
+                .jdk_registry
+                .iter()
+                .find(|e| e.is_default)
+                .map(|e| e.path.clone());
+            if let Some(default_path) = previous_default {
+                for entry in merged.iter_mut() {
+                    entry.is_default = entry.path.eq_ignore_ascii_case(&default_path);
+                }
             }
-        }
-        current.jdk_registry = merged.clone();
-        let _ = settings_repo::save(&task_app, current);
-        Ok(merged)
+            current.jdk_registry = merged.clone();
+            // 保存失败要如实上报：静默吞掉会导致扫描结果重启即丢
+            Ok(merged)
+        })
     })
     .await?;
     app_logger::log_info(
@@ -381,14 +387,14 @@ pub async fn add_jdk_to_registry(
             is_default: false,
             source: crate::models::environment::JdkSource::Manual,
         };
-        let mut current = settings_repo::load_or_quarantine(&task_app)?;
-        // 去重
-        if current.jdk_registry.iter().any(|e| e.path.eq_ignore_ascii_case(&path)) {
-            return Err(format!("路径 {} 已在 JDK 注册表中", path));
-        }
-        current.jdk_registry.push(entry.clone());
-        settings_repo::save(&task_app, current)?;
-        Ok(entry)
+        // 去重与写入的读改写在锁内完成
+        settings_repo::update(&task_app, |current| {
+            if current.jdk_registry.iter().any(|e| e.path.eq_ignore_ascii_case(&path)) {
+                return Err(format!("路径 {} 已在 JDK 注册表中", path));
+            }
+            current.jdk_registry.push(entry.clone());
+            Ok(entry.clone())
+        })
     })
     .await?;
     app_logger::log_info(
@@ -404,9 +410,10 @@ pub async fn remove_jdk_from_registry(app: AppHandle, jdk_id: String) -> AppResu
     app_logger::log_info(&app, "jdk.remove", format!("jdk_id={}", jdk_id));
     let task_app = app.clone();
     blocking::run(move || {
-        let mut current = settings_repo::load_or_quarantine(&task_app)?;
-        current.jdk_registry.retain(|e| e.id != jdk_id);
-        settings_repo::save(&task_app, current)
+        settings_repo::update(&task_app, |current| {
+            current.jdk_registry.retain(|e| e.id != jdk_id);
+            Ok(())
+        })
     })
     .await
 }
@@ -416,11 +423,12 @@ pub async fn set_default_jdk(app: AppHandle, jdk_id: String) -> AppResult<()> {
     app_logger::log_info(&app, "jdk.set_default", format!("jdk_id={}", jdk_id));
     let task_app = app.clone();
     blocking::run(move || {
-        let mut current = settings_repo::load_or_quarantine(&task_app)?;
-        for entry in &mut current.jdk_registry {
-            entry.is_default = entry.id == jdk_id;
-        }
-        settings_repo::save(&task_app, current)
+        settings_repo::update(&task_app, |current| {
+            for entry in &mut current.jdk_registry {
+                entry.is_default = entry.id == jdk_id;
+            }
+            Ok(())
+        })
     })
     .await
 }

@@ -1,3 +1,4 @@
+import {useBuildSessionStore} from '@/store/useBuildSessionStore'
 import {useAppStore} from '@/store/useAppStore'
 import {useNavigationStore} from '@/store/navigationStore'
 
@@ -7,7 +8,7 @@ import {useNavigationStore} from '@/store/navigationStore'
  */
 export const useInspectorAvailable = () => {
   const activePage = useNavigationStore((state) => state.activePage)
-  const buildStatus = useAppStore((state) => state.buildStatus)
+  const buildStatus = useBuildSessionStore((state) => state.status)
   const logsCount = useAppStore((state) => state.logs.length)
   const hasDiagnosis = useAppStore((state) => Boolean(state.diagnosis))
 

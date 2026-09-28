@@ -172,7 +172,7 @@ export function ArtifactPage() {
     <section className="mx-auto w-full max-w-[1180px] p-4 lg:p-6">
       <PageHeader
         title="产物管理"
-        description="集中查看构建产物，复制路径、打开目录，并进入部署。"
+        description="集中查看构建产物，复制路径与打开所在目录。"
       />
       {allArtifacts.length > 0 ? (
         <div className="mb-3 max-w-sm">

@@ -5,14 +5,12 @@ import type {
     BuildEnvironment,
     EnvironmentProfile,
     EnvironmentSettings,
-    JdkEntry,
 } from '../types/domain'
 
 interface EnvironmentState {
   environment?: BuildEnvironment
   environmentSettings?: EnvironmentSettings
   savedProjectPaths: string[]
-  jdkRegistry: JdkEntry[]
   error?: string
   loadSettings: () => Promise<void>
   detectForProject: (rootPath: string) => Promise<void>
@@ -27,10 +25,6 @@ interface EnvironmentState {
   syncActiveProfileId: (profileId: string | undefined) => Promise<void>
   saveLastProjectPath: (rootPath: string) => Promise<void>
   removeSavedProject: (rootPath: string) => Promise<void>
-  scanSystemJdks: () => Promise<void>
-  addJdkToRegistry: (path: string, name?: string) => Promise<void>
-  removeJdkFromRegistry: (jdkId: string) => Promise<void>
-  setDefaultJdk: (jdkId: string) => Promise<void>
 }
 
 const emptyEnvironmentSettings = (): EnvironmentSettings => ({
@@ -78,7 +72,6 @@ const createProfileFromEnvironment = (
 
 export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
   savedProjectPaths: [],
-  jdkRegistry: [],
 
   loadSettings: async () => {
     try {
@@ -90,7 +83,6 @@ export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
       set({
         savedProjectPaths,
         environmentSettings: settings,
-        jdkRegistry: settings.jdkRegistry ?? [],
       })
     } catch {
       // Browser preview or first launch — keep empty.
@@ -274,47 +266,6 @@ export const useEnvironmentStore = create<EnvironmentState>((set, get) => ({
       set({
         savedProjectPaths: normalizeProjectPaths(settings.projectPaths ?? []),
       })
-    } catch (error) {
-      set({error: getErrorMessage(error)})
-    }
-  },
-
-  scanSystemJdks: async () => {
-    try {
-      const entries = await api.scanSystemJdks()
-      set({jdkRegistry: entries})
-      const settings = await api.loadEnvironmentSettings()
-      set({environmentSettings: settings})
-    } catch (error) {
-      set({error: getErrorMessage(error)})
-    }
-  },
-
-  addJdkToRegistry: async (path: string, name?: string) => {
-    try {
-      await api.addJdkToRegistry(path, name)
-      const settings = await api.loadEnvironmentSettings()
-      set({jdkRegistry: settings.jdkRegistry ?? [], environmentSettings: settings})
-    } catch (error) {
-      set({error: getErrorMessage(error)})
-    }
-  },
-
-  removeJdkFromRegistry: async (jdkId: string) => {
-    try {
-      await api.removeJdkFromRegistry(jdkId)
-      const settings = await api.loadEnvironmentSettings()
-      set({jdkRegistry: settings.jdkRegistry ?? [], environmentSettings: settings})
-    } catch (error) {
-      set({error: getErrorMessage(error)})
-    }
-  },
-
-  setDefaultJdk: async (jdkId: string) => {
-    try {
-      await api.setDefaultJdk(jdkId)
-      const settings = await api.loadEnvironmentSettings()
-      set({jdkRegistry: settings.jdkRegistry ?? [], environmentSettings: settings})
     } catch (error) {
       set({error: getErrorMessage(error)})
     }

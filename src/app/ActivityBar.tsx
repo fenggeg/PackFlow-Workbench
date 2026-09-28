@@ -6,28 +6,26 @@ import {
   Settings,
 } from 'lucide-react'
 import type {ReactNode} from 'react'
-import {useState} from 'react'
 import {cn} from '@/lib/utils'
 import {Button} from '@/components/ui/button'
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip'
-import {useAppStore} from '@/store/useAppStore'
+import {useBuildSessionStore} from '@/store/useBuildSessionStore'
 import {type AppPage, useNavigationStore} from '@/store/navigationStore'
 import {useNavigationConfigStore} from '@/store/useNavigationConfigStore'
-import {NavigationSettings} from '@/components/NavigationSettings/NavigationSettings'
 
 const pageIcons: Record<AppPage, ReactNode> = {
   dashboard: <Home />,
   build: <Hammer />,
   artifacts: <Database />,
   history: <History />,
+  settings: <Settings />,
 }
 
 export function ActivityBar() {
   const activePage = useNavigationStore((state) => state.activePage)
   const setActivePage = useNavigationStore((state) => state.setActivePage)
-  const buildStatus = useAppStore((state) => state.buildStatus)
+  const buildStatus = useBuildSessionStore((state) => state.status)
   const navigationItems = useNavigationConfigStore((state) => state.items)
-  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const visibleItems = navigationItems
     .filter((item) => item.visible)
@@ -74,17 +72,21 @@ export function ActivityBar() {
             <Button
               variant="ghost"
               size="icon"
-              className="size-9 rounded-[var(--radius-md)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-              aria-label="导航栏设置"
-              onClick={() => setSettingsOpen(true)}
+              className={cn(
+                'size-9 rounded-[var(--radius-md)]',
+                activePage === 'settings'
+                  ? 'bg-[var(--accent)] text-[var(--foreground)]'
+                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]',
+              )}
+              aria-label="设置"
+              onClick={() => setActivePage('settings')}
             >
               <Settings />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="right">导航栏设置</TooltipContent>
+          <TooltipContent side="right">设置</TooltipContent>
         </Tooltip>
       </nav>
-      <NavigationSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </>
   )
 }

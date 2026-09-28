@@ -13,7 +13,7 @@ export function HistoryPage() {
 
   return (
     <section className="mx-auto w-full max-w-[1180px] p-4 lg:p-6">
-      <PageHeader title="历史管理" description="统一查看构建记录和部署记录。" />
+      <PageHeader title="历史管理" description="统一查看构建记录，回看构建日志。" />
       <Card className="mb-3">
         <CardContent className="flex flex-wrap items-center gap-x-6 gap-y-2 py-3">
           <div className="flex items-center gap-2">

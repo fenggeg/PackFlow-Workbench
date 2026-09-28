@@ -53,7 +53,7 @@ export function SidebarPanel() {
     )
   }
 
-  if (activePage === 'dashboard' || activePage === 'artifacts' || activePage === 'history') {
+  if (activePage === 'dashboard' || activePage === 'artifacts' || activePage === 'history' || activePage === 'settings') {
     return null
   }
 

@@ -1,4 +1,4 @@
-import {Copy, Crosshair, Maximize2, PanelRightOpen} from 'lucide-react'
+import {Copy, Crosshair, Loader2, Minimize2} from 'lucide-react'
 import {useEffect, useMemo, useState} from 'react'
 import {AnimatePresence} from 'motion/react'
 import {Button} from '@/components/ui/button'
@@ -12,10 +12,13 @@ import {
 import {StatusPill} from '@/components/ui/status-pill'
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs'
 import {BuildLogPanel} from '@/components/BuildLogPanel/BuildLogPanel'
-import {motion, slideInRight} from '@/lib/motion'
+import {motion} from '@/lib/motion'
+import {useBuildSessionStore} from '@/store/useBuildSessionStore'
+import {useBuildProgressStore} from '@/store/useBuildProgressStore'
 import {useAppStore} from '@/store/useAppStore'
 import {type InspectorTab, useNavigationStore} from '@/store/navigationStore'
 import {diagnosisCategoryText} from '@/utils/format'
+import {buildStatusLabel} from './buildStatusText'
 import {useInspectorAvailable} from './inspectorAvailability'
 
 export function InspectorDrawer() {
@@ -23,7 +26,11 @@ export function InspectorDrawer() {
   const inspectorTab = useNavigationStore((state) => state.inspectorTab)
   const setInspectorOpen = useNavigationStore((state) => state.setInspectorOpen)
   const setInspectorTab = useNavigationStore((state) => state.setInspectorTab)
-  const buildStatus = useAppStore((state) => state.buildStatus)
+  const buildStatus = useBuildSessionStore((state) => state.status)
+  const buildPhase = useBuildSessionStore((state) => state.phase)
+  const buildCancelling = useBuildSessionStore((state) => state.cancelling)
+  const progressPercent = useBuildProgressStore((state) => state.snapshot.percent)
+  const progressIndeterminate = useBuildProgressStore((state) => state.snapshot.indeterminate)
   const diagnosis = useAppStore((state) => state.diagnosis)
   const logs = useAppStore((state) => state.logs)
   const artifacts = useAppStore((state) => state.artifacts)
@@ -34,17 +41,8 @@ export function InspectorDrawer() {
   // 只有构建页或已有构建上下文时才出现，避免在首页/产物页展示无关面板
   const available = useInspectorAvailable()
 
-  useEffect(() => {
-    if (!available) return
-    if (buildStatus === 'RUNNING') {
-      setInspectorOpen(true)
-      setInspectorTab('logs')
-    }
-    if (buildStatus === 'FAILED') {
-      setInspectorOpen(true)
-      setInspectorTab('diagnosis')
-    }
-  }, [available, buildStatus, setInspectorOpen, setInspectorTab])
+  // 不再随构建开始/失败强制展开：构建推进时由右下角的 BuildStatusFab
+  // 提供状态与入口，是否展开检查器交还给用户决定。
 
   useEffect(() => {
     if (!inspectorOpen || expanded) return
@@ -61,7 +59,12 @@ export function InspectorDrawer() {
     }
   }, [available, inspectorOpen, setInspectorOpen])
 
-  const logContent = useMemo(() => <BuildLogPanel fill />, [])
+  const logContent = useMemo(
+    () => <BuildLogPanel fill onExpand={() => setExpanded(true)} />,
+    [],
+  )
+  // 全屏对话框内不再放「全屏查看」按钮（已在全屏中），用独立实例避免按钮残留
+  const fullscreenLogContent = useMemo(() => <BuildLogPanel fill />, [])
 
   const diagnosisText = useMemo(() => {
     if (!diagnosis) return ''
@@ -207,22 +210,31 @@ export function InspectorDrawer() {
         {inspectorOpen ? (
           <motion.aside
             key="inspector-drawer"
-            className="absolute inset-y-0 right-0 z-30 flex w-[min(520px,90vw)] flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--card)] lg:relative lg:z-auto lg:w-[380px] xl:w-[480px]"
-            {...slideInRight}
+            className="absolute bottom-4 right-4 top-4 z-30 flex w-[min(480px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-2xl"
+            // 从右侧滑入 + 淡入：纯位移不缩放，内容全程无拉伸变形，观感自然
+            initial={{opacity: 0, x: 48, scale: 0.98}}
+            animate={{opacity: 1, x: 0, scale: 1}}
+            exit={{opacity: 0, x: 48, scale: 0.98}}
+            transition={{type: 'spring', stiffness: 380, damping: 36}}
           >
             <div className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border)] pl-4 pr-2">
-              <span className="text-[13px] font-semibold">检查器</span>
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="text-[13px] font-semibold">检查器</span>
+                {buildPhase === 'starting' || buildPhase === 'running' ? (
+                  <span className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--muted)] px-2 py-0.5 text-[11px] font-medium">
+                    <Loader2 className="size-3 shrink-0 animate-spin text-[var(--primary)]" />
+                    {buildStatusLabel(buildCancelling, progressIndeterminate, progressPercent)}
+                  </span>
+                ) : null}
+              </div>
               <div className="flex items-center gap-0.5">
-                <Button variant="ghost" size="iconSm" aria-label="全屏查看" onClick={() => setExpanded(true)}>
-                  <Maximize2 />
-                </Button>
                 <Button
                   variant="ghost"
                   size="iconSm"
                   aria-label="收起检查器"
                   onClick={() => setInspectorOpen(false)}
                 >
-                  <PanelRightOpen className="rotate-180" />
+                  <Minimize2 />
                 </Button>
               </div>
             </div>
@@ -260,7 +272,7 @@ export function InspectorDrawer() {
           <DialogHeader className="border-b border-[var(--border)] px-5 py-3">
             <DialogTitle>检查器</DialogTitle>
           </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-hidden p-4">{logContent}</div>
+          <div className="min-h-0 flex-1 overflow-hidden p-4">{fullscreenLogContent}</div>
         </DialogContent>
       </Dialog>
     </>

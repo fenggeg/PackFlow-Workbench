@@ -616,7 +616,9 @@ fn run_version(program: &str, args: &[&str]) -> Option<String> {
 
 /// 带超时地执行外部命令并读取合并输出（stdout + stderr）。
 /// 管道在独立线程读取，避免输出较多时子进程写满管道而卡死。
-fn run_command_capture(program: &str, args: &[&str]) -> Option<(bool, String)> {
+/// 供 jdk_scanner 等模块复用：所有外部探测都必须有超时，
+/// 否则网络盘上的坏 JDK 会永久占住一个 blocking 线程。
+pub fn run_command_capture(program: &str, args: &[&str]) -> Option<(bool, String)> {
     let mut command = build_command(program, args);
     command
         .stdout(Stdio::piped())

@@ -112,10 +112,10 @@ fn scan_build_artifacts_sync(
         module_paths: &[&str],
         since: Option<std::time::SystemTime>,
     ) -> AppResult<Vec<BuildArtifact>> {
-        let mut artifacts = Vec::new();
-        if module_paths.is_empty() {
-            scan_target_dirs(root, root, &mut artifacts, since)?;
-        } else {
+    let mut artifacts = Vec::new();
+    if module_paths.is_empty() {
+        scan_target_dirs(root, root, &mut artifacts, since, 0)?;
+    } else {
             for module in module_paths {
                 let module_root = root.join(module);
                 scan_target_dir(root, &module_root.join("target"), module, &mut artifacts, since)?;
@@ -142,12 +142,20 @@ fn scan_build_artifacts_sync(
     Ok(artifacts)
 }
 
+/// 目录递归深度上限：junction/符号链接环会让无深度限制的递归栈溢出
+/// （pom 解析有 MAX_MODULE_DEPTH，这里保持同样的防御风格）。
+const MAX_SCAN_DEPTH: usize = 16;
+
 fn scan_target_dirs(
     project_root: &Path,
     current: &Path,
     artifacts: &mut Vec<BuildArtifact>,
     since: Option<std::time::SystemTime>,
+    depth: usize,
 ) -> AppResult<()> {
+    if depth > MAX_SCAN_DEPTH {
+        return Ok(());
+    }
     let entries = match fs::read_dir(current) {
         Ok(entries) => entries,
         Err(_) => return Ok(()),
@@ -168,7 +176,7 @@ fn scan_target_dirs(
                 .unwrap_or_default();
             scan_target_dir(project_root, &path, &module_path, artifacts, since)?;
         } else if !is_ignored_dir(&path) {
-            scan_target_dirs(project_root, &path, artifacts, since)?;
+            scan_target_dirs(project_root, &path, artifacts, since, depth + 1)?;
         }
     }
 
@@ -270,102 +278,106 @@ fn is_package_file(path: &Path) -> bool {
 }
 
 #[tauri::command]
-pub fn delete_build_artifact(
+pub async fn delete_build_artifact(
     app: AppHandle,
     path: String,
     record_only: Option<bool>,
     project_root: Option<String>,
 ) -> AppResult<()> {
-    app_logger::log_info(
-        &app,
-        "filesystem.artifact.delete.start",
-        format!(
-            "path={}, record_only={:?}, project_root={:?}",
-            path, record_only, project_root
-        ),
-    );
-
-    if record_only.unwrap_or(false) {
+    // remove_file 可能被杀毒软件锁文件阻塞数秒，放到 blocking 线程避免卡主线程
+    blocking::run(move || {
         app_logger::log_info(
             &app,
-            "filesystem.artifact.delete.record_only",
-            format!("path={}, reason=仅删除记录", path),
+            "filesystem.artifact.delete.start",
+            format!(
+                "path={}, record_only={:?}, project_root={:?}",
+                path, record_only, project_root
+            ),
         );
-        return Ok(());
-    }
 
-    let target = PathBuf::from(&path);
-    if !target.exists() {
-        app_logger::log_info(
-            &app,
-            "filesystem.artifact.delete.skipped",
-            format!("path={}, reason=文件已不存在", path),
-        );
-        return Ok(());
-    }
-    if !target.is_file() {
-        app_logger::log_error(
-            &app,
-            "filesystem.artifact.delete.failed",
-            format!("path={}, error=路径不是文件", path),
-        );
-        return Err(to_user_error(format!("路径不是文件：{}", path)));
-    }
+        if record_only.unwrap_or(false) {
+            app_logger::log_info(
+                &app,
+                "filesystem.artifact.delete.record_only",
+                format!("path={}, reason=仅删除记录", path),
+            );
+            return Ok(());
+        }
 
-    // 删除必须有项目根目录约束：缺失时直接拒绝，避免退化为无约束的任意文件删除
-    let root = match project_root.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
-        Some(root) => root,
-        None => {
+        let target = PathBuf::from(&path);
+        if !target.exists() {
+            app_logger::log_info(
+                &app,
+                "filesystem.artifact.delete.skipped",
+                format!("path={}, reason=文件已不存在", path),
+            );
+            return Ok(());
+        }
+        if !target.is_file() {
+            app_logger::log_error(
+                &app,
+                "filesystem.artifact.delete.failed",
+                format!("path={}, error=路径不是文件", path),
+            );
+            return Err(to_user_error(format!("路径不是文件：{}", path)));
+        }
+
+        // 删除必须有项目根目录约束：缺失时直接拒绝，避免退化为无约束的任意文件删除
+        let root = match project_root.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+            Some(root) => root,
+            None => {
+                app_logger::log_error(
+                    &app,
+                    "filesystem.artifact.delete.rejected",
+                    format!("path={}, error=缺少项目根目录约束", path),
+                );
+                return Err(to_user_error(format!(
+                    "缺少项目根目录信息，已拒绝删除：{}",
+                    path
+                )));
+            }
+        };
+        let root_path = PathBuf::from(root);
+        let target_ok = match (fs::canonicalize(&target), fs::canonicalize(&root_path)) {
+            (Ok(canonical_target), Ok(canonical_root)) => canonical_target.starts_with(&canonical_root),
+            _ => false,
+        };
+        if !target_ok {
             app_logger::log_error(
                 &app,
                 "filesystem.artifact.delete.rejected",
-                format!("path={}, error=缺少项目根目录约束", path),
+                format!("path={}, root={}, error=路径不在项目目录内", path, root),
             );
             return Err(to_user_error(format!(
-                "缺少项目根目录信息，已拒绝删除：{}",
+                "拒绝删除项目目录之外的文件：{}",
                 path
             )));
         }
-    };
-    let root_path = PathBuf::from(root);
-    let target_ok = match (fs::canonicalize(&target), fs::canonicalize(&root_path)) {
-        (Ok(canonical_target), Ok(canonical_root)) => canonical_target.starts_with(&canonical_root),
-        _ => false,
-    };
-    if !target_ok {
-        app_logger::log_error(
-            &app,
-            "filesystem.artifact.delete.rejected",
-            format!("path={}, root={}, error=路径不在项目目录内", path, root),
-        );
-        return Err(to_user_error(format!(
-            "拒绝删除项目目录之外的文件：{}",
-            path
-        )));
-    }
 
-    fs::remove_file(&target).map_err(|error| {
-        app_logger::log_error(
+        fs::remove_file(&target).map_err(|error| {
+            app_logger::log_error(
+                &app,
+                "filesystem.artifact.delete.failed",
+                format!("path={}, error={}", path, error),
+            );
+            to_user_error(format!("无法删除文件 {}：{}", path, error))
+        })?;
+        app_logger::log_info(
             &app,
-            "filesystem.artifact.delete.failed",
-            format!("path={}, error={}", path, error),
+            "filesystem.artifact.delete.success",
+            format!("path={}", path),
         );
-        to_user_error(format!("无法删除文件 {}：{}", path, error))
-    })?;
-    app_logger::log_info(
-        &app,
-        "filesystem.artifact.delete.success",
-        format!("path={}", path),
-    );
-    Ok(())
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn check_files_exist(paths: Vec<String>) -> Vec<String> {
-    paths
+pub fn check_files_exist(paths: Vec<String>) -> AppResult<Vec<String>> {
+    Ok(paths
         .into_iter()
         .filter(|p| Path::new(p).exists())
-        .collect()
+        .collect())
 }
 
 fn nearest_existing_parent(path: &Path) -> Option<PathBuf> {

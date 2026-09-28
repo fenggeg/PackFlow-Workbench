@@ -1,10 +1,7 @@
 use crate::models::environment::{JdkEntry, JdkSource};
-use crate::services::process_utils::CREATE_NO_WINDOW;
 use std::env;
 use std::fs;
-use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use uuid::Uuid;
 
 /// 扫描系统中所有已安装的 JDK
@@ -170,23 +167,10 @@ fn add_if_dir_exists(path: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// 执行 java.exe -version 获取版本字符串（第一行）
+/// 执行 java.exe -version 获取版本字符串（第一行）。
+/// 复用 env_detector 的带超时实现：网络盘上的坏 JDK 不能永久占住扫描线程。
 fn run_java_version(java_exe: &str) -> Option<String> {
-    let output = Command::new(java_exe)
-        .arg("-version")
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .ok()?;
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    combined
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(ToOwned::to_owned)
+    crate::services::env_detector::run_version_public(java_exe, &["-version"])
 }
 
 /// 从 java -version 输出中提取主版本号
@@ -298,17 +282,17 @@ fn path_to_string(path: &Path) -> String {
 }
 
 fn first_where(program: &str) -> Option<String> {
-    let output = Command::new("cmd")
-        .args(["/C", "where", program])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(ToOwned::to_owned)
+    // 复用 env_detector 的带超时实现，where 卡死时最多等 10s
+    crate::services::env_detector::run_command_capture("cmd", &["/C", "where", program]).and_then(
+        |(success, output)| {
+            if !success {
+                return None;
+            }
+            output
+                .lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
+                .map(ToOwned::to_owned)
+        },
+    )
 }

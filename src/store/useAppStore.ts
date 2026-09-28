@@ -6,22 +6,20 @@ import {normalizeBuildOptions} from '../utils/buildOptions'
 import {getErrorMessage} from '../utils/errors'
 import {notifyError, notifySuccess} from './useFeedbackStore'
 import {useBuildProgressStore} from './useBuildProgressStore'
+import {useBuildSessionStore} from './useBuildSessionStore'
 import {useDependencyStore} from './useDependencyStore'
 import {useEnvironmentStore} from './useEnvironmentStore'
+import {useGitStore} from './useGitStore'
+import {usePreferencesStore} from './usePreferencesStore'
 import type {
     BuildArtifact,
     BuildDiagnosis,
-    BuildEnvironment,
     BuildFinishedEvent,
     BuildHistoryRecord,
     BuildLogEvent,
     BuildOptions,
     BuildStatus,
     BuildTemplate,
-    EnvironmentSettings,
-    GitCommit,
-    GitRepositoryStatus,
-    JdkEntry,
     MavenModule,
     MavenProject,
     PersistedBuildStatus,
@@ -33,46 +31,23 @@ const flattenModules = (modules: MavenModule[]): MavenModule[] =>
 
 interface AppState {
   project?: MavenProject
-  environment?: BuildEnvironment
-  environmentSettings?: EnvironmentSettings
   selectedModule?: MavenModule
   selectedModules: MavenModule[]
   selectedModuleIds: string[]
-  savedProjectPaths: string[]
   buildOptions: BuildOptions
-  buildStatus: BuildStatus
-  currentBuildId?: string
-  buildRunToken?: string
   /** 日志定位请求：token 保证同一行可重复触发 */
   logFocusRequest?: {line: string; token: number}
-  buildCancelling: boolean
-  startedAt?: number
-  durationMs: number
   logs: BuildLogEvent[]
   diagnosis?: BuildDiagnosis
   artifacts: BuildArtifact[]
   history: BuildHistoryRecord[]
   templates: BuildTemplate[]
-  gitStatus?: GitRepositoryStatus
-  gitCommits: GitCommit[]
-  gitChecking: boolean
-  gitCommitsLoading: boolean
-  gitPulling: boolean
-  gitSwitching: boolean
-  gitError?: string
   loading: boolean
   error?: string
   initialized: boolean
   initialize: () => Promise<void>
   chooseProject: () => Promise<void>
   parseProjectPath: (rootPath: string) => Promise<void>
-  removeSavedProject: (rootPath: string) => Promise<void>
-  checkGitStatus: (rootPath?: string) => Promise<void>
-  loadGitCommits: (rootPath?: string) => Promise<void>
-  fetchGitUpdates: () => Promise<void>
-  pullGitUpdates: () => Promise<void>
-  switchGitBranch: (branchName: string) => Promise<void>
-  clearGitError: () => void
   setSelectedModules: (moduleIds: string[]) => void
   selectAllProject: () => void
   setBuildOption: <K extends keyof BuildOptions>(
@@ -96,19 +71,6 @@ interface AppState {
   setThreadCount: (threadCount?: number) => void
   clearError: () => void
   reloadProjectModules: (rootPath: string) => Promise<void>
-  refreshEnvironment: () => Promise<void>
-  updateEnvironment: (settings: EnvironmentSettings) => Promise<void>
-  applyEnvironmentProfile: (profileId: string) => Promise<void>
-  saveEnvironmentProfile: (name: string) => Promise<void>
-  deleteEnvironmentProfile: (profileId: string) => Promise<void>
-  bindProjectProfile: (projectPath: string, profileId: string) => Promise<void>
-  unbindProjectProfile: (projectPath: string) => Promise<void>
-  getBoundProfileId: (projectPath: string) => string | undefined
-  jdkRegistry: JdkEntry[]
-  scanSystemJdks: () => Promise<void>
-  addJdkToRegistry: (path: string, name?: string) => Promise<void>
-  removeJdkFromRegistry: (jdkId: string) => Promise<void>
-  setDefaultJdk: (jdkId: string) => Promise<void>
   /** 构建前检查结果（最近一次） */
   preflight?: PreflightResult
   runPreflight: () => Promise<PreflightResult | undefined>
@@ -223,50 +185,57 @@ const notifyBuildFinished = (status: PersistedBuildStatus, durationMs: number, a
   const body = success
     ? `耗时 ${seconds}s，发现 ${artifactCount} 个产物。`
     : `耗时 ${seconds}s，请查看构建日志。`
+  // 通知与提示音的开关在设置页，默认都开启
+  const {desktopNotification, completionSound} = usePreferencesStore.getState()
 
-  try {
-    if ('Notification' in window) {
-      if (Notification.permission === 'granted') {
-        new Notification(title, { body })
-      } else if (Notification.permission === 'default') {
-        void Notification.requestPermission().then((permission) => {
-          if (permission === 'granted') {
-            new Notification(title, { body })
-          }
-        })
+  if (desktopNotification) {
+    try {
+      if ('Notification' in window) {
+        if (Notification.permission === 'granted') {
+          new Notification(title, { body })
+        } else if (Notification.permission === 'default') {
+          void Notification.requestPermission().then((permission) => {
+            if (permission === 'granted') {
+              new Notification(title, { body })
+            }
+          })
+        }
       }
+    } catch {
+      // Desktop notification unavailable.
     }
-  } catch {
-    // Desktop notification unavailable.
   }
 
-  try {
-    const AudioContextClass = window.AudioContext
-      ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-    if (!AudioContextClass) {
-      return
+  if (completionSound) {
+    try {
+      const AudioContextClass = window.AudioContext
+        ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+      if (!AudioContextClass) {
+        return
+      }
+      const context = new AudioContextClass()
+      const oscillator = context.createOscillator()
+      const gain = context.createGain()
+      oscillator.type = success ? 'sine' : 'triangle'
+      oscillator.frequency.value = success ? 880 : 220
+      gain.gain.setValueAtTime(0.0001, context.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.08, context.currentTime + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.22)
+      oscillator.connect(gain)
+      gain.connect(context.destination)
+      oscillator.start()
+      oscillator.stop(context.currentTime + 0.24)
+      oscillator.onended = () => void context.close()
+    } catch {
+      // User system blocks audio.
     }
-    const context = new AudioContextClass()
-    const oscillator = context.createOscillator()
-    const gain = context.createGain()
-    oscillator.type = success ? 'sine' : 'triangle'
-    oscillator.frequency.value = success ? 880 : 220
-    gain.gain.setValueAtTime(0.0001, context.currentTime)
-    gain.gain.exponentialRampToValueAtTime(0.08, context.currentTime + 0.02)
-    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.22)
-    oscillator.connect(gain)
-    gain.connect(context.destination)
-    oscillator.start()
-    oscillator.stop(context.currentTime + 0.24)
-    oscillator.onended = () => void context.close()
-  } catch {
-    // User system blocks audio.
   }
 }
 
 // 命令预览请求序号，防止慢响应覆盖新命令
 let previewRequestId = 0
 let previewTimer: ReturnType<typeof setTimeout> | null = null
+let logFocusTokenSeq = 0
 
 const clearPreviewTimer = () => {
   if (previewTimer) {
@@ -280,9 +249,6 @@ let initializeStarted = false
 
 export const useAppStore = create<AppState>((set, get) => ({
   buildOptions: createDefaultBuildOptions(),
-  buildStatus: 'IDLE',
-  buildCancelling: false,
-  durationMs: 0,
   logs: [],
   diagnosis: undefined,
   artifacts: [],
@@ -290,13 +256,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   templates: [],
   selectedModules: [],
   selectedModuleIds: [],
-  savedProjectPaths: [],
-  gitChecking: false,
-  gitCommits: [],
-  gitCommitsLoading: false,
-  gitPulling: false,
-  gitSwitching: false,
-  gitError: undefined,
   loading: false,
   initialized: false,
 
@@ -308,13 +267,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       await get().loadHistoryAndTemplates()
       await envStore().loadSettings()
       const settings = envStore().environmentSettings
-      const savedProjectPaths = envStore().savedProjectPaths
-      set({savedProjectPaths, environmentSettings: settings, jdkRegistry: envStore().jdkRegistry})
       if (settings?.lastProjectPath) {
         await get().parseProjectPath(settings.lastProjectPath)
       } else {
         await envStore().detectForProject('')
-        set({environment: envStore().environment})
       }
     } catch (error) {
       // 非首次启动时，记录错误让用户感知；首次启动或浏览器预览则保持空白工作台
@@ -338,10 +294,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   parseProjectPath: async (rootPath: string) => {
-    if (get().buildStatus === 'RUNNING') {
+    const session = useBuildSessionStore.getState()
+    // 会话忙（starting/running/finalizing）时禁止切换项目：starting 窗口里
+    // 切换会留下一个没人跟踪的孤儿构建
+    if (session.isBusy()) {
       fail('构建进行中，请先停止当前构建再切换项目。')
       return
     }
+    // 会话状态随项目切换整体作废
+    session.reset()
     set({
       loading: true,
       error: undefined,
@@ -352,9 +313,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       logs: [],
       diagnosis: undefined,
       artifacts: [],
-      gitStatus: undefined,
-      gitCommits: [],
-      gitError: undefined,
     })
     pendingLogBuffer.length = 0
     if (logFlushTimer) {
@@ -363,6 +321,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     clearPreviewTimer()
     useBuildProgressStore.getState().reset()
+    useGitStore.getState().resetForProject()
     // 冲突结果属于上一个项目，必须清空，否则会展示错误项目的扫描结果
     useDependencyStore.getState().clear()
     try {
@@ -376,152 +335,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       const buildOptions = normalizeBuildOptions(createDefaultBuildOptions(project.rootPath, ''))
       set({
         project,
-        environment: envStore().environment,
         selectedModule: undefined,
         selectedModules: [],
         selectedModuleIds: [],
         buildOptions,
-        buildStatus: 'IDLE',
-        currentBuildId: undefined,
-        buildCancelling: false,
-        durationMs: 0,
       })
       await envStore().saveLastProjectPath(project.rootPath)
-      set({savedProjectPaths: envStore().savedProjectPaths})
       await get().refreshCommandPreview()
-      void get().checkGitStatus(project.rootPath)
+      void useGitStore.getState().checkGitStatus(project.rootPath)
     } catch (error) {
       fail(getErrorMessage(error))
     } finally {
       set({loading: false})
     }
-  },
-
-  removeSavedProject: async (rootPath: string) => {
-    try {
-      await envStore().removeSavedProject(rootPath)
-      set({savedProjectPaths: envStore().savedProjectPaths})
-    } catch (error) {
-      fail(getErrorMessage(error))
-    }
-  },
-
-  checkGitStatus: async (rootPath?: string) => {
-    const targetPath = rootPath ?? get().project?.rootPath
-    if (!targetPath) {
-      return
-    }
-
-    set({ gitChecking: true, gitError: undefined })
-    try {
-      const gitStatus = await api.checkGitStatus(targetPath)
-      set({ gitStatus, gitError: undefined })
-      void get().loadGitCommits(targetPath)
-    } catch (error) {
-      set({
-        gitStatus: {
-          isGitRepo: true,
-          branches: [],
-          aheadCount: 0,
-          behindCount: 0,
-          hasRemoteUpdates: false,
-          hasLocalChanges: false,
-          message: getErrorMessage(error),
-        },
-        gitCommits: [],
-        gitError: getErrorMessage(error),
-      })
-    } finally {
-      set({ gitChecking: false })
-    }
-  },
-
-  loadGitCommits: async (rootPath?: string) => {
-    const targetPath = rootPath ?? get().project?.rootPath
-    if (!targetPath) {
-      set({ gitCommits: [] })
-      return
-    }
-
-    set({ gitCommitsLoading: true })
-    try {
-      const gitCommits = await api.listGitCommits(targetPath, 30)
-      set({ gitCommits })
-    } catch {
-      set({ gitCommits: [] })
-    } finally {
-      set({ gitCommitsLoading: false })
-    }
-  },
-
-  fetchGitUpdates: async () => {
-    const targetPath = get().project?.rootPath
-    if (!targetPath) {
-      return
-    }
-
-    set({ gitChecking: true, gitError: undefined })
-    try {
-      const gitStatus = await api.fetchGitUpdates(targetPath)
-      set({ gitStatus, gitError: undefined })
-      await get().loadGitCommits(targetPath)
-    } catch (error) {
-      set({ gitError: getErrorMessage(error) })
-    } finally {
-      set({ gitChecking: false })
-    }
-  },
-
-  pullGitUpdates: async () => {
-    const targetPath = get().project?.rootPath
-    if (!targetPath) {
-      return
-    }
-
-    set({ gitPulling: true, gitError: undefined })
-    try {
-      const result = await api.pullGitUpdates(targetPath)
-      set({ gitStatus: result.status, gitError: undefined })
-      await get().loadGitCommits(targetPath)
-      // 只刷新模块结构，保留构建日志、产物与已选模块
-      await get().reloadProjectModules(targetPath)
-      notifySuccess('已拉取远端更新')
-    } catch (error) {
-      const gitError = getErrorMessage(error)
-      await get().checkGitStatus(targetPath)
-      set({ gitError })
-      notifyError('拉取失败', gitError)
-    } finally {
-      set({ gitPulling: false })
-    }
-  },
-
-  switchGitBranch: async (branchName: string) => {
-    const targetPath = get().project?.rootPath
-    if (!targetPath) {
-      return
-    }
-
-    set({ gitSwitching: true, gitError: undefined })
-    try {
-      const result = await api.switchGitBranch(targetPath, branchName)
-      set({ gitStatus: result.status, gitError: undefined })
-      await get().loadGitCommits(targetPath)
-      // 只刷新模块结构，保留构建日志、产物与已选模块
-      await get().reloadProjectModules(targetPath)
-      notifySuccess(`已切换到分支 ${branchName}`)
-    } catch (error) {
-      const gitError = getErrorMessage(error)
-      await get().checkGitStatus(targetPath)
-      set({ gitError })
-      notifyError('切换分支失败', gitError)
-    } finally {
-      set({ gitSwitching: false })
-    }
-  },
-
-  clearGitError: () => {
-    set({ gitError: undefined })
   },
 
   setSelectedModules: (moduleIds: string[]) => {
@@ -647,7 +473,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   focusLogLine: (line) => {
     const trimmed = line.trim()
     if (!trimmed) return
-    set({logFocusRequest: {line: trimmed, token: Date.now()}})
+    // 自增序号而非时间戳：同一毫秒内连续两次定位也能区分开
+    set({logFocusRequest: {line: trimmed, token: ++logFocusTokenSeq}})
   },
 
   resetEditableCommand: async () => {
@@ -674,7 +501,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   refreshCommandPreview: async () => {
-    const { environment } = get()
+    // 环境状态唯一来源是 useEnvironmentStore；useAppStore 不再持有镜像
+    const environment = envStore().environment
     // 发送前先归一化，保证 goals 顺序与 customArgs 合成结果一致
     const buildOptions = normalizeBuildOptions(get().buildOptions)
     set({buildOptions})
@@ -709,141 +537,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  updateEnvironment: async (settings: EnvironmentSettings) => {
-    const project = get().project
-    try {
-      await envStore().updateEnvironment(settings, project?.rootPath)
-      set({environment: envStore().environment, environmentSettings: envStore().environmentSettings})
-      if (project) {
-        await get().refreshCommandPreview()
-      }
-    } catch (error) {
-      fail(getErrorMessage(error))
-    }
-  },
-
-  refreshEnvironment: async () => {
-    const project = get().project
-    try {
-      await envStore().refreshEnvironment(project?.rootPath)
-      set({environment: envStore().environment, environmentSettings: envStore().environmentSettings})
-      if (project) {
-        await get().refreshCommandPreview()
-      }
-    } catch (error) {
-      fail(getErrorMessage(error))
-    }
-  },
-
-  applyEnvironmentProfile: async (profileId: string) => {
-    const project = get().project
-    try {
-      await envStore().applyEnvironmentProfile(profileId, project?.rootPath)
-      set({environment: envStore().environment, environmentSettings: envStore().environmentSettings})
-      if (project) {
-        await get().refreshCommandPreview()
-      }
-    } catch (error) {
-      fail(getErrorMessage(error))
-    }
-  },
-
-  saveEnvironmentProfile: async (name: string) => {
-    const project = get().project
-    try {
-      await envStore().saveEnvironmentProfile(name, project?.rootPath)
-      set({environment: envStore().environment, environmentSettings: envStore().environmentSettings})
-      if (project) {
-        await get().refreshCommandPreview()
-      }
-    } catch (error) {
-      fail(getErrorMessage(error))
-    }
-  },
-
-  deleteEnvironmentProfile: async (profileId: string) => {
-    const project = get().project
-    try {
-      await envStore().deleteEnvironmentProfile(profileId, project?.rootPath)
-      set({environment: envStore().environment, environmentSettings: envStore().environmentSettings})
-      if (project) {
-        await get().refreshCommandPreview()
-      }
-    } catch (error) {
-      fail(getErrorMessage(error))
-    }
-  },
-
-  bindProjectProfile: async (projectPath: string, profileId: string) => {
-    try {
-      await envStore().bindProjectProfile(projectPath, profileId)
-      set({environment: envStore().environment, environmentSettings: envStore().environmentSettings})
-      const project = get().project
-      if (project) {
-        await get().refreshCommandPreview()
-      }
-    } catch (error) {
-      fail(getErrorMessage(error))
-    }
-  },
-
-  unbindProjectProfile: async (projectPath: string) => {
-    try {
-      await envStore().unbindProjectProfile(projectPath)
-      set({environment: envStore().environment, environmentSettings: envStore().environmentSettings})
-      const project = get().project
-      if (project) {
-        await get().refreshCommandPreview()
-      }
-    } catch (error) {
-      fail(getErrorMessage(error))
-    }
-  },
-
-  getBoundProfileId: (projectPath: string) => {
-    return envStore().getBoundProfileId(projectPath)
-  },
-
-  jdkRegistry: [],
-
-  scanSystemJdks: async () => {
-    try {
-      await envStore().scanSystemJdks()
-      set({jdkRegistry: envStore().jdkRegistry})
-    } catch (error) {
-      fail(getErrorMessage(error))
-    }
-  },
-
-  addJdkToRegistry: async (path: string, name?: string) => {
-    try {
-      await envStore().addJdkToRegistry(path, name)
-      set({jdkRegistry: envStore().jdkRegistry})
-    } catch (error) {
-      fail(getErrorMessage(error))
-    }
-  },
-
-  removeJdkFromRegistry: async (jdkId: string) => {
-    try {
-      await envStore().removeJdkFromRegistry(jdkId)
-      set({jdkRegistry: envStore().jdkRegistry})
-    } catch (error) {
-      fail(getErrorMessage(error))
-    }
-  },
-
-  setDefaultJdk: async (jdkId: string) => {
-    try {
-      await envStore().setDefaultJdk(jdkId)
-      set({jdkRegistry: envStore().jdkRegistry})
-    } catch (error) {
-      fail(getErrorMessage(error))
-    }
-  },
-
   runPreflight: async () => {
-    const { buildOptions, environment } = get()
+    const { buildOptions } = get()
+    const environment = envStore().environment
     if (!buildOptions.projectRoot) {
       fail('请先选择项目。')
       return undefined
@@ -868,90 +564,109 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   startBuild: async () => {
-    const { buildOptions, environment, selectedModules, buildStatus } = get()
-    // 与 parseProjectPath 一致：构建中不再允许再次启动，避免产生无人跟踪的孤儿进程
-    if (buildStatus === 'RUNNING') {
-      fail('已有构建正在运行，请先停止后再开始。')
+    const { buildOptions, selectedModules } = get()
+    const environment = envStore().environment
+    const session = useBuildSessionStore.getState()
+    // beginStart 是同步原子迁移：占住启动权后，双击/重复触发都会在这里被挡下
+    const previousPhase = session.phase
+    if (!session.beginStart()) {
+      if (previousPhase === 'running') {
+        fail('已有构建正在运行，请先停止后再开始。')
+      }
       return
     }
     if (!environment || !buildOptions.projectRoot || !buildOptions.editableCommand.trim()) {
+      session.abortStart()
       fail('请先选择项目并确认构建命令。')
       return
     }
-
-    // 先冲刷防抖中的预览请求，确保用的是最新参数生成的命令
-    await get().flushCommandPreview()
-    const command = get().buildOptions.editableCommand.trim()
-    if (!command) {
-      fail('请先选择项目并确认构建命令。')
-      return
-    }
-
-    // 构建前预检：明显会失败的配置直接拦住，避免白等一轮 Maven 启动
-    const preflight = await get().runPreflight()
-    if (preflight && !preflight.ok) {
-      const failed = preflight.checks.filter((check) => check.status === 'fail')
-      fail(`构建前检查未通过：${failed.map((check) => check.message).join(' ')}`)
-      return
-    }
-
-    const runToken = crypto.randomUUID()
-    set({
-      buildStatus: 'RUNNING',
-      logs: [],
-      diagnosis: undefined,
-      artifacts: [],
-      startedAt: Date.now(),
-      durationMs: 0,
-      error: undefined,
-    })
-    useBuildProgressStore.getState().startRun({
-      totalModules: selectedModules.length > 0 ? selectedModules.length : 1,
-      goals: buildOptions.goals,
-      skipTests: buildOptions.skipTests,
-    })
 
     try {
-      const currentBuildId = await api.startBuild({
-        projectRoot: buildOptions.projectRoot,
-        command,
-        modulePath: buildOptions.selectedModulePath,
-        moduleArtifactId: moduleSelectionLabel(selectedModules, buildOptions.selectedModulePath),
-        javaHome: environment.javaHome,
-        mavenHome: environment.mavenHome,
-        useMavenWrapper: environment.useMavenWrapper,
-      })
-      set({ currentBuildId, buildRunToken: runToken })
-      if (get().buildCancelling) {
-        set((state) => ({
-          logs: appendSystemLog(state.logs, currentBuildId, '构建进程已启动，继续发送停止请求。'),
-        }))
-        try {
-          await api.cancelBuild(currentBuildId)
-        } catch (cancelError) {
-          const message = getErrorMessage(cancelError)
-          set((state) => ({
-            logs: appendSystemLog(state.logs, currentBuildId, `停止请求发送失败：${message}`),
-          }))
-          throw cancelError
-        }
+      // 先冲刷防抖中的预览请求，确保用的是最新参数生成的命令
+      await get().flushCommandPreview()
+      const command = get().buildOptions.editableCommand.trim()
+      if (!command) {
+        session.abortStart()
+        fail('请先选择项目并确认构建命令。')
+        return
       }
-    } catch (error) {
-      const message = getErrorMessage(error)
-      set((state) => ({
-        buildStatus: 'FAILED',
-        buildCancelling: false,
-        error: message,
-        logs: appendSystemLog(state.logs, get().currentBuildId, `构建启动或停止请求失败：${message}`),
-      }))
-      notifyError('构建启动失败', message)
+
+      // 构建前预检：明显会失败的配置直接拦住，避免白等一轮 Maven 启动
+      const preflight = await get().runPreflight()
+      if (preflight && !preflight.ok) {
+        session.abortStart()
+        const failed = preflight.checks.filter((check) => check.status === 'fail')
+        fail(`构建前检查未通过：${failed.map((check) => check.message).join(' ')}`)
+        return
+      }
+
+      // 同步提交 RUNNING：UI 立即进入构建态；此后只剩发起 IPC 一段异步窗口
+      session.markLaunched(Date.now())
+      set({
+        logs: [],
+        diagnosis: undefined,
+        artifacts: [],
+        error: undefined,
+      })
+      useBuildProgressStore.getState().startRun({
+        totalModules: selectedModules.length > 0 ? selectedModules.length : 1,
+        goals: buildOptions.goals,
+        skipTests: buildOptions.skipTests,
+      })
+
+      try {
+        const currentBuildId = await api.startBuild({
+          projectRoot: buildOptions.projectRoot,
+          command,
+          modulePath: buildOptions.selectedModulePath,
+          moduleArtifactId: moduleSelectionLabel(selectedModules, buildOptions.selectedModulePath),
+          javaHome: environment.javaHome,
+          mavenHome: environment.mavenHome,
+          useMavenWrapper: environment.useMavenWrapper,
+        })
+        session.markRunning(currentBuildId, crypto.randomUUID())
+        if (useBuildSessionStore.getState().cancelling) {
+          set((state) => ({
+            logs: appendSystemLog(state.logs, currentBuildId, '构建进程已启动，继续发送停止请求。'),
+          }))
+          try {
+            await api.cancelBuild(currentBuildId)
+          } catch (cancelError) {
+            const message = getErrorMessage(cancelError)
+            set((state) => ({
+              logs: appendSystemLog(state.logs, currentBuildId, `停止请求发送失败：${message}`),
+            }))
+            throw cancelError
+          }
+        }
+      } catch (error) {
+        const message = getErrorMessage(error)
+        session.failStart()
+        set((state) => ({
+          error: message,
+          logs: appendSystemLog(state.logs, useBuildSessionStore.getState().buildId, `构建启动或停止请求失败：${message}`),
+        }))
+        // 同步失败给进度面板：否则 startRun 启动的 tick 会一直空转，面板永远停在"构建中"
+        useBuildProgressStore.getState().fail(message)
+        notifyError('构建启动失败', message)
+      }
+    } finally {
+      // 防御性兜底：任何停在 starting 的会话必须回滚，否则并发名额/守卫会被卡死
+      const leftover = useBuildSessionStore.getState()
+      if (leftover.phase === 'starting') {
+        leftover.abortStart()
+      }
     }
   },
 
   cancelBuild: async () => {
-    const currentBuildId = get().currentBuildId
-    set({ buildCancelling: true })
+    const session = useBuildSessionStore.getState()
+    // 会话未在推进时拒绝（按钮本应隐藏，这里是状态机层面的保险）
+    if (!session.requestCancel()) {
+      return
+    }
     useBuildProgressStore.getState().markCancelling()
+    const currentBuildId = session.buildId
     if (!currentBuildId) {
       set((state) => ({
         logs: appendSystemLog(state.logs, undefined, '已请求停止，等待构建进程初始化完成。'),
@@ -971,8 +686,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       }))
     } catch (error) {
       const message = getErrorMessage(error)
+      session.cancelFailed()
       set((state) => ({
-        buildCancelling: false,
         error: message,
         logs: appendSystemLog(state.logs, currentBuildId, `停止请求发送失败：${message}`),
       }))
@@ -981,13 +696,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   appendBuildLog: (event: BuildLogEvent) => {
-    const { currentBuildId, buildStatus } = get()
-    if (buildStatus === 'RUNNING') {
-      // 启动瞬间 currentBuildId 可能尚未写入，此时接受全部日志
-      if (currentBuildId && event.buildId !== currentBuildId) {
+    const {phase, buildId} = useBuildSessionStore.getState()
+    if (phase === 'starting' || phase === 'running') {
+      // 启动瞬间 buildId 可能尚未写入，此时接受全部日志
+      if (buildId && event.buildId !== buildId) {
         return
       }
-    } else if (!currentBuildId || event.buildId !== currentBuildId) {
+    } else if (!buildId || event.buildId !== buildId) {
       // 构建已结束或未开始时，丢弃迟到的进程输出
       return
     }
@@ -1005,22 +720,26 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   finishBuild: (event: BuildFinishedEvent) => {
-    const { currentBuildId, buildStatus, buildRunToken } = get()
-    // 允许两种情况：id 已知且匹配；或 RUNNING 且 id 尚未写入（启动竞态）
-    const acceptById = currentBuildId !== undefined && event.buildId === currentBuildId
-    const acceptPending = buildStatus === 'RUNNING' && currentBuildId === undefined
+    const session = useBuildSessionStore.getState()
+    // 允许两种情况：id 已知且匹配；或启动竞态中（starting）id 尚未写入
+    const acceptById = session.buildId !== undefined && event.buildId === session.buildId
+    const acceptPending = session.phase === 'starting' && session.buildId === undefined
     if (!acceptById && !acceptPending) {
+      return
+    }
+    // running|starting → finalizing；返回 false 说明会话已在收尾（重复事件），丢弃
+    if (!session.beginFinalize()) {
       return
     }
     // 先冲刷缓冲日志，再读取最新 logs，确保诊断拿到完整输出
     flushPendingLogs()
     const {
       buildOptions,
-      environment,
       selectedModules,
       logs,
-      startedAt,
     } = get()
+    const environment = envStore().environment
+    const startedAt = session.startedAt
     const diagnosis = event.status === 'FAILED'
       ? diagnoseBuildFailure(event.buildId, logs, environment)
       : undefined
@@ -1057,10 +776,17 @@ export const useAppStore = create<AppState>((set, get) => ({
               .scanBuildArtifacts(record.projectRoot, record.modulePath, startedAt)
               .catch(() => [])
           : []
-        // 仅在仍是同一次构建时回填，避免覆盖新一轮构建状态
-        const stillSameRun = get().buildRunToken === buildRunToken
-          || (!get().buildRunToken && get().currentBuildId === undefined && get().buildStatus !== 'RUNNING')
-        if (stillSameRun && get().buildStatus !== 'RUNNING') {
+        // 仅在仍是同一次构建时回填，避免覆盖新一轮构建状态。
+        // 无 token 的兜底分支必须校验项目/模块未变化：构建队列切换项目后
+        // parseProjectPath 会清空 artifacts，迟到的扫描结果不能把旧项目产物带回来。
+        const currentSession = useBuildSessionStore.getState()
+        const stillSameRun = currentSession.runToken === session.runToken
+          || (!currentSession.runToken
+            && currentSession.buildId === undefined
+            && !currentSession.isBusy()
+            && get().buildOptions.projectRoot === record.projectRoot
+            && get().buildOptions.selectedModulePath === record.modulePath)
+        if (stillSameRun && !useBuildSessionStore.getState().isBusy()) {
           set({ artifacts })
         }
         if (event.status === 'SUCCESS') {
@@ -1073,14 +799,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         console.error('Failed to save build history:', error)
       }
     })()
-    set({
-      buildStatus: toHistoryStatus(event.status),
-      durationMs: event.durationMs,
-      currentBuildId: undefined,
-      buildRunToken: undefined,
-      buildCancelling: false,
-      diagnosis,
-    })
+    set({ diagnosis })
+    // finalizing → done：写入最终状态与耗时，清空会话身份。
+    // 队列 store 订阅 status 离开 RUNNING 的迁移来调度下一项。
+    session.finish(toHistoryStatus(event.status), event.durationMs)
   },
 
   loadHistoryAndTemplates: async () => {
@@ -1112,6 +834,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   rerunHistory: (record: BuildHistoryRecord) => {
+    const session = useBuildSessionStore.getState()
+    if (session.isBusy()) {
+      fail('构建进行中，请先停止当前构建再载入历史参数。')
+      return
+    }
+    session.reset()
     const project = get().project
     const selectedModules = project
       ? findModulesByPaths(project.modules, record.modulePath)
@@ -1131,9 +859,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       selectedModules,
       selectedModuleIds: selectedModules.map((moduleItem) => moduleItem.id),
       buildOptions,
-      buildStatus: 'IDLE',
-      durationMs: record.durationMs,
-      artifacts: record.artifacts ?? [],
+      // 仅载入参数：旧记录的耗时与产物不回填，避免看起来像刚跑完
+      artifacts: [],
     })
   },
 
@@ -1146,7 +873,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   saveTemplate: async (name: string) => {
-    const { buildOptions, environment } = get()
+    const { buildOptions } = get()
+    const environment = envStore().environment
     if (!buildOptions.projectRoot) {
       fail('请先选择项目。')
       return
@@ -1276,3 +1004,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 }))
+
+// 环境状态唯一来源是 useEnvironmentStore：方案应用、路径保存、重新探测都会改变环境，
+// 这里统一触发命令预览刷新，组件里不再各自拼接「改环境 → 刷新预览」的编排。
+useEnvironmentStore.subscribe((state, previous) => {
+  if (state.environment === previous.environment && state.environmentSettings === previous.environmentSettings) {
+    return
+  }
+  const app = useAppStore.getState()
+  // 项目解析期间由 parseProjectPath 自己冲刷；构建推进中重写命令没有意义
+  if (app.loading || useBuildSessionStore.getState().isBusy()) {
+    return
+  }
+  void app.refreshCommandPreview()
+})

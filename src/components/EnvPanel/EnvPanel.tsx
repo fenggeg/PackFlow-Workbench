@@ -16,15 +16,16 @@ import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip'
 import {buildEnvironmentCenterItems, sourceText, statusToneOf} from '@/services/environmentCenterService'
 import {selectLocalDirectory, selectLocalFile} from '@/services/tauri-api'
 import {useAppStore} from '@/store/useAppStore'
+import {useEnvironmentStore} from '@/store/useEnvironmentStore'
 import type {EnvironmentProfile} from '@/types/domain'
 import {JdkRegistryPanel} from './JdkRegistryPanel'
 
 export function EnvPanel() {
   const project = useAppStore((state) => state.project)
-  const environment = useAppStore((state) => state.environment)
-  const environmentSettings = useAppStore((state) => state.environmentSettings)
-  const updateEnvironment = useAppStore((state) => state.updateEnvironment)
-  const refreshEnvironment = useAppStore((state) => state.refreshEnvironment)
+  const environment = useEnvironmentStore((state) => state.environment)
+  const environmentSettings = useEnvironmentStore((state) => state.environmentSettings)
+  const updateEnvironment = useEnvironmentStore((state) => state.updateEnvironment)
+  const refreshEnvironment = useEnvironmentStore((state) => state.refreshEnvironment)
   const [pathModalOpen, setPathModalOpen] = useState(false)
   const [jdkOpen, setJdkOpen] = useState(false)
   const [savingPaths, setSavingPaths] = useState(false)
@@ -53,8 +54,11 @@ export function EnvPanel() {
   }
 
   const getOrCreateProjectProfile = (): EnvironmentProfile => {
-    const bindings = environmentSettings?.projectProfileBindings ?? {}
-    const boundId = currentProjectPath ? bindings[currentProjectPath] : undefined
+    // 查找走规范化 key（与保存时的 normalize 规则一致），直接用原始路径做 key
+    // 会因尾斜杠/斜杠方向差异误判「未绑定」，进而重复创建 profile
+    const boundId = currentProjectPath
+      ? useEnvironmentStore.getState().getBoundProfileId(currentProjectPath)
+      : undefined
     if (boundId) {
       const bound = profiles.find((p) => p.id === boundId)
       if (bound) return {...bound}

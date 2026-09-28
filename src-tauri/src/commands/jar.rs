@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use tauri::AppHandle;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
@@ -14,6 +15,11 @@ const MAX_ENTRIES: usize = 5000;
 const MANIFEST_PATH: &str = "META-INF/MANIFEST.MF";
 /// 单个条目最多读取的字节数：只是预览，不必把几十兆的资源读进内存
 const MAX_ENTRY_BYTES: u64 = 1024 * 1024;
+
+/// 归档重建/恢复的全局写互斥：临时文件名固定，两次并发重建会同时截断
+/// 同一个临时文件导致归档损坏。这是低频用户操作，一把全局锁足够，
+/// 同时也挡住「更新」与「恢复」交叉进行。
+static ARCHIVE_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 /// 可直接按文本预览的扩展名（jar 内常见的配置、脚本与静态资源）
 const TEXT_EXTENSIONS: &[&str] = &[
@@ -184,10 +190,17 @@ fn read_archive(path: &Path) -> AppResult<(Vec<JarEntryInfo>, Option<String>, bo
 
         if manifest.is_none() && is_manifest {
             let mut content = String::from_utf8_lossy(&head).to_string();
-            let mut rest = String::new();
-            // 读取失败不影响条目列表，仅缺少 MANIFEST 展示
-            if entry.read_to_string(&mut rest).is_ok() {
-                content.push_str(&rest);
+            let mut rest = Vec::new();
+            // 限制 MANIFEST 读取总量：畸形超大条目不该被整个读进内存。
+            // 用 by_ref 继续从 512 字节之后读，条目对象本身仍留在循环里使用。
+            let remaining = MAX_ENTRY_BYTES.saturating_sub(head.len() as u64);
+            if entry
+                .by_ref()
+                .take(remaining)
+                .read_to_end(&mut rest)
+                .is_ok()
+            {
+                content.push_str(&String::from_utf8_lossy(&rest));
             }
             manifest = Some(content);
         }
@@ -313,6 +326,38 @@ pub async fn read_jar_entry(
     result
 }
 
+/// 生成不冲突的备份路径并复制原文件。
+/// 时间戳带毫秒，同毫秒内再叠加序号：同一秒内的连续保存/恢复
+/// 不再把上一份备份静默覆盖掉。
+fn copy_backup(source: &Path, file_name: &str) -> AppResult<PathBuf> {
+    let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S%3f");
+    let mut backup_path = source.with_file_name(format!("{}.bak-{}", file_name, timestamp));
+    let mut counter = 0u32;
+    while backup_path.exists() {
+        counter += 1;
+        if counter > 999 {
+            return Err(to_user_error(
+                "无法创建备份：同名备份文件过多，请先清理旧备份。".to_string(),
+            ));
+        }
+        backup_path = source.with_file_name(format!("{}.bak-{}-{}", file_name, timestamp, counter));
+    }
+    std::fs::copy(source, &backup_path)
+        .map_err(|error| to_user_error(format!("无法创建备份文件：{}", error)))?;
+    Ok(backup_path)
+}
+
+/// 强制把文件内容落盘。替换前的最后一步：掉电时不至于留下 0 字节的目标文件。
+fn sync_file(path: &Path) -> AppResult<()> {
+    let handle = std::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .map_err(|error| to_user_error(format!("无法写入文件：{}", error)))?;
+    handle
+        .sync_all()
+        .map_err(|error| to_user_error(format!("无法写入文件：{}", error)))
+}
+
 /// 重组归档并替换若干条目的内容。
 /// 流程：校验条目 → 扫描签名 → 备份原文件 → 写临时归档 → 原子替换。
 /// 签名文件（META-INF/*.SF 等）必须一并移除：内容已变，保留它们会让 Java 直接拒绝加载。
@@ -354,13 +399,12 @@ fn rewrite_entries(
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or("archive");
-    let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-    let backup_path = path.with_file_name(format!("{}.bak-{}", file_name, timestamp));
-    std::fs::copy(path, &backup_path)
-        .map_err(|error| to_user_error(format!("无法创建备份文件：{}", error)))?;
+    let backup_path = copy_backup(path, file_name)?;
 
-    // 临时文件与目标同目录，保证可以原子替换
+    // 临时文件与目标同目录，保证可以原子替换。
+    // create_new 独占创建：即使存在上次崩溃遗留的临时文件也先清掉，避免写入中途混入旧数据。
     let temp_path = path.with_file_name(format!(".{}.updating", file_name));
+    let _ = std::fs::remove_file(&temp_path);
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
     let updates: HashMap<&str, &[u8]> = updates
         .iter()
@@ -368,7 +412,10 @@ fn rewrite_entries(
         .collect();
 
     let rewritten = (|| -> AppResult<(Vec<String>, u64)> {
-        let target = File::create(&temp_path)
+        let target = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path)
             .map_err(|error| to_user_error(format!("无法创建临时归档：{}", error)))?;
         let mut writer = ZipWriter::new(target);
         let mut written: Vec<String> = Vec::with_capacity(updates.len());
@@ -411,7 +458,9 @@ fn rewrite_entries(
 
         writer
             .finish()
-            .map_err(|error| to_user_error(format!("无法完成归档写入：{}", error)))?;
+            .map_err(|error| to_user_error(format!("无法完成归档写入：{}", error)))?
+            .sync_all()
+            .map_err(|error| to_user_error(format!("无法写入临时归档：{}", error)))?;
         let size_bytes = std::fs::metadata(&temp_path).map(|meta| meta.len()).unwrap_or(0);
         Ok((written, size_bytes))
     })();
@@ -426,9 +475,20 @@ fn rewrite_entries(
 
     if let Err(error) = std::fs::rename(&temp_path, path) {
         let _ = std::fs::remove_file(&temp_path);
-        // 替换失败时用备份还原，避免留下半截文件
-        let _ = std::fs::copy(&backup_path, path);
-        return Err(to_user_error(format!("无法替换归档文件：{}", error)));
+        // 替换失败时用备份还原，避免留下半截文件；
+        // 还原也失败时必须如实告知，用户可从备份手动恢复
+        return match std::fs::copy(&backup_path, path) {
+            Ok(_) => Err(to_user_error(format!(
+                "无法替换归档文件：{}（已从备份还原原文件）",
+                error
+            ))),
+            Err(rollback_error) => Err(to_user_error(format!(
+                "无法替换归档文件：{}；自动还原也失败（{}）。原文件可能已损坏，请从备份手动恢复：{}",
+                error,
+                rollback_error,
+                backup_path.display()
+            ))),
+        };
     }
 
     Ok((
@@ -458,6 +518,10 @@ pub async fn update_jar_entries(
     let task_path = path.clone();
     let result = blocking::run(move || {
         let target = ensure_archive_path(&task_path)?;
+        // 全局锁串行化归档重建：固定临时文件名经不起两次并发重写
+        let _write_guard = ARCHIVE_WRITE_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         // 同名条目只保留最后一次内容，避免归档里出现二义性
         let mut merged: HashMap<String, Vec<u8>> = HashMap::new();
         for update in updates {
@@ -623,20 +687,23 @@ pub async fn restore_jar_backup(
     let task_backup = backup_path.clone();
     let result = blocking::run(move || {
         let (archive, backup) = ensure_backup_path(&task_path, &task_backup)?;
+        // 与 update_jar_entries 互斥：两边都会整包重写并使用固定临时文件名
+        let _write_guard = ARCHIVE_WRITE_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
 
         let file_name = archive
             .file_name()
             .and_then(|value| value.to_str())
             .unwrap_or("archive");
-        let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-        let safety_path = archive.with_file_name(format!("{}.bak-{}", file_name, timestamp));
-        std::fs::copy(&archive, &safety_path)
-            .map_err(|error| to_user_error(format!("无法备份当前归档：{}", error)))?;
+        let safety_path = copy_backup(&archive, file_name)?;
 
         let temp_path = archive.with_file_name(format!(".{}.restoring", file_name));
+        let _ = std::fs::remove_file(&temp_path);
         let outcome = (|| -> AppResult<u64> {
             std::fs::copy(&backup, &temp_path)
                 .map_err(|error| to_user_error(format!("无法读取备份内容：{}", error)))?;
+            sync_file(&temp_path)?;
             std::fs::rename(&temp_path, &archive)
                 .map_err(|error| to_user_error(format!("无法替换归档文件：{}", error)))?;
             Ok(std::fs::metadata(&archive).map(|meta| meta.len()).unwrap_or(0))
@@ -649,9 +716,16 @@ pub async fn restore_jar_backup(
             }),
             Err(error) => {
                 let _ = std::fs::remove_file(&temp_path);
-                // 替换失败时回退到恢复前的状态
-                let _ = std::fs::copy(&safety_path, &archive);
-                Err(error)
+                // 替换失败时回退到恢复前的状态；回退失败必须如实告知
+                match std::fs::copy(&safety_path, &archive) {
+                    Ok(_) => Err(error),
+                    Err(rollback_error) => Err(to_user_error(format!(
+                        "{}；自动回退也失败（{}）。归档当前状态未知，请从安全备份手动恢复：{}",
+                        error,
+                        rollback_error,
+                        safety_path.display()
+                    ))),
+                }
             }
         }
     })

@@ -108,8 +108,13 @@ pub fn start_build(
         .map(|guard| guard.unwrap_or(DEFAULT_MAX_CONCURRENT_BUILDS))
         .unwrap_or(DEFAULT_MAX_CONCURRENT_BUILDS);
 
-    // 先在锁内预约一个占位，避免并发 start_build 同时通过数量检查
     let build_id = Uuid::new_v4().to_string();
+    // 日志路径在预约占位前计算：它可能因磁盘/权限问题失败，
+    // 若发生在占位之后，PID=0 的占位将永久占据并发名额且无法被清理。
+    let app = window.app_handle().clone();
+    let build_log_path = app_logger::build_log_path(&app, &build_id)?;
+
+    // 先在锁内预约一个占位，避免并发 start_build 同时通过数量检查
     {
         let mut processes = state
             .processes
@@ -126,8 +131,6 @@ pub fn start_build(
         processes.insert(build_id.clone(), 0);
     }
 
-    let app = window.app_handle().clone();
-    let build_log_path = app_logger::build_log_path(&app, &build_id)?;
     app_logger::log_info(
         &app,
         "build.start",
@@ -501,6 +504,7 @@ fn cancel_build_by_id(
         let kill_window = window.clone();
         let kill_app = app.clone();
         let kill_processes = state.processes.clone();
+        let kill_job_handles = state.job_handles.clone();
         let kill_log_paths = state.log_paths.clone();
         let kill_cancelled_builds = state.cancelled_builds.clone();
         thread::spawn(move || {
@@ -547,9 +551,13 @@ fn cancel_build_by_id(
                     if let Ok(mut cancelled_builds) = kill_cancelled_builds.lock() {
                         cancelled_builds.remove(&kill_build_id);
                     }
-                    // 杀进程失败时 job handle 可能未被 wait 线程清理，尝试关闭
+                    // 杀进程失败：进程树仍在运行。句柄放回 map 让 wait 线程
+                    // 在进程自然退出后回收；不能在这里关闭 —— KILL_ON_JOB_CLOSE
+                    // 会把整棵树杀掉，与「停止失败」的提示自相矛盾。
                     if let Some(job) = job {
-                        close_handle(job);
+                        if let Ok(mut job_handles) = kill_job_handles.lock() {
+                            job_handles.insert(kill_build_id.clone(), job as isize);
+                        }
                     }
                     let message =
                         "停止构建失败：进程仍在运行，请稍后重试或手动结束 Maven/Java 进程。";
@@ -579,8 +587,12 @@ fn cancel_build_by_id(
                     if let Ok(mut cancelled_builds) = kill_cancelled_builds.lock() {
                         cancelled_builds.remove(&kill_build_id);
                     }
+                    // 同上：失败时句柄放回 map 交给 wait 线程回收，而不是借
+                    // KILL_ON_JOB_CLOSE 关闭杀树
                     if let Some(job) = job {
-                        close_handle(job);
+                        if let Ok(mut job_handles) = kill_job_handles.lock() {
+                            job_handles.insert(kill_build_id.clone(), job as isize);
+                        }
                     }
                     let message = "停止构建失败，请稍后重试或手动结束 Maven/Java 进程。";
                     if let Some(log_path) = log_path.as_deref() {
@@ -705,7 +717,13 @@ fn close_handle(handle: HANDLE) {
 fn kill_build_process(pid: u32, job_handle: Option<HANDLE>) -> Result<String, String> {
     let mut messages = Vec::new();
     if let Some(job_handle) = job_handle {
+        // Job 终止即代表整棵进程树死亡，是权威结论；
+        // taskkill/PowerShell 只是补充清理，它们的失败不改变「已停止」的事实
         messages.push(terminate_job(job_handle)?);
+        if let Ok(message) = kill_process_tree(pid) {
+            messages.push(message);
+        }
+        return Ok(messages.join(" "));
     }
     messages.push(kill_process_tree(pid)?);
     Ok(messages.join(" "))

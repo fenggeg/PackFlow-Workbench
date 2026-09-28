@@ -13,6 +13,7 @@ import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip'
 import {SaveTemplateDialog} from '@/components/BuildTemplate/SaveTemplateDialog'
 import {BuildProgressStrip} from '@/components/BuildProgress/BuildProgressStrip'
 import {isActiveStatus} from '@/components/BuildProgress/progressTone'
+import {useBuildSessionStore} from '@/store/useBuildSessionStore'
 import {useAppStore} from '@/store/useAppStore'
 import {useBuildProgressStore} from '@/store/useBuildProgressStore'
 import {describeError, notifyError, notifySuccess} from '@/store/useFeedbackStore'
@@ -36,8 +37,8 @@ const statusTone = {
 
 export function BottomActionBar() {
   const buildOptions = useAppStore((state) => state.buildOptions)
-  const buildStatus = useAppStore((state) => state.buildStatus)
-  const buildCancelling = useAppStore((state) => state.buildCancelling)
+  const buildStatus = useBuildSessionStore((state) => state.status)
+  const buildCancelling = useBuildSessionStore((state) => state.cancelling)
   const selectedModules = useAppStore((state) => state.selectedModules)
   const project = useAppStore((state) => state.project)
   const setEditableCommand = useAppStore((state) => state.setEditableCommand)

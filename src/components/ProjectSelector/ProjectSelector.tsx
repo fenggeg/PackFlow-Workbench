@@ -13,6 +13,7 @@ import {Input} from '@/components/ui/input'
 import {MonoText} from '@/components/ui/mono-text'
 import {StatusPill} from '@/components/ui/status-pill'
 import {cn} from '@/lib/utils'
+import {useEnvironmentStore} from '@/store/useEnvironmentStore'
 import {useAppStore} from '@/store/useAppStore'
 
 const projectNameFromPath = (path: string) => {
@@ -34,12 +35,12 @@ export function ProjectSelector({
   onProjectSelected,
 }: ProjectSelectorProps) {
   const project = useAppStore((state) => state.project)
-  const savedProjectPaths = useAppStore((state) => state.savedProjectPaths)
+  const savedProjectPaths = useEnvironmentStore((state) => state.savedProjectPaths)
   const error = useAppStore((state) => state.error)
   const loading = useAppStore((state) => state.loading)
   const chooseProject = useAppStore((state) => state.chooseProject)
   const parseProjectPath = useAppStore((state) => state.parseProjectPath)
-  const removeSavedProject = useAppStore((state) => state.removeSavedProject)
+  const removeSavedProject = useEnvironmentStore((state) => state.removeSavedProject)
   const [manualPath, setManualPath] = useState('')
   const [removeTarget, setRemoveTarget] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')

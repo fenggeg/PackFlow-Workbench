@@ -1,4 +1,4 @@
-import {Folder, GitBranch, PanelRight, Search} from 'lucide-react'
+import {Folder, GitBranch, Search} from 'lucide-react'
 import {useEffect, useState} from 'react'
 import {Button} from '@/components/ui/button'
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@/components/ui/dialog'
@@ -11,18 +11,19 @@ import {DataToolsMenu} from '@/components/DataTools/DataToolsMenu'
 import {ProjectSelector} from '@/components/ProjectSelector/ProjectSelector'
 import {UpdateChecker} from '@/components/UpdateChecker/UpdateChecker'
 import {ExternalLinks} from '@/components/common/ExternalLinks'
+import {useGitStore} from '@/store/useGitStore'
 import {useAppStore} from '@/store/useAppStore'
 import {useNavigationStore} from '@/store/navigationStore'
 import {useNavigationConfigStore} from '@/store/useNavigationConfigStore'
 import {notifyInfo} from '@/store/useFeedbackStore'
 import {ActivityBar} from './ActivityBar'
 import {BottomActionBar} from './BottomActionBar'
+import {BuildStatusFab} from './BuildStatusFab'
 import {InspectorDrawer} from './InspectorDrawer'
 import {MainWorkspace} from './MainWorkspace'
 import {SidebarPanel} from './SidebarPanel'
 import {ThemeToggle} from './ThemeToggle'
 import {TitleBarControls} from './TitleBarControls'
-import {useInspectorAvailable} from './inspectorAvailability'
 
 /** 快捷键提示只出现 1 次，之后不再打扰 */
 const PALETTE_HINT_KEY = 'packflow.command-palette-hint'
@@ -36,14 +37,11 @@ const branchTone = (hasLocalChanges?: boolean, hasRemoteUpdates?: boolean) => {
 
 export function AppShell() {
   const project = useAppStore((state) => state.project)
-  const gitStatus = useAppStore((state) => state.gitStatus)
+  const gitStatus = useGitStore((state) => state.gitStatus)
   const defaultPage = useNavigationConfigStore((state) => state.defaultPage)
   const setActivePage = useNavigationStore((state) => state.setActivePage)
-  const inspectorOpen = useNavigationStore((state) => state.inspectorOpen)
-  const setInspectorOpen = useNavigationStore((state) => state.setInspectorOpen)
   const projectSwitcherOpen = useNavigationStore((state) => state.projectSwitcherOpen)
   const setProjectSwitcherOpen = useNavigationStore((state) => state.setProjectSwitcherOpen)
-  const inspectorAvailable = useInspectorAvailable()
   const initialized = useAppStore((state) => state.initialized)
   const [paletteOpen, setPaletteOpen] = useState(false)
 
@@ -123,23 +121,7 @@ export function AppShell() {
               {project?.rootPath ?? '选择项目后自动识别模块、Git 与构建环境'}
             </button>
           </div>
-          <div className="flex min-w-0 shrink items-center gap-2">
-            {inspectorAvailable ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant={inspectorOpen ? 'primary' : 'ghost'}
-                    size="iconSm"
-                    aria-label={inspectorOpen ? '收起检查器' : '展开检查器'}
-                    aria-pressed={inspectorOpen}
-                    onClick={() => setInspectorOpen(!inspectorOpen)}
-                  >
-                    <PanelRight />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{inspectorOpen ? '收起检查器' : '展开检查器'}</TooltipContent>
-              </Tooltip>
-            ) : null}
+          <div className="flex min-w-0 shrink items-center gap-1">
             {/* 命令面板必须有常驻入口，只靠快捷键用户不会知道它存在 */}
             <Tooltip>
               <TooltipTrigger asChild>
@@ -171,6 +153,7 @@ export function AppShell() {
           <SidebarPanel />
           <MainWorkspace />
           <InspectorDrawer />
+          <BuildStatusFab />
         </div>
         <BottomActionBar />
         <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />

@@ -150,6 +150,12 @@ fn dedupe_edges(edges: &mut Vec<ModuleDependencyEdge>) {
     });
 }
 
+/// DFS 步数预算与报告上限：从每个起点枚举全部简单回路的复杂度是指数级，
+/// 十几个模块互相依赖的病态图会把 blocking 线程卡死。
+/// 预算耗尽即停止：常规项目（回路小且少）完全不受影响，只有病态图会被截断。
+const MAX_CYCLE_DFS_STEPS: usize = 200_000;
+const MAX_REPORTED_CYCLES: usize = 50;
+
 fn detect_cycles(edges: &[ModuleDependencyEdge]) -> Vec<Vec<String>> {
     let mut adjacency: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for edge in edges.iter().filter(|edge| edge.edge_type != "aggregation") {
@@ -160,7 +166,11 @@ fn detect_cycles(edges: &[ModuleDependencyEdge]) -> Vec<Vec<String>> {
     }
 
     let mut cycles = BTreeSet::new();
+    let mut budget = MAX_CYCLE_DFS_STEPS;
     for start in adjacency.keys() {
+        if budget == 0 || cycles.len() >= MAX_REPORTED_CYCLES {
+            break;
+        }
         let mut stack = Vec::new();
         let mut visiting = HashSet::new();
         dfs_cycles(
@@ -170,11 +180,13 @@ fn detect_cycles(edges: &[ModuleDependencyEdge]) -> Vec<Vec<String>> {
             &mut stack,
             &mut visiting,
             &mut cycles,
+            &mut budget,
         );
     }
 
     cycles
         .into_iter()
+        .take(MAX_REPORTED_CYCLES)
         .map(|cycle| cycle.into_iter().collect())
         .collect()
 }
@@ -186,7 +198,12 @@ fn dfs_cycles(
     stack: &mut Vec<String>,
     visiting: &mut HashSet<String>,
     cycles: &mut BTreeSet<Vec<String>>,
+    budget: &mut usize,
 ) {
+    if *budget == 0 || cycles.len() >= MAX_REPORTED_CYCLES {
+        return;
+    }
+    *budget -= 1;
     stack.push(current.to_string());
     visiting.insert(current.to_string());
 
@@ -198,7 +215,7 @@ fn dfs_cycles(
                 normalize_cycle(&mut cycle);
                 cycles.insert(cycle);
             } else if !visiting.contains(next) {
-                dfs_cycles(start, next, adjacency, stack, visiting, cycles);
+                dfs_cycles(start, next, adjacency, stack, visiting, cycles, budget);
             }
         }
     }
