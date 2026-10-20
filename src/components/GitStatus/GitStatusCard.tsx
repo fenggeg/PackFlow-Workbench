@@ -34,6 +34,7 @@ export function GitStatusCard() {
   const gitPulling = useGitStore((state) => state.gitPulling)
   const gitSwitching = useGitStore((state) => state.gitSwitching)
   const gitError = useGitStore((state) => state.gitError)
+  const gitWarning = useGitStore((state) => state.gitWarning)
   const loadGitCommits = useGitStore((state) => state.loadGitCommits)
   const fetchGitUpdates = useGitStore((state) => state.fetchGitUpdates)
   const pullGitUpdates = useGitStore((state) => state.pullGitUpdates)
@@ -89,6 +90,14 @@ export function GitStatusCard() {
               </button>
             </div>
           ) : null}
+          {gitWarning ? (
+            <div className="flex items-start justify-between gap-2 rounded-[var(--radius)] border border-[var(--warning)]/30 bg-[var(--warning)]/5 px-3 py-2 text-[13px] text-[var(--warning)]">
+              <span className="whitespace-pre-line">{gitWarning}</span>
+              <button type="button" onClick={clearGitError} aria-label="关闭">
+                <X className="size-3.5" />
+              </button>
+            </div>
+          ) : null}
           <span className="text-[13px] text-[var(--muted-foreground)]">当前目录未识别为 Git 仓库。</span>
         </CardContent>
       </Card>
@@ -113,6 +122,14 @@ export function GitStatusCard() {
         {gitError ? (
           <div className="flex items-start justify-between gap-2 rounded-[var(--radius)] border border-[var(--error)]/30 bg-[var(--error)]/5 px-3 py-2 text-[13px] text-[var(--error)]">
             {gitError}
+            <button type="button" onClick={clearGitError} aria-label="关闭">
+              <X className="size-3.5" />
+            </button>
+          </div>
+        ) : null}
+        {gitWarning ? (
+          <div className="flex items-start justify-between gap-2 rounded-[var(--radius)] border border-[var(--warning)]/30 bg-[var(--warning)]/5 px-3 py-2 text-[13px] text-[var(--warning)]">
+            <span className="whitespace-pre-line">{gitWarning}</span>
             <button type="button" onClick={clearGitError} aria-label="关闭">
               <X className="size-3.5" />
             </button>

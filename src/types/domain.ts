@@ -113,6 +113,8 @@ export interface GitPullResult {
   success: boolean
   output: string
   status: GitRepositoryStatus
+  /** 拉取已成功、但需用户额外处理（如恢复本地改动冲突）时的提示 */
+  warning?: string | null
 }
 
 export interface GitSwitchBranchResult {

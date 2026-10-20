@@ -37,6 +37,9 @@ pub struct GitPullResult {
     pub success: bool,
     pub output: String,
     pub status: GitRepositoryStatus,
+    /// 拉取已成功、但后续步骤（如恢复自动贮藏的本地改动）需要用户处理时的提示。
+    /// 与 output 分开是为了让前端能用“警告”而不是“失败”的语气呈现。
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

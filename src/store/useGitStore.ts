@@ -1,7 +1,7 @@
 import {create} from 'zustand'
 import {api} from '../services/tauri-api'
 import {getErrorMessage} from '../utils/errors'
-import {notifyError, notifySuccess} from './useFeedbackStore'
+import {notifyError, notifySuccess, notifyWarning} from './useFeedbackStore'
 import {useAppStore} from './useAppStore'
 import type {GitCommit, GitRepositoryStatus} from '../types/domain'
 
@@ -21,6 +21,8 @@ interface GitState {
   gitPulling: boolean
   gitSwitching: boolean
   gitError?: string
+  /** 操作已成功、但需要用户额外处理的提示（如拉取后恢复本地改动冲突） */
+  gitWarning?: string
   checkGitStatus: (rootPath?: string) => Promise<void>
   loadGitCommits: (rootPath?: string) => Promise<void>
   fetchGitUpdates: () => Promise<void>
@@ -108,19 +110,30 @@ export const useGitStore = create<GitState>((set, get) => ({
   },
 
   pullGitUpdates: async () => {
+    // 并发守卫：两次拉取交错执行会让自动贮藏互相抢栈（一次弹掉另一次的条目），
+    // 按钮 disabled 只能挡住点击，挡不住自动刷新/快捷键等其它触发路径。
+    if (get().gitPulling) {
+      return
+    }
+
     const targetPath = projectRootOf()
     if (!targetPath) {
       return
     }
 
-    set({ gitPulling: true, gitError: undefined })
+    set({ gitPulling: true, gitError: undefined, gitWarning: undefined })
     try {
       const result = await api.pullGitUpdates(targetPath)
-      set({ gitStatus: result.status, gitError: undefined })
+      set({ gitStatus: result.status, gitError: undefined, gitWarning: result.warning ?? undefined })
       await get().loadGitCommits(targetPath)
       // 只刷新模块结构，保留构建日志、产物与已选模块
       await useAppStore.getState().reloadProjectModules(targetPath)
-      notifySuccess('已拉取远端更新')
+      // 远端更新可能已经生效，只是本地改动的恢复需要用户介入：用警告而不是失败提示
+      if (result.warning) {
+        notifyWarning('已拉取远端更新，但需要手工处理', result.warning)
+      } else {
+        notifySuccess('已拉取远端更新')
+      }
     } catch (error) {
       const gitError = getErrorMessage(error)
       await get().checkGitStatus(targetPath)
@@ -156,7 +169,7 @@ export const useGitStore = create<GitState>((set, get) => ({
   },
 
   clearGitError: () => {
-    set({ gitError: undefined })
+    set({ gitError: undefined, gitWarning: undefined })
   },
 
   resetForProject: () => {
@@ -164,6 +177,7 @@ export const useGitStore = create<GitState>((set, get) => ({
       gitStatus: undefined,
       gitCommits: [],
       gitError: undefined,
+      gitWarning: undefined,
     })
   },
 }))

@@ -189,23 +189,29 @@ fn pull_git_updates_sync(root_path: &str) -> AppResult<GitPullResult> {
         )));
     }
 
-    // 记录本地是否有未提交改动（含未跟踪文件），决定是否需要自动贮藏
-    let had_local_changes = optional_git_output(root_path, &["status", "--porcelain"])?
-        .is_some_and(|output| !output.trim().is_empty());
-
-    // 本地有改动时先贮藏，保证快进合并期间工作区干净
-    if had_local_changes {
-        let stash = run_git(
-            root_path,
-            &["stash", "push", "--include-untracked", "-m", PULL_AUTO_STASH_MESSAGE],
-        )?;
-        if !stash.success {
-            return Err(to_user_error(format!(
-                "自动贮藏本地改动失败，已停止拉取，本地代码未受影响。\n{}",
-                stash.combined_output()
-            )));
-        }
+    // 先贮藏本地改动，保证快进合并期间工作区干净。
+    //
+    // 是否“需要贮藏”不再用 git status 判断：status（-unormal + core.untrackedCache）
+    // 会把内容已被清空、只剩空目录的路径继续报成 `?? dir/`，而 stash 走真实文件枚举，
+    // 认为无可贮藏内容 —— 退出码同样是 0（只打印 “No local changes to save”）。
+    // 两者口径不一致曾导致：判定“有改动”→ 实际没贮藏 → 后续 pop 打到空栈
+    // （No stash entries found.）。改为以 refs/stash 是否变化来判定本次是否真的产生了条目。
+    let stash_before =
+        optional_git_output(root_path, &["rev-parse", "-q", "--verify", "refs/stash"])?;
+    let stash = run_git(
+        root_path,
+        &["stash", "push", "--include-untracked", "-m", PULL_AUTO_STASH_MESSAGE],
+    )?;
+    if !stash.success {
+        return Err(to_user_error(format!(
+            "自动贮藏本地改动失败，已停止拉取，本地代码未受影响。\n{}",
+            stash.combined_output()
+        )));
     }
+    let stash_after =
+        optional_git_output(root_path, &["rev-parse", "-q", "--verify", "refs/stash"])?;
+    // Some(sha) 表示本次确实新建了贮藏条目；None 表示工作区本来就没有可贮藏改动
+    let auto_stash = stash_after.filter(|after| stash_before.as_deref() != Some(after.as_str()));
 
     // 仅拉取当前上游分支且不带 tags，减少慢链路下的网络量；
     // 显式 refspec 确保对应的远端跟踪引用被更新（供 merge --ff-only 使用）
@@ -217,15 +223,22 @@ fn pull_git_updates_sync(root_path: &str) -> AppResult<GitPullResult> {
         GIT_NETWORK_TIMEOUT,
     )?;
     if !fetch.success {
-        return Err(match restore_stashed_changes(root_path) {
-            Ok(()) => to_user_error(format!(
+        let fetch_output = fetch.combined_output();
+        // 贮藏恢复只在本次真的创建了条目时进行，避免对空栈 pop 而弹错对象
+        return Err(match restore_auto_stash(root_path, auto_stash.as_deref()) {
+            StashRestore::Restored => to_user_error(format!(
                 "获取远端更新失败，本地改动已自动恢复，本地代码未受影响。\n{}",
-                fetch.combined_output()
+                fetch_output
             )),
-            Err(restore_error) => to_user_error(format!(
-                "获取远端更新失败，且自动恢复贮藏改动时出错（改动仍安全保存在 Git 贮藏中）：{}\n获取失败原因：{}",
-                restore_error,
-                fetch.combined_output()
+            StashRestore::Conflict(detail) => to_user_error(format!(
+                "获取远端更新失败，且自动恢复本地改动时出现冲突：改动已恢复到工作区（带冲突标记），备份仍保留在 Git 贮藏中。请在代码编辑器中处理后再拉取。\n{}\n获取失败原因：{}",
+                detail, fetch_output
+            )),
+            StashRestore::Failed(detail) => to_user_error(format!(
+                "获取远端更新失败，且自动恢复贮藏的本地改动失败。{}\n{}\n获取失败原因：{}",
+                stash_recovery_hint(),
+                detail,
+                fetch_output
             )),
         });
     }
@@ -233,47 +246,56 @@ fn pull_git_updates_sync(root_path: &str) -> AppResult<GitPullResult> {
     // 快进合并远端更新；失败时 HEAD 未移动，工作区保持干净
     let merge = run_git(root_path, &["merge", "--ff-only", "@{u}"])?;
     if !merge.success {
-        return Err(match restore_stashed_changes(root_path) {
-            Ok(()) => to_user_error(format!(
+        let merge_output = merge.combined_output();
+        return Err(match restore_auto_stash(root_path, auto_stash.as_deref()) {
+            StashRestore::Restored => to_user_error(format!(
                 "快进合并远端更新失败，本地改动已自动恢复，本地代码未受影响。建议在代码编辑器中执行 Git Pull 以处理冲突。\n{}",
-                merge.combined_output()
+                merge_output
             )),
-            Err(restore_error) => to_user_error(format!(
-                "快进合并远端更新失败，且自动恢复贮藏改动时出错（改动仍安全保存在 Git 贮藏中）：{}\n合并失败原因：{}",
-                restore_error,
-                merge.combined_output()
+            StashRestore::Conflict(detail) => to_user_error(format!(
+                "快进合并远端更新失败，且自动恢复本地改动时出现冲突：改动已恢复到工作区（带冲突标记），备份仍保留在 Git 贮藏中。建议在代码编辑器中处理。\n{}\n合并失败原因：{}",
+                detail, merge_output
+            )),
+            StashRestore::Failed(detail) => to_user_error(format!(
+                "快进合并远端更新失败，且自动恢复贮藏的本地改动失败。{}\n{}\n合并失败原因：{}",
+                stash_recovery_hint(),
+                detail,
+                merge_output
             )),
         });
     }
 
     // 恢复自动贮藏的本地改动；此时 HEAD 已前移，
-    // 若改动与拉取的更新触碰同一文件会产生冲突，需停止并交由用户处理
-    if had_local_changes {
-        let pop = run_git(root_path, &["stash", "pop"])?;
-        if !pop.success {
-            let combined = pop.combined_output();
-            if combined.contains("CONFLICT") {
-                return Err(to_user_error(format!(
-                    "远端更新已拉取完成，但恢复本地改动时与更新内容冲突：改动已恢复到工作区（带冲突标记），备份仍保留在 Git 贮藏中。请在代码编辑器中解决冲突；确认改动完整后可执行 git stash drop 清理备份。\n{}",
-                    combined
-                )));
-            }
-            return Err(to_user_error(format!(
-                "远端更新已拉取完成，但自动恢复本地改动失败：改动仍安全保存在 Git 贮藏中，请在终端执行 git stash pop 手动恢复。\n{}",
-                combined
-            )));
-        }
-    }
-
-    let status = check_status(root_path, false)?;
+    // 若改动与拉取的更新触碰同一文件会产生冲突，需停止并交由用户处理。
+    // 远端更新此时已经生效，因此无论恢复结果如何都返回成功，把问题放进 warning，
+    // 否则前端会提示“拉取失败”，而实际状态是已同步 —— 语义矛盾。
     let mut output = merge.combined_output();
-    if had_local_changes {
-        output = format!("{}\n本地未提交的改动已自动贮藏并恢复。", output);
-    }
+    let warning = match restore_auto_stash(root_path, auto_stash.as_deref()) {
+        StashRestore::Restored => {
+            if auto_stash.is_some() {
+                output.push_str("\n本地未提交的改动已自动贮藏并恢复。");
+            }
+            None
+        }
+        StashRestore::Conflict(detail) => {
+            output.push_str("\n本地未提交的改动已恢复到工作区，但与拉取的更新存在冲突。");
+            Some(format!(
+                "远端更新已拉取完成，但恢复本地改动时与更新内容冲突：改动已恢复到工作区（带冲突标记），备份仍保留在 Git 贮藏中。请在代码编辑器中解决冲突；确认改动完整后可执行 git stash drop 清理备份。\n{}",
+                detail
+            ))
+        }
+        StashRestore::Failed(detail) => Some(format!(
+            "远端更新已拉取完成，但自动恢复本地改动失败。{}\n{}",
+            stash_recovery_hint(),
+            detail
+        )),
+    };
+
     Ok(GitPullResult {
         success: true,
         output,
-        status,
+        status: check_status(root_path, false)?,
+        warning,
     })
 }
 
@@ -367,8 +389,14 @@ fn check_status(root_path: &str, fetch: bool) -> AppResult<GitRepositoryStatus> 
         }
     }
 
-    // status --porcelain=v2 --branch 一次拿全：当前分支、上游、ahead/behind、本地改动
-    let raw_status = run_git(root_path, &["status", "--porcelain=v2", "--branch"])?;
+    // status --porcelain=v2 --branch 一次拿全：当前分支、上游、ahead/behind、本地改动。
+    // 显式 -uall：默认的 -unormal 会把“内容已清空、只剩空目录”的路径继续折叠报成
+    // `?? dir/`（未跟踪缓存未失效时尤其明显），导致状态卡显示“本地有改动”而实际
+    // 无任何文件改动，与 stash 的口径也不一致；-uall 逐个枚举文件，两者判定就对齐了。
+    let raw_status = run_git(
+        root_path,
+        &["status", "--porcelain=v2", "--branch", "--untracked-files=all"],
+    )?;
     if !raw_status.success {
         return Err(to_user_error(format!(
             "读取 Git 状态失败：{}",
@@ -496,18 +524,67 @@ fn split_upstream(upstream: &str) -> (&str, &str) {
     }
 }
 
-/// 拉取中断后恢复自动贮藏的本地改动。
-/// 中断时 HEAD 未移动，贮藏基点与当前一致，恢复不会产生冲突；
-/// 万一失败则改动仍留在贮藏堆栈中，由错误信息提示手动恢复。
-fn restore_stashed_changes(root_path: &str) -> AppResult<()> {
-    let pop = run_git(root_path, &["stash", "pop"])?;
-    if !pop.success {
-        return Err(to_user_error(format!(
-            "自动恢复贮藏的本地改动失败：改动仍安全保存在 Git 贮藏中，请在终端执行 git stash pop 手动恢复。\n{}",
-            pop.combined_output()
-        )));
+/// 自动贮藏的恢复结果。三种情况对用户的处置建议完全不同，必须分开报告：
+/// 冲突要解冲突、其他失败要手工恢复、成功则不必打扰用户。
+enum StashRestore {
+    Restored,
+    Conflict(String),
+    Failed(String),
+}
+
+/// 恢复本次拉取自动创建的贮藏条目。
+///
+/// 按 commit 恢复而不是 `git stash pop`：pop 只作用于栈顶，若期间有其它工具
+/// （编辑器、终端、另一次并发拉取）往栈里压了新条目，pop 会弹错对象，甚至把
+/// 用户自己的贮藏弹出来。按 SHA 恢复可以精确命中本次条目。
+///
+/// `auto_stash` 为 None 表示本次没有产生贮藏条目（工作区本来就没有可贮藏内容），
+/// 此时直接返回 Restored —— 这也正是“No stash entries found.” 误报的修法。
+fn restore_auto_stash(root_path: &str, auto_stash: Option<&str>) -> StashRestore {
+    let Some(sha) = auto_stash else {
+        return StashRestore::Restored;
+    };
+
+    let apply = match run_git(root_path, &["stash", "apply", sha]) {
+        Ok(output) => output,
+        Err(error) => return StashRestore::Failed(error),
+    };
+    if !apply.success {
+        let combined = apply.combined_output();
+        // 冲突时改动已部分落到工作区（带冲突标记），贮藏条目保留作备份
+        if combined.contains("CONFLICT") {
+            return StashRestore::Conflict(combined);
+        }
+        return StashRestore::Failed(combined);
     }
+
+    // 恢复成功才清理本次条目；清理失败不影响用户，条目最多留在栈里
+    let _ = drop_stash_entry(root_path, sha);
+    StashRestore::Restored
+}
+
+/// 按 commit 定位并删除贮藏条目。`git stash drop` 只接受 `stash@{n}` 形式的引用，
+/// 这里用 `git stash list` 反查本次条目当前的位置，避免误删栈顶的其它贮藏。
+fn drop_stash_entry(root_path: &str, sha: &str) -> AppResult<()> {
+    let list = run_git(root_path, &["stash", "list", "--format=%H%x09%gd"])?;
+    let Some(reference) = list.stdout.lines().find_map(|line| {
+        let (hash, reference) = line.split_once('\t')?;
+        (hash.trim() == sha).then(|| reference.trim().to_string())
+    }) else {
+        return Ok(());
+    };
+    run_git(root_path, &["stash", "drop", &reference])?;
     Ok(())
+}
+
+/// 贮藏恢复失败时的处置说明。
+/// 只在确认贮藏条目确实存在时拼接，避免像过去那样无条件声称
+/// “改动仍安全保存在贮藏中”，让用户在空栈上反复执行 `git stash pop`。
+fn stash_recovery_hint() -> String {
+    format!(
+        "改动仍保存在 Git 贮藏中：在终端执行 git stash list，找到说明为 “{}” 的条目，再用 git stash apply stash@{{n}} 手动恢复（n 为列表中该条目的序号）。",
+        PULL_AUTO_STASH_MESSAGE
+    )
 }
 
 /// `git status --porcelain=v2 --branch` 的解析结果。
