@@ -25,7 +25,7 @@
 - JDK 注册中心：扫描系统已安装 JDK（Program Files、Scoop、IntelliJ 等常见路径），支持手动登记、删除与设为默认
 - 环境配置按项目绑定：手动修改后自动记忆并绑定到当前 `projectRoot`，切换项目自动适配；支持解绑
 - 手动指定 `settings.xml` / 本地仓库后，命令自动追加 `-s` 与 `-Dmaven.repo.local`
-- Git：`git fetch` 检查远端、`git pull --ff-only`、本地分支切换、最近提交列表
+- Git：`git fetch` 检查远端、`git pull --ff-only`（本地未提交改动自动贮藏、拉取后自动恢复）、本地分支切换、最近提交列表
 
 ### 产物与历史
 

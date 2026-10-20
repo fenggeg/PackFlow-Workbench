@@ -10,10 +10,16 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
-/// Git 命令超时上限：fetch/pull 走网络，慢速仓库几十秒也正常；
-/// 超过 60s 基本是网络挂起或凭据对话框无人应答。之前没有超时，
-/// 卡住的 git 会永久占住 blocking 线程且前端无法取消。
+/// Git 本地命令超时上限：命令卡死（如 index.lock 被占用）时 60 秒内暴露，
+/// 避免永久占住 blocking 线程且前端无法取消。
 const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Git 网络命令超时上限：fetch 走网络且大仓库传输耗时，慢链路下 60 秒会误杀，
+/// 放宽到 180 秒；再久基本就是网络挂起或凭据对话框无人应答。
+const GIT_NETWORK_TIMEOUT: Duration = Duration::from_secs(180);
+
+/// 应用内拉取自动贮藏时写入的说明，便于用户在编辑器/终端中识别来源。
+const PULL_AUTO_STASH_MESSAGE: &str = "maven-packager-desktop pull auto-stash";
 
 #[tauri::command]
 pub async fn check_git_status(app: AppHandle, root_path: String) -> AppResult<GitRepositoryStatus> {
@@ -164,31 +170,106 @@ pub async fn list_git_commits(
 }
 
 fn pull_git_updates_sync(root_path: &str) -> AppResult<GitPullResult> {
-    // 拉取前记录本地是否有未提交修改，用于失败时明确告知本地代码未受影响
-    let had_local_changes = optional_git_output(root_path, &["status", "--porcelain"])?
-        .is_some_and(|output| !output.trim().is_empty());
+    // 上游分支不存在时无法执行快进拉取
+    let upstream = optional_git_output(
+        root_path,
+        &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+    )?
+    .ok_or_else(|| to_user_error("当前分支没有配置上游分支，无法拉取远端更新。"))?;
 
-    let pull = run_git(root_path, &["pull", "--ff-only"])?;
-    if !pull.success {
-        // 快进拉取失败时工作区保持原样，本地修改不会被覆盖或丢失
-        let hint = if had_local_changes {
-            "本地存在未提交的修改，且与远端更新存在冲突，已终止拉取。本地代码未受影响，请先在代码编辑器中提交或暂存本地改动后再拉取。"
-        } else {
-            "拉取失败，本地代码未受影响。建议在代码编辑器中执行 Git Pull，以便处理冲突或本地改动。"
-        };
+    // 分叉预检：本地领先时快进不可行，提前终止可避免无效的贮藏/恢复往返
+    let (ahead_count, behind_count) = git_ahead_behind(root_path)?;
+    if behind_count == 0 {
+        return Err(to_user_error("当前分支已与远端同步，无需拉取。"));
+    }
+    if ahead_count > 0 {
         return Err(to_user_error(format!(
-            "{}\n{}",
-            hint,
-            pull.combined_output()
+            "本地与远端历史已分叉（本地领先 {} 个提交、远端领先 {} 个提交），应用内拉取仅支持快进更新，请在代码编辑器中合并或变基后再拉取。",
+            ahead_count, behind_count
         )));
     }
 
+    // 记录本地是否有未提交改动（含未跟踪文件），决定是否需要自动贮藏
+    let had_local_changes = optional_git_output(root_path, &["status", "--porcelain"])?
+        .is_some_and(|output| !output.trim().is_empty());
+
+    // 本地有改动时先贮藏，保证快进合并期间工作区干净
+    if had_local_changes {
+        let stash = run_git(
+            root_path,
+            &["stash", "push", "--include-untracked", "-m", PULL_AUTO_STASH_MESSAGE],
+        )?;
+        if !stash.success {
+            return Err(to_user_error(format!(
+                "自动贮藏本地改动失败，已停止拉取，本地代码未受影响。\n{}",
+                stash.combined_output()
+            )));
+        }
+    }
+
+    // 仅拉取当前上游分支且不带 tags，减少慢链路下的网络量；
+    // 显式 refspec 确保对应的远端跟踪引用被更新（供 merge --ff-only 使用）
+    let (remote, remote_branch) = split_upstream(&upstream);
+    let refspec = format!("+refs/heads/{remote_branch}:refs/remotes/{remote}/{remote_branch}");
+    let fetch = run_git_with_timeout(
+        root_path,
+        &["fetch", "--no-tags", remote, &refspec],
+        GIT_NETWORK_TIMEOUT,
+    )?;
+    if !fetch.success {
+        return Err(match restore_stashed_changes(root_path) {
+            Ok(()) => to_user_error(format!(
+                "获取远端更新失败，本地改动已自动恢复，本地代码未受影响。\n{}",
+                fetch.combined_output()
+            )),
+            Err(restore_error) => to_user_error(format!(
+                "获取远端更新失败，且自动恢复贮藏改动时出错（改动仍安全保存在 Git 贮藏中）：{}\n获取失败原因：{}",
+                restore_error,
+                fetch.combined_output()
+            )),
+        });
+    }
+
+    // 快进合并远端更新；失败时 HEAD 未移动，工作区保持干净
+    let merge = run_git(root_path, &["merge", "--ff-only", "@{u}"])?;
+    if !merge.success {
+        return Err(match restore_stashed_changes(root_path) {
+            Ok(()) => to_user_error(format!(
+                "快进合并远端更新失败，本地改动已自动恢复，本地代码未受影响。建议在代码编辑器中执行 Git Pull 以处理冲突。\n{}",
+                merge.combined_output()
+            )),
+            Err(restore_error) => to_user_error(format!(
+                "快进合并远端更新失败，且自动恢复贮藏改动时出错（改动仍安全保存在 Git 贮藏中）：{}\n合并失败原因：{}",
+                restore_error,
+                merge.combined_output()
+            )),
+        });
+    }
+
+    // 恢复自动贮藏的本地改动；此时 HEAD 已前移，
+    // 若改动与拉取的更新触碰同一文件会产生冲突，需停止并交由用户处理
+    if had_local_changes {
+        let pop = run_git(root_path, &["stash", "pop"])?;
+        if !pop.success {
+            let combined = pop.combined_output();
+            if combined.contains("CONFLICT") {
+                return Err(to_user_error(format!(
+                    "远端更新已拉取完成，但恢复本地改动时与更新内容冲突：改动已恢复到工作区（带冲突标记），备份仍保留在 Git 贮藏中。请在代码编辑器中解决冲突；确认改动完整后可执行 git stash drop 清理备份。\n{}",
+                    combined
+                )));
+            }
+            return Err(to_user_error(format!(
+                "远端更新已拉取完成，但自动恢复本地改动失败：改动仍安全保存在 Git 贮藏中，请在终端执行 git stash pop 手动恢复。\n{}",
+                combined
+            )));
+        }
+    }
+
     let status = check_status(root_path, false)?;
-    let output = if had_local_changes {
-        format!("{}\n本地未提交的修改已保留。", pull.combined_output())
-    } else {
-        pull.combined_output()
-    };
+    let mut output = merge.combined_output();
+    if had_local_changes {
+        output = format!("{}\n本地未提交的改动已自动贮藏并恢复。", output);
+    }
     Ok(GitPullResult {
         success: true,
         output,
@@ -265,31 +346,19 @@ fn check_status(root_path: &str, fetch: bool) -> AppResult<GitRepositoryStatus> 
         });
     }
 
-    let branch = optional_git_output(root_path, &["branch", "--show-current"])?;
-    let branches = list_local_branches(root_path)?;
-    let upstream = optional_git_output(
-        root_path,
-        &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
-    )?;
-    let has_local_changes = optional_git_output(root_path, &["status", "--porcelain"])?
-        .is_some_and(|output| !output.trim().is_empty());
-
-    if upstream.is_none() {
-        return Ok(GitRepositoryStatus {
-            is_git_repo: true,
-            branch,
-            branches,
-            upstream: None,
-            ahead_count: 0,
-            behind_count: 0,
-            has_remote_updates: false,
-            has_local_changes,
-            message: Some("当前分支没有配置上游分支，无法检查远端更新。".to_string()),
-        });
-    }
+    // fetch 前记录上游分支，用于区分“未配置上游”与“远端分支被 prune 删除”
+    let upstream_before_fetch = if fetch {
+        optional_git_output(
+            root_path,
+            &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+        )?
+    } else {
+        None
+    };
 
     if fetch {
-        let fetch_result = run_git(root_path, &["fetch", "--prune"])?;
+        let fetch_result =
+            run_git_with_timeout(root_path, &["fetch", "--prune"], GIT_NETWORK_TIMEOUT)?;
         if !fetch_result.success {
             return Err(to_user_error(format!(
                 "获取远端更新失败：{}",
@@ -298,21 +367,42 @@ fn check_status(root_path: &str, fetch: bool) -> AppResult<GitRepositoryStatus> 
         }
     }
 
-    let counts = run_git(
-        root_path,
-        &["rev-list", "--left-right", "--count", "HEAD...@{u}"],
-    )?;
-    if !counts.success {
+    // status --porcelain=v2 --branch 一次拿全：当前分支、上游、ahead/behind、本地改动
+    let raw_status = run_git(root_path, &["status", "--porcelain=v2", "--branch"])?;
+    if !raw_status.success {
         return Err(to_user_error(format!(
-            "比较本地与远端分支失败：{}",
-            counts.combined_output()
+            "读取 Git 状态失败：{}",
+            raw_status.combined_output()
         )));
     }
+    let parsed = parse_status_v2(&raw_status.stdout);
+    let branches = list_local_branches(root_path, parsed.branch.as_deref())?;
 
-    let (ahead_count, behind_count) = parse_ahead_behind(&counts.stdout)?;
-    let has_remote_updates = behind_count > 0;
+    if parsed.upstream.is_none() {
+        let message = if upstream_before_fetch.is_some() {
+            Some(
+                "远端分支可能已被删除（检查远端后未再发现本地分支的上游分支）。请在编辑器中确认远端分支状态，必要时重新设置上游。"
+                    .to_string(),
+            )
+        } else {
+            Some("当前分支没有配置上游分支，无法检查远端更新。".to_string())
+        };
+        return Ok(GitRepositoryStatus {
+            is_git_repo: true,
+            branch: parsed.branch,
+            branches,
+            upstream: None,
+            ahead_count: 0,
+            behind_count: 0,
+            has_remote_updates: false,
+            has_local_changes: parsed.has_local_changes,
+            message,
+        });
+    }
+
+    let has_remote_updates = parsed.behind_count > 0;
     let message = if has_remote_updates {
-        Some(format!("远端分支有 {} 个提交尚未拉取。", behind_count))
+        Some(format!("远端分支有 {} 个提交尚未拉取。", parsed.behind_count))
     } else if fetch {
         Some("当前分支已与远端同步。".to_string())
     } else {
@@ -321,13 +411,13 @@ fn check_status(root_path: &str, fetch: bool) -> AppResult<GitRepositoryStatus> 
 
     Ok(GitRepositoryStatus {
         is_git_repo: true,
-        branch,
+        branch: parsed.branch,
         branches,
-        upstream,
-        ahead_count,
-        behind_count,
+        upstream: parsed.upstream,
+        ahead_count: parsed.ahead_count,
+        behind_count: parsed.behind_count,
         has_remote_updates,
-        has_local_changes,
+        has_local_changes: parsed.has_local_changes,
         message,
     })
 }
@@ -351,13 +441,11 @@ fn parse_commits(output: &str) -> Vec<GitCommit> {
         .collect()
 }
 
-fn list_local_branches(root_path: &str) -> AppResult<Vec<GitBranch>> {
+fn list_local_branches(root_path: &str, current: Option<&str>) -> AppResult<Vec<GitBranch>> {
     let output = run_git(root_path, &["branch", "--format=%(refname:short)"])?;
     if !output.success {
         return Ok(Vec::new());
     }
-    let current =
-        optional_git_output(root_path, &["branch", "--show-current"])?.unwrap_or_default();
     Ok(output
         .stdout
         .lines()
@@ -365,7 +453,7 @@ fn list_local_branches(root_path: &str) -> AppResult<Vec<GitBranch>> {
         .filter(|name| !name.is_empty())
         .map(|name| GitBranch {
             name: name.to_string(),
-            is_current: name == current,
+            is_current: Some(name) == current,
         })
         .collect())
 }
@@ -382,6 +470,95 @@ fn optional_git_output(root_path: &str, args: &[&str]) -> AppResult<Option<Strin
     } else {
         Ok(None)
     }
+}
+
+/// 读取本地与上游分支的领先/落后提交数。
+fn git_ahead_behind(root_path: &str) -> AppResult<(u32, u32)> {
+    let counts = run_git(
+        root_path,
+        &["rev-list", "--left-right", "--count", "HEAD...@{u}"],
+    )?;
+    if !counts.success {
+        return Err(to_user_error(format!(
+            "比较本地与远端分支失败：{}",
+            counts.combined_output()
+        )));
+    }
+    parse_ahead_behind(&counts.stdout)
+}
+
+/// 拆分 "origin/feature/x" 形式的上游引用为远端名与远端分支名。
+fn split_upstream(upstream: &str) -> (&str, &str) {
+    match upstream.split_once('/') {
+        Some((remote, remote_branch)) => (remote, remote_branch),
+        // 常规仓库不会出现，仅作兜底：把整体视为远端名、分支为空，让 fetch 自行报错
+        None => (upstream, ""),
+    }
+}
+
+/// 拉取中断后恢复自动贮藏的本地改动。
+/// 中断时 HEAD 未移动，贮藏基点与当前一致，恢复不会产生冲突；
+/// 万一失败则改动仍留在贮藏堆栈中，由错误信息提示手动恢复。
+fn restore_stashed_changes(root_path: &str) -> AppResult<()> {
+    let pop = run_git(root_path, &["stash", "pop"])?;
+    if !pop.success {
+        return Err(to_user_error(format!(
+            "自动恢复贮藏的本地改动失败：改动仍安全保存在 Git 贮藏中，请在终端执行 git stash pop 手动恢复。\n{}",
+            pop.combined_output()
+        )));
+    }
+    Ok(())
+}
+
+/// `git status --porcelain=v2 --branch` 的解析结果。
+struct GitStatusV2 {
+    /// 当前分支；detached HEAD 时为 None
+    branch: Option<String>,
+    /// 上游分支（如 origin/master），未配置时为 None
+    upstream: Option<String>,
+    ahead_count: u32,
+    behind_count: u32,
+    /// 是否存在本地改动（工作区条目行，含未跟踪文件）
+    has_local_changes: bool,
+}
+
+/// 解析 `git status --porcelain=v2 --branch` 输出：
+/// `# branch.head <name>`、`# branch.upstream <upstream>`、`# branch.ab +a -b`
+/// 以及工作区条目行（非 `#` 开头即表示有本地改动）。
+fn parse_status_v2(output: &str) -> GitStatusV2 {
+    let mut result = GitStatusV2 {
+        branch: None,
+        upstream: None,
+        ahead_count: 0,
+        behind_count: 0,
+        has_local_changes: false,
+    };
+    for line in output.lines() {
+        if let Some(rest) = line.strip_prefix("# branch.head ") {
+            let value = rest.trim();
+            // detached HEAD 时 git 输出 `(detached)`
+            if value != "(detached)" {
+                result.branch = Some(value.to_string());
+            }
+        } else if let Some(rest) = line.strip_prefix("# branch.upstream ") {
+            result.upstream = Some(rest.trim().to_string());
+        } else if let Some(rest) = line.strip_prefix("# branch.ab ") {
+            // 格式：+<ahead> -<behind>
+            let parts = rest.split_whitespace().collect::<Vec<_>>();
+            if parts.len() >= 2 {
+                if let Ok(value) = parts[0].trim_start_matches('+').parse::<u32>() {
+                    result.ahead_count = value;
+                }
+                if let Ok(value) = parts[1].trim_start_matches('-').parse::<u32>() {
+                    result.behind_count = value;
+                }
+            }
+        } else if !line.starts_with('#') && !line.trim().is_empty() {
+            // 工作区条目行（1 / 2 / u / ? 开头）表示有本地改动
+            result.has_local_changes = true;
+        }
+    }
+    result
 }
 
 fn parse_ahead_behind(output: &str) -> AppResult<(u32, u32)> {
@@ -414,7 +591,63 @@ impl GitCommandOutput {
     }
 }
 
+/// Git 子进程的 Job 句柄守卫：句柄关闭时（KILL_ON_JOB_CLOSE）整树终止。
+/// git 的 git-remote-https、凭据管理器等子进程随主进程一并终止，
+/// 避免超时只杀 git.exe 主进程后残留孤儿进程。
+struct GitJobGuard {
+    handle: std::os::windows::io::OwnedHandle,
+}
+
+/// 创建 KILL_ON_JOB_CLOSE 作业并把 git 子进程挂入；
+/// 失败时返回 None（如系统资源限制），超时兜底退化为仅终止主进程。
+fn attach_child_to_job(child: &std::process::Child) -> Option<GitJobGuard> {
+    use std::mem::size_of;
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        SetInformationJobObject,
+    };
+
+    unsafe {
+        let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+        if job.is_null() {
+            return None;
+        }
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let ok = SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            (&info as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+            size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        );
+        if ok == 0 {
+            CloseHandle(job);
+            return None;
+        }
+        let guard = GitJobGuard {
+            handle: OwnedHandle::from_raw_handle(job as HANDLE),
+        };
+        // 进程可能已退出或被其他 Job 托管，失败时忽略（兜底仅杀主进程）
+        let _ = AssignProcessToJobObject(
+            guard.handle.as_raw_handle() as HANDLE,
+            child.as_raw_handle() as HANDLE,
+        );
+        Some(guard)
+    }
+}
+
 fn run_git(root_path: &str, args: &[&str]) -> AppResult<GitCommandOutput> {
+    run_git_with_timeout(root_path, args, GIT_COMMAND_TIMEOUT)
+}
+
+fn run_git_with_timeout(
+    root_path: &str,
+    args: &[&str],
+    timeout: Duration,
+) -> AppResult<GitCommandOutput> {
     let mut command = Command::new("git");
     command
         .args([
@@ -433,6 +666,9 @@ fn run_git(root_path: &str, args: &[&str]) -> AppResult<GitCommandOutput> {
     let mut child = command
         .spawn()
         .map_err(|error| to_user_error(format!("无法执行 Git 命令：{}", error)))?;
+    // git 远程操作会派生子进程（git-remote-https、凭据管理器等），
+    // 挂入 KILL_ON_JOB_CLOSE 的作业，超时终止时整树回收，避免残留孤儿进程
+    let job_guard = attach_child_to_job(&child);
     let mut stdout = child
         .stdout
         .take()
@@ -454,13 +690,15 @@ fn run_git(root_path: &str, args: &[&str]) -> AppResult<GitCommandOutput> {
         buffer
     });
 
-    let deadline = Instant::now() + GIT_COMMAND_TIMEOUT;
+    let deadline = Instant::now() + timeout;
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break Some(status),
             Ok(None) => {
                 if Instant::now() >= deadline {
+                    // 先终止主进程，再关闭 Job 句柄触发整树终止（KILL_ON_JOB_CLOSE）
                     let _ = child.kill();
+                    drop(job_guard);
                     let _ = child.wait();
                     break None;
                 }
@@ -473,7 +711,7 @@ fn run_git(root_path: &str, args: &[&str]) -> AppResult<GitCommandOutput> {
     let Some(status) = status else {
         return Err(to_user_error(format!(
             "Git 命令执行超时（{} 秒），请检查网络或凭据配置：git {}",
-            GIT_COMMAND_TIMEOUT.as_secs(),
+            timeout.as_secs(),
             args.join(" ")
         )));
     };

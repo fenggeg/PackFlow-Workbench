@@ -191,7 +191,7 @@ export function GitStatusCard() {
           <div className="rounded-[var(--radius)] border border-[var(--warning)]/30 bg-[var(--warning)]/5 px-3 py-2 text-[13px] text-[var(--warning)]">
             远端有 {gitStatus.behindCount} 个提交尚未拉取
             <p className="m-0 mt-1 text-[12px] text-[var(--muted-foreground)]">
-              应用内拉取使用快进模式，本地未提交的修改会保留；若与远端更新冲突将终止拉取，本地代码不受影响。
+              应用内拉取使用快进模式；本地未提交改动会先自动贮藏、拉取后自动恢复。若恢复时与更新冲突，改动将以冲突标记恢复并保留贮藏备份，请在代码编辑器中处理。
             </p>
           </div>
         ) : null}
